@@ -17,7 +17,7 @@ VERSION="1.0.0"
 # ══════════════════════════════════════════════════════════════════════════════
 
 # NyAnime Backend APIs
-NYANIME_BASE="https://nyanime.tech"
+NYANIME_BASE="https://www.nyanime.tech"
 ANIWATCH_API="https://nyanime-backend-v2.onrender.com"
 CONSUMET_API="https://consumet-api-gs81.onrender.com"
 
@@ -91,7 +91,7 @@ print_line() {
 }
 
 msg() {
-    printf '%b\n' "${CYAN}▸ ${WHITE}$1${RESET}"
+    printf '%b\n' "${CYAN}▸ ${WHITE}$1${RESET}" >&2
 }
 
 msg_success() {
@@ -149,7 +149,36 @@ init_dirs() {
 }
 
 urlencode() {
-    printf '%s' "$1" | curl -Gso /dev/null -w '%{url_effective}' --data-urlencode @- "" 2>/dev/null | cut -c 3- || printf '%s' "$1" | sed 's/ /%20/g'
+    # URL encode for query string parameters
+    printf '%s' "$1" | sed 's/ /%20/g; s/!/%21/g; s/"/%22/g; s/#/%23/g; s/\$/%24/g; s/&/%26/g; s/'\''/%27/g; s/(/%28/g; s/)/%29/g; s/+/%2B/g; s/,/%2C/g; s/:/%3A/g; s/;/%3B/g; s/=/%3D/g; s/?/%3F/g; s/@/%40/g'
+}
+
+# Base64 encode (use openssl or base64 command)
+base64_encode() {
+    if command -v base64 >/dev/null 2>&1; then
+        printf '%s' "$1" | base64 -w0 2>/dev/null || printf '%s' "$1" | base64 2>/dev/null
+    elif command -v openssl >/dev/null 2>&1; then
+        printf '%s' "$1" | openssl base64 -A 2>/dev/null
+    else
+        printf '%s' "$1"
+    fi
+}
+
+# Get proxied stream URL (using nyanime.tech stream proxy)
+get_proxied_url() {
+    local url="$1"
+    local referer="${2:-https://megacloud.blog/}"
+    
+    # Encode headers as base64 JSON
+    local headers_json="{\"Referer\":\"${referer}\"}"
+    local headers_b64
+    headers_b64=$(base64_encode "$headers_json")
+    
+    # Build proxy URL - URL encode the stream URL
+    local encoded_url
+    encoded_url=$(printf '%s' "$url" | sed 's/%/%25/g; s/ /%20/g; s/!/%21/g; s/"/%22/g; s/#/%23/g; s/\$/%24/g; s/&/%26/g; s/'\''/%27/g; s/(/%28/g; s/)/%29/g; s/+/%2B/g; s/,/%2C/g; s/:/%3A/g; s/;/%3B/g; s/=/%3D/g; s/?/%3F/g; s/@/%40/g')
+    
+    printf '%s/stream?url=%s&h=%s' "$NYANIME_BASE" "$encoded_url" "$headers_b64"
 }
 
 open_url() {
@@ -342,90 +371,322 @@ save_to_history() {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ANIME API
+# ANIME API - Using NyAnime Backend (aniwatch-api)
 # ══════════════════════════════════════════════════════════════════════════════
 
-search_anime() {
-    local query encoded
-    query="$1"
-    encoded=$(urlencode "$query")
-    
-    msg "Searching..."
-    
-    curl -s "${ANIWATCH_API}/api/v2/hianime/search?q=${encoded}" -H "User-Agent: $USER_AGENT" 2>/dev/null | \
-        tr '{' '\n' | grep '"id"' | while read -r line; do
-            id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-            name=$(printf '%s' "$line" | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-            [ -n "$id" ] && [ -n "$name" ] && printf '%s|%s\n' "$id" "$name"
-        done | head -20
+# JSON parsing helpers (pure POSIX shell)
+# Extract a JSON string value by key
+json_get_string() {
+    local json="$1" key="$2"
+    printf '%s' "$json" | sed -n 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
 }
 
+# Extract a JSON number value by key
+json_get_number() {
+    local json="$1" key="$2"
+    printf '%s' "$json" | sed -n 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -1
+}
+
+# Search for anime by title
+# Returns: id|name|type|episodes lines
+search_anime() {
+    local query="$1"
+    local encoded
+    encoded=$(urlencode "$query")
+    
+    msg "Searching for '$query'..."
+    
+    local response
+    response=$(curl -s --connect-timeout 10 --max-time 30 \
+        "${ANIWATCH_API}/api/v2/hianime/search?q=${encoded}" \
+        -H "User-Agent: $USER_AGENT" \
+        -H "Accept: application/json" 2>/dev/null)
+    
+    [ -z "$response" ] && return 1
+    
+    # Extract just the animes array content (avoid other arrays like mostPopularAnimes)
+    local animes_json
+    animes_json=$(printf '%s' "$response" | sed -n 's/.*"animes":\[\(.*\)],".*/\1/p' 2>/dev/null)
+    
+    [ -z "$animes_json" ] && return 1
+    
+    # Save to temp file for line-by-line processing
+    local tmp_file="${CACHE_DIR}/search_result.tmp"
+    printf '%s' "$animes_json" | tr '}' '\n' | grep '"id"' > "$tmp_file" 2>/dev/null
+    
+    # Process each line and output id|name|type|episodes
+    while IFS= read -r line; do
+        local id name type sub
+        id=$(printf '%s' "$line" | grep -oP '"id"\s*:\s*"\K[^"]+' 2>/dev/null)
+        name=$(printf '%s' "$line" | grep -oP '"name"\s*:\s*"\K[^"]+' 2>/dev/null)
+        type=$(printf '%s' "$line" | grep -oP '"type"\s*:\s*"\K[^"]+' 2>/dev/null)
+        sub=$(printf '%s' "$line" | grep -oP '"sub"\s*:\s*\K[0-9]+' 2>/dev/null)
+        [ -n "$id" ] && [ -n "$name" ] && printf '%s|%s|%s|%s\n' "$id" "$name" "${type:-TV}" "${sub:-0}"
+    done < "$tmp_file"
+    
+    # Cleanup
+    rm -f "$tmp_file" 2>/dev/null
+}
+
+# Get episodes for an anime
+# Returns: ep_num|episode_id|title lines
 get_episodes() {
     local anime_id="$1"
     
     msg "Loading episodes..."
     
-    curl -s "${ANIWATCH_API}/api/v2/hianime/anime/${anime_id}/episodes" -H "User-Agent: $USER_AGENT" 2>/dev/null | \
-        tr '{' '\n' | grep '"episodeId"' | while read -r line; do
-            ep_id=$(printf '%s' "$line" | sed -n 's/.*"episodeId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-            ep_num=$(printf '%s' "$line" | sed -n 's/.*"number"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')
-            title=$(printf '%s' "$line" | sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-            [ -n "$ep_id" ] && [ -n "$ep_num" ] && printf '%s|%s|%s\n' "$ep_num" "$ep_id" "$title"
-        done
+    local response
+    response=$(curl -s --connect-timeout 10 --max-time 30 \
+        "${ANIWATCH_API}/api/v2/hianime/anime/${anime_id}/episodes" \
+        -H "User-Agent: $USER_AGENT" \
+        -H "Accept: application/json" 2>/dev/null)
+    
+    [ -z "$response" ] && return 1
+    
+    # Extract episodes array content
+    local episodes_json
+    episodes_json=$(printf '%s' "$response" | sed -n 's/.*"episodes":\[\(.*\)\]}.*/\1/p' 2>/dev/null)
+    
+    [ -z "$episodes_json" ] && return 1
+    
+    # Save to temp file for line-by-line processing
+    local tmp_file="${CACHE_DIR}/episodes_result.tmp"
+    printf '%s' "$episodes_json" | tr '}' '\n' | grep '"episodeId"' > "$tmp_file" 2>/dev/null
+    
+    # Process each line and output ep_num|episode_id|title|is_filler
+    while IFS= read -r line; do
+        local ep_id ep_num title is_filler
+        ep_id=$(printf '%s' "$line" | grep -oP '"episodeId"\s*:\s*"\K[^"]+' 2>/dev/null)
+        ep_num=$(printf '%s' "$line" | grep -oP '"number"\s*:\s*\K[0-9]+' 2>/dev/null)
+        title=$(printf '%s' "$line" | grep -oP '"title"\s*:\s*"\K[^"]+' 2>/dev/null)
+        is_filler="0"
+        printf '%s' "$line" | grep -q '"isFiller"[[:space:]]*:[[:space:]]*true' && is_filler="1"
+        [ -n "$ep_id" ] && [ -n "$ep_num" ] && printf '%s|%s|%s|%s\n' "$ep_num" "$ep_id" "${title:-Episode $ep_num}" "$is_filler"
+    done < "$tmp_file"
+    
+    # Cleanup
+    rm -f "$tmp_file" 2>/dev/null
 }
 
-get_stream() {
-    local episode_id="$1" server="${2:-hd-1}" category="${3:-sub}"
-    
-    msg "Getting stream..."
-    
-    curl -s "${ANIWATCH_API}/api/v2/hianime/episode/sources?animeEpisodeId=${episode_id}&server=${server}&category=${category}" \
-        -H "User-Agent: $USER_AGENT" 2>/dev/null | \
-        grep -o '"url"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/'
-}
-
-get_subtitles() {
+# Get available servers for an episode
+# Returns: server_name lines
+get_servers() {
     local episode_id="$1"
+    local encoded_ep
+    encoded_ep=$(urlencode "$episode_id")
     
-    curl -s "${ANIWATCH_API}/api/v2/hianime/episode/sources?animeEpisodeId=${episode_id}" \
-        -H "User-Agent: $USER_AGENT" 2>/dev/null | \
-        grep -o '"file"[[:space:]]*:[[:space:]]*"[^"]*\.vtt[^"]*"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/'
+    local response
+    response=$(curl -s --connect-timeout 10 --max-time 30 \
+        "${ANIWATCH_API}/api/v2/hianime/episode/servers?animeEpisodeId=${encoded_ep}" \
+        -H "User-Agent: $USER_AGENT" 2>/dev/null)
+    
+    [ -z "$response" ] && return 1
+    
+    # Extract server names from sub array
+    printf '%s' "$response" | grep -o '"serverName"[[:space:]]*:[[:space:]]*"[^"]*"' | \
+        sed 's/.*"\([^"]*\)"/\1/' | sort -u
 }
 
+# Get streaming sources for an episode
+# Sets global variables: STREAM_URL, STREAM_REFERER, STREAM_SUBTITLES, STREAM_INTRO_START, STREAM_INTRO_END
+get_stream() {
+    local episode_id="$1"
+    local server="${2:-hd-1}"
+    local category="${3:-sub}"
+    local encoded_ep
+    encoded_ep=$(urlencode "$episode_id")
+    
+    msg "Getting stream (server: $server, category: $category)..."
+    
+    # Reset globals
+    STREAM_URL=""
+    STREAM_REFERER=""
+    STREAM_SUBTITLES=""
+    STREAM_INTRO_START=""
+    STREAM_INTRO_END=""
+    
+    local response
+    response=$(curl -s --connect-timeout 15 --max-time 45 \
+        "${ANIWATCH_API}/api/v2/hianime/episode/sources?animeEpisodeId=${encoded_ep}&server=${server}&category=${category}" \
+        -H "User-Agent: $USER_AGENT" \
+        -H "Accept: application/json" 2>/dev/null)
+    
+    [ -z "$response" ] && return 1
+    
+    # Handle data wrapper
+    if printf '%s' "$response" | grep -q '"data"' 2>/dev/null; then
+        response=$(printf '%s' "$response" | sed 's/.*"data"[[:space:]]*:[[:space:]]*//' | sed 's/}[[:space:]]*$//')
+    fi
+    
+    # Extract stream URL from sources array (not from tracks)
+    STREAM_URL=$(printf '%s' "$response" | grep -oP '"sources"\s*:\s*\[\s*\{[^}]+\}' | grep -oP '"url"\s*:\s*"\K[^"]+' | head -1)
+    
+    # Extract referer from headers
+    STREAM_REFERER=$(printf '%s' "$response" | grep -o '"Referer"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+    [ -z "$STREAM_REFERER" ] && STREAM_REFERER="https://megacloud.blog/"
+    
+    # Extract English subtitles from tracks array (prefer English, fallback to first available)
+    STREAM_SUBTITLES=$(printf '%s' "$response" | grep -o '"tracks":\[[^]]*\]' | tr '{' '\n' | grep -i '"lang".*[Ee]nglish' | \
+        grep -oP '"url"\s*:\s*"\K[^"]+' | head -1)
+    
+    # If no English subs, try any subtitle VTT file from tracks
+    [ -z "$STREAM_SUBTITLES" ] && STREAM_SUBTITLES=$(printf '%s' "$response" | grep -o '"tracks":\[[^]]*\]' | \
+        grep -oP '"url"\s*:\s*"[^"]*\.vtt' | head -1 | sed 's/.*"\([^"]*\)/\1/')
+    
+    # Extract intro timestamps
+    STREAM_INTRO_START=$(printf '%s' "$response" | sed -n 's/.*"intro"[[:space:]]*:[[:space:]]*{[^}]*"start"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)
+    STREAM_INTRO_END=$(printf '%s' "$response" | sed -n 's/.*"intro"[[:space:]]*:[[:space:]]*{[^}]*"end"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)
+    
+    [ -n "$STREAM_URL" ] && return 0
+    return 1
+}
+
+# Try multiple servers to get a working stream
+get_stream_with_fallback() {
+    local episode_id="$1"
+    local category="${2:-sub}"
+    
+    # Servers to try in order of reliability
+    local servers="hd-1 hd-2 megacloud"
+    
+    for server in $servers; do
+        if get_stream "$episode_id" "$server" "$category"; then
+            [ -n "$STREAM_URL" ] && return 0
+        fi
+    done
+    
+    # Try dub if sub failed
+    if [ "$category" = "sub" ]; then
+        msg_warn "No sub found, trying dub..."
+        for server in $servers; do
+            if get_stream "$episode_id" "$server" "dub"; then
+                [ -n "$STREAM_URL" ] && return 0
+            fi
+        done
+    fi
+    
+    return 1
+}
+
+# Get trending/home anime
+# Returns: id|name lines
 get_trending() {
     msg "Fetching trending..."
     
-    curl -s "${ANIWATCH_API}/api/v2/hianime/home" -H "User-Agent: $USER_AGENT" 2>/dev/null | \
-        tr '{' '\n' | grep '"id"' | while read -r line; do
-            id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-            name=$(printf '%s' "$line" | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-            [ -n "$id" ] && [ -n "$name" ] && printf '%s|%s\n' "$id" "$name"
-        done | head -15
+    local response
+    response=$(curl -s --connect-timeout 10 --max-time 30 \
+        "${ANIWATCH_API}/api/v2/hianime/home" \
+        -H "User-Agent: $USER_AGENT" 2>/dev/null)
+    
+    [ -z "$response" ] && return 1
+    
+    # Handle data wrapper
+    if printf '%s' "$response" | grep -q '"data"' 2>/dev/null; then
+        response=$(printf '%s' "$response" | sed 's/.*"data"[[:space:]]*:[[:space:]]*//' | sed 's/}[[:space:]]*$//')
+    fi
+    
+    # Parse trending animes (from trendingAnimes section)
+    printf '%s' "$response" | tr '{' '\n' | grep '"id"' | while read -r line; do
+        local id name
+        id=$(json_get_string "$line" "id")
+        name=$(json_get_string "$line" "name")
+        [ -n "$id" ] && [ -n "$name" ] && printf '%s|%s\n' "$id" "$name"
+    done | head -15
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
 # VIDEO PLAYER
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Build the stream URL (optionally through nyanime proxy for CORS bypass)
+build_stream_url() {
+    local url="$1"
+    local use_proxy="${2:-0}"
+    
+    if [ "$use_proxy" = "1" ] && [ -n "$NYANIME_BASE" ]; then
+        # Use nyanime.tech stream proxy for CORS bypass
+        local headers_json="{\"Referer\": \"${STREAM_REFERER:-https://megacloud.blog/}\"}"
+        local headers_b64
+        headers_b64=$(printf '%s' "$headers_json" | base64 -w 0 2>/dev/null || printf '%s' "$headers_json" | base64 2>/dev/null)
+        printf '%s/stream?url=%s&h=%s' "$NYANIME_BASE" "$(urlencode "$url")" "$headers_b64"
+    else
+        printf '%s' "$url"
+    fi
+}
+
 play_video() {
-    local url="$1" title="$2" subtitle="$3"
+    local url="$1" title="$2" subtitle="$3" referer="${4:-https://megacloud.blog/}"
     
     [ -z "$url" ] && die "No stream available"
     
     msg_success "Starting playback..."
-    printf '%b\n\n' "  ${DIM}${title}${RESET}"
+    printf '%b\n' "  ${DIM}${title}${RESET}"
+    
+    # Show intro skip info if available
+    if [ -n "$STREAM_INTRO_START" ] && [ -n "$STREAM_INTRO_END" ] && [ "$STREAM_INTRO_END" != "0" ]; then
+        printf '%b\n\n' "  ${DIM}Intro: ${STREAM_INTRO_START}s - ${STREAM_INTRO_END}s (press 's' to skip)${RESET}"
+    else
+        printf '\n'
+    fi
     
     case "$PLAYER" in
         mpv*)
+            # Build mpv command with proper argument handling
+            local mpv_cmd="$PLAYER"
+            mpv_cmd="$mpv_cmd --force-media-title='$title'"
+            
+            # Use --referrer for HLS streams (passes referer to ffmpeg for segment requests)
+            mpv_cmd="$mpv_cmd --referrer='$referer'"
+            
+            # Disable ytdl to prevent interference with HLS
+            mpv_cmd="$mpv_cmd --ytdl=no"
+            
+            # Add subtitles if available
             if [ -n "$subtitle" ]; then
-                $PLAYER --force-media-title="$title" --sub-file="$subtitle" "$url"
-            else
-                $PLAYER --force-media-title="$title" "$url"
+                mpv_cmd="$mpv_cmd --sub-file='$subtitle' --sub-visibility=yes"
             fi
+            
+            # Add script for intro skip if available and intro times are valid
+            if [ -n "$STREAM_INTRO_START" ] && [ -n "$STREAM_INTRO_END" ] && [ "$STREAM_INTRO_END" != "0" ]; then
+                # Create a temporary script for intro skip
+                local skip_script="${CACHE_DIR}/intro_skip.lua"
+                cat > "$skip_script" << LUAEOF
+-- Intro skip script
+local intro_start = ${STREAM_INTRO_START}
+local intro_end = ${STREAM_INTRO_END}
+local skipped = false
+
+mp.add_key_binding("s", "skip-intro", function()
+    local pos = mp.get_property_number("time-pos", 0)
+    if pos >= intro_start - 5 and pos <= intro_end then
+        mp.set_property_number("time-pos", intro_end)
+        mp.osd_message("Skipped intro")
+    else
+        mp.osd_message("No intro to skip")
+    end
+end)
+
+mp.observe_property("time-pos", "number", function(_, pos)
+    if pos and not skipped and pos >= intro_start and pos <= intro_start + 2 then
+        mp.osd_message("Press 's' to skip intro", 5)
+    end
+end)
+LUAEOF
+                mpv_cmd="$mpv_cmd --script='$skip_script'"
+            fi
+            
+            # Run mpv with direct URL (--referrer passes to ffmpeg for HLS segments)
+            eval "$mpv_cmd '$url'"
             ;;
-        vlc*) $PLAYER --meta-title="$title" --play-and-exit "$url" ;;
-        iina*) $PLAYER --mpv-force-media-title="$title" "$url" ;;
-        *) $PLAYER "$url" ;;
+        vlc*)
+            $PLAYER --meta-title="$title" --http-referrer="$referer" --play-and-exit "$url"
+            ;;
+        iina*)
+            $PLAYER --mpv-force-media-title="$title" --mpv-referrer="$referer" "$url"
+            ;;
+        *)
+            $PLAYER "$url"
+            ;;
     esac
 }
 
@@ -442,13 +703,17 @@ do_search() {
     printf "\n"
     results=$(search_anime "$query")
     
-    [ -z "$results" ] && msg_error "No results" && return
+    [ -z "$results" ] && msg_error "No results found for '$query'" && return
     
-    printf '%b\n' "\n${CYAN}Results:${RESET}"
+    printf '%b\n' "\n${CYAN}Search Results:${RESET}"
     print_line
     i=1
-    printf '%s\n' "$results" | while IFS='|' read -r id title; do
-        printf '%b\n' "  ${WHITE}$(printf '%2d' $i))${RESET} $title"
+    printf '%s\n' "$results" | while IFS='|' read -r id title type eps_sub eps_dub; do
+        local info=""
+        [ -n "$type" ] && info="$type"
+        [ -n "$eps_sub" ] && [ "$eps_sub" != "0" ] && info="$info, ${eps_sub} eps"
+        [ -n "$info" ] && info=" ${DIM}($info)${RESET}"
+        printf '%b\n' "  ${WHITE}$(printf '%2d' $i))${RESET} ${title}${info}"
         i=$((i + 1))
     done
     print_line
@@ -511,17 +776,22 @@ play_episode() {
     
     printf "\n"
     
-    stream_url=$(get_stream "$episode_id")
-    [ -z "$stream_url" ] && stream_url=$(get_stream "$episode_id" "hd-2")
-    [ -z "$stream_url" ] && msg_error "No stream available" && return
+    # Get streaming sources with fallback to multiple servers
+    if ! get_stream_with_fallback "$episode_id" "sub"; then
+        msg_error "No stream available for this episode"
+        return
+    fi
     
-    subtitle_url=$(get_subtitles "$episode_id")
+    [ -z "$STREAM_URL" ] && msg_error "No stream URL found" && return
+    
+    # Save to history
     save_to_history "$anime_id" "$anime_title" "$ep_num" "$episode_id"
     
     # Start background sync daemon during playback
     start_sync_daemon "$anime_id" "$episode_id" "$ep_num"
     
-    play_video "$stream_url" "${anime_title} - Episode ${ep_num}" "$subtitle_url"
+    # Play the video with referer header
+    play_video "$STREAM_URL" "${anime_title} - Episode ${ep_num}" "$STREAM_SUBTITLES" "$STREAM_REFERER"
     
     # Stop sync daemon after playback ends
     stop_sync_daemon
@@ -790,8 +1060,12 @@ main() {
                     printf '%b\n' "\n${CYAN}Results:${RESET}"
                     print_line
                     i=1
-                    printf '%s\n' "$results" | while IFS='|' read -r id title; do
-                        printf '%b\n' "  ${WHITE}$(printf '%2d' $i))${RESET} $title"
+                    printf '%s\n' "$results" | while IFS='|' read -r id title type eps; do
+                        local info=""
+                        [ -n "$type" ] && info="$type"
+                        [ -n "$eps" ] && [ "$eps" != "0" ] && info="$info, ${eps} eps"
+                        [ -n "$info" ] && info=" ${DIM}($info)${RESET}"
+                        printf '%b\n' "  ${WHITE}$(printf '%2d' $i))${RESET} ${title}${info}"
                         i=$((i + 1))
                     done
                     print_line
@@ -814,8 +1088,12 @@ main() {
                 printf '%b\n' "\n${CYAN}Results:${RESET}"
                 print_line
                 i=1
-                printf '%s\n' "$results" | while IFS='|' read -r id title; do
-                    printf '%b\n' "  ${WHITE}$(printf '%2d' $i))${RESET} $title"
+                printf '%s\n' "$results" | while IFS='|' read -r id title type eps; do
+                    local info=""
+                    [ -n "$type" ] && info="$type"
+                    [ -n "$eps" ] && [ "$eps" != "0" ] && info="$info, ${eps} eps"
+                    [ -n "$info" ] && info=" ${DIM}($info)${RESET}"
+                    printf '%b\n' "  ${WHITE}$(printf '%2d' $i))${RESET} ${title}${info}"
                     i=$((i + 1))
                 done
                 print_line
