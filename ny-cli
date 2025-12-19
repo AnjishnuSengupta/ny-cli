@@ -1,182 +1,166 @@
 #!/bin/sh
-# ny-cli - A terminal-based anime streaming client
+# ══════════════════════════════════════════════════════════════════════════════
+# NY-CLI - Terminal-based Anime Streaming Client
+# Version: 1.0.0
+# Author: Anjishnu Sengupta
+# Website: https://nyanime.tech
+# Repository: https://github.com/AnjishnuSengupta/ny-cli
+#
 # Inspired by ani-cli, powered by nyanime backend
-# https://github.com/AnjishnuSengupta/ny-cli
-
-version_number="1.0.0"
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CONFIGURATION
+# Just install and run - no configuration needed!
 # ══════════════════════════════════════════════════════════════════════════════
 
-# API endpoints (your nyanime backend)
-NYANIME_API="${NYCLI_API:-https://nyanime.tech}"
-ANIWATCH_API="${NYCLI_ANIWATCH_API:-https://api.nyanime.tech}"
-CONSUMET_API="${NYCLI_CONSUMET_API:-https://api.consumet.org}"
+VERSION="1.0.0"
 
-# Firebase configuration (from your nyanime project)
-FIREBASE_API_KEY="${NYCLI_FIREBASE_API_KEY:-}"
-FIREBASE_AUTH_DOMAIN="${NYCLI_FIREBASE_AUTH_DOMAIN:-}"
-FIREBASE_PROJECT_ID="${NYCLI_FIREBASE_PROJECT_ID:-}"
+# ══════════════════════════════════════════════════════════════════════════════
+# BACKEND CONFIGURATION (Pre-configured - no user setup needed)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# NyAnime Backend APIs
+NYANIME_BASE="https://nyanime.tech"
+ANIWATCH_API="https://nyanime-backend-v2.onrender.com"
+CONSUMET_API="https://consumet-api-gs81.onrender.com"
 
 # User agent
-agent="Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0"
+USER_AGENT="Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0"
 
-# Directories
-config_dir="${NYCLI_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ny-cli}"
-cache_dir="${NYCLI_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/ny-cli}"
-data_dir="${NYCLI_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/ny-cli}"
+# Local storage directories (XDG compliant)
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/ny-cli"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ny-cli"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ny-cli"
 
-# Player settings
-player="${NYCLI_PLAYER:-mpv}"
-quality="${NYCLI_QUALITY:-best}"
+# Files
+AUTH_FILE="$CONFIG_DIR/auth"
+HISTORY_FILE="$DATA_DIR/history"
+PENDING_SYNC_FILE="$DATA_DIR/pending_sync"
 
-# Colors
-RED='\033[1;31m'
-GREEN='\033[1;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[1;34m'
-MAGENTA='\033[1;35m'
-CYAN='\033[1;36m'
-WHITE='\033[1;37m'
-RESET='\033[0m'
-DIM='\033[2m'
-BOLD='\033[1m'
+# Player (can be overridden with NYCLI_PLAYER env var)
+PLAYER="${NYCLI_PLAYER:-mpv}"
+
+# Sync interval (seconds)
+SYNC_INTERVAL=10
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ASCII ART & UI
+# COLORS & STYLING
+# ══════════════════════════════════════════════════════════════════════════════
+
+if [ -t 1 ]; then
+    RED='\033[1;31m'
+    GREEN='\033[1;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[1;34m'
+    MAGENTA='\033[1;35m'
+    CYAN='\033[1;36m'
+    WHITE='\033[1;37m'
+    DIM='\033[2m'
+    BOLD='\033[1m'
+    RESET='\033[0m'
+else
+    RED='' GREEN='' YELLOW='' BLUE='' MAGENTA='' CYAN='' WHITE='' DIM='' BOLD='' RESET=''
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ASCII ART BANNER
 # ══════════════════════════════════════════════════════════════════════════════
 
 show_banner() {
     clear
-    printf "${MAGENTA}"
+    printf '%b' "${MAGENTA}"
     cat << 'EOF'
-    
+
     ███╗   ██╗██╗   ██╗       ██████╗██╗     ██╗
     ████╗  ██║╚██╗ ██╔╝      ██╔════╝██║     ██║
     ██╔██╗ ██║ ╚████╔╝ █████╗██║     ██║     ██║
     ██║╚██╗██║  ╚██╔╝  ╚════╝██║     ██║     ██║
     ██║ ╚████║   ██║         ╚██████╗███████╗██║
     ╚═╝  ╚═══╝   ╚═╝          ╚═════╝╚══════╝╚═╝
-                                                
+
 EOF
-    printf "${RESET}"
-    printf "${DIM}${CYAN}    ⟨ Your Gateway to Anime Streaming ⟩${RESET}\n"
-    printf "${DIM}    ─────────────────────────────────────${RESET}\n"
-    printf "${DIM}    v${version_number} • Powered by nyanime.tech${RESET}\n\n"
-}
-
-show_mini_banner() {
-    printf "${MAGENTA}╭─${BOLD} NY-CLI ${RESET}${MAGENTA}────────────────────────────╮${RESET}\n"
-}
-
-show_neko() {
-    printf "${YELLOW}"
-    cat << 'EOF'
-       /\_/\  
-      ( o.o ) 
-       > ^ <
-      /|   |\
-     (_|   |_)
-EOF
-    printf "${RESET}"
-}
-
-show_loading() {
-    local msg="${1:-Loading}"
-    printf "\r${CYAN}⟳ ${msg}...${RESET}"
-}
-
-show_success() {
-    printf "\r${GREEN}✓ ${1}${RESET}\n"
-}
-
-show_error() {
-    printf "\r${RED}✗ ${1}${RESET}\n" >&2
-}
-
-show_info() {
-    printf "${BLUE}ℹ ${1}${RESET}\n"
-}
-
-show_warning() {
-    printf "${YELLOW}⚠ ${1}${RESET}\n"
+    printf '%b' "${RESET}"
+    printf '%b\n' "${DIM}${CYAN}         ⟨ Your Gateway to Anime Streaming ⟩${RESET}"
+    printf '%b\n' "${DIM}         ─────────────────────────────────────${RESET}"
+    printf '%b\n\n' "${DIM}         v${VERSION} ${RESET}${DIM}• ${CYAN}nyanime.tech${RESET}"
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# UTILITIES
+# UI HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
+
+print_line() {
+    printf '%b\n' "${CYAN}─────────────────────────────────────────────${RESET}"
+}
+
+msg() {
+    printf '%b\n' "${CYAN}▸ ${WHITE}$1${RESET}"
+}
+
+msg_success() {
+    printf '%b\n' "${GREEN}✓ ${WHITE}$1${RESET}"
+}
+
+msg_error() {
+    printf '%b\n' "${RED}✗ ${WHITE}$1${RESET}" >&2
+}
+
+msg_warn() {
+    printf '%b\n' "${YELLOW}⚠ ${WHITE}$1${RESET}"
+}
+
+msg_info() {
+    printf '%b\n' "${BLUE}ℹ ${WHITE}$1${RESET}"
+}
+
+prompt() {
+    printf '%b' "${CYAN}▸ ${WHITE}$1${RESET}"
+}
 
 die() {
-    show_error "$*"
+    msg_error "$1"
     exit 1
 }
 
-dep_check() {
-    for dep in "$@"; do
-        command -v "$dep" >/dev/null 2>&1 || die "Missing dependency: $dep. Please install it."
+# ══════════════════════════════════════════════════════════════════════════════
+# UTILITY FUNCTIONS
+# ══════════════════════════════════════════════════════════════════════════════
+
+check_deps() {
+    for cmd in curl sed grep; do
+        command -v "$cmd" >/dev/null 2>&1 || die "Missing required dependency: $cmd"
     done
-}
-
-ensure_dirs() {
-    mkdir -p "$config_dir" "$cache_dir" "$data_dir"
-}
-
-# URL encode a string
-url_encode() {
-    printf '%s' "$1" | curl -Gso /dev/null -w '%{url_effective}' --data-urlencode @- "" | cut -c 3-
-}
-
-# JSON parsing helpers (using sed/grep for POSIX compatibility)
-json_extract() {
-    local key="$1"
-    local json="$2"
-    printf '%s' "$json" | sed -n 's/.*"'"$key"'"\s*:\s*"\([^"]*\)".*/\1/p' | head -1
-}
-
-json_extract_number() {
-    local key="$1"
-    local json="$2"
-    printf '%s' "$json" | sed -n 's/.*"'"$key"'"\s*:\s*\([0-9]*\).*/\1/p' | head -1
-}
-
-# Open URL in browser
-open_browser() {
-    local url="$1"
-    if command -v xdg-open >/dev/null 2>&1; then
-        xdg-open "$url" 2>/dev/null &
-    elif command -v open >/dev/null 2>&1; then
-        open "$url" 2>/dev/null &
-    elif command -v wslview >/dev/null 2>&1; then
-        wslview "$url" 2>/dev/null &
-    else
-        show_warning "Could not open browser automatically."
-        printf "${CYAN}Please open this URL manually:${RESET}\n"
-        printf "${WHITE}${url}${RESET}\n"
+    
+    if ! command -v "$PLAYER" >/dev/null 2>&1; then
+        if command -v mpv >/dev/null 2>&1; then
+            PLAYER="mpv"
+        elif command -v vlc >/dev/null 2>&1; then
+            PLAYER="vlc"
+        elif command -v iina >/dev/null 2>&1; then
+            PLAYER="iina"
+        else
+            msg_warn "No video player found. Install mpv:"
+            msg_info "  Arch: sudo pacman -S mpv"
+            msg_info "  Ubuntu: sudo apt install mpv"
+            msg_info "  macOS: brew install mpv"
+        fi
     fi
 }
 
-# Interactive menu using fzf
-menu_select() {
-    local prompt="$1"
-    shift
-    if command -v fzf >/dev/null 2>&1; then
-        printf '%s\n' "$@" | fzf --prompt="$prompt " --height=40% --reverse --cycle
+init_dirs() {
+    mkdir -p "$CONFIG_DIR" "$CACHE_DIR" "$DATA_DIR"
+}
+
+urlencode() {
+    printf '%s' "$1" | curl -Gso /dev/null -w '%{url_effective}' --data-urlencode @- "" 2>/dev/null | cut -c 3- || printf '%s' "$1" | sed 's/ /%20/g'
+}
+
+open_url() {
+    if command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$1" 2>/dev/null &
+    elif command -v open >/dev/null 2>&1; then
+        open "$1" 2>/dev/null &
+    elif command -v wslview >/dev/null 2>&1; then
+        wslview "$1" 2>/dev/null &
     else
-        # Fallback to simple numbered menu
-        local i=1
-        printf "${CYAN}%s${RESET}\n" "$prompt"
-        for item in "$@"; do
-            printf "${WHITE}%d)${RESET} %s\n" "$i" "$item"
-            i=$((i + 1))
-        done
-        printf "${CYAN}Enter choice: ${RESET}"
-        read -r choice
-        i=1
-        for item in "$@"; do
-            [ "$i" = "$choice" ] && printf '%s' "$item" && return
-            i=$((i + 1))
-        done
+        msg_info "Open this URL: $1"
     fi
 }
 
@@ -184,1046 +168,666 @@ menu_select() {
 # AUTHENTICATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-auth_file="$config_dir/auth.json"
-user_file="$config_dir/user.json"
-
 is_logged_in() {
-    [ -f "$auth_file" ] && [ -s "$auth_file" ]
+    [ -f "$AUTH_FILE" ] && [ -s "$AUTH_FILE" ]
 }
 
-get_user_token() {
-    if is_logged_in; then
-        json_extract "idToken" "$(cat "$auth_file")"
-    fi
+get_username() {
+    is_logged_in && head -1 "$AUTH_FILE"
 }
 
-get_user_id() {
-    if is_logged_in; then
-        json_extract "localId" "$(cat "$auth_file")"
-    fi
+get_token() {
+    is_logged_in && sed -n '2p' "$AUTH_FILE"
 }
 
-get_user_email() {
-    if is_logged_in; then
-        json_extract "email" "$(cat "$auth_file")"
-    fi
-}
-
-get_user_name() {
-    if is_logged_in; then
-        local name
-        name=$(json_extract "displayName" "$(cat "$auth_file")")
-        [ -z "$name" ] && name=$(get_user_email | cut -d'@' -f1)
-        printf '%s' "$name"
-    fi
-}
-
-# Firebase REST API Authentication
-# Sign up with email/password
-auth_signup() {
-    local email="$1"
-    local password="$2"
-    
-    [ -z "$FIREBASE_API_KEY" ] && die "Firebase API key not configured. Set NYCLI_FIREBASE_API_KEY"
-    
-    show_loading "Creating account"
-    
-    local response
-    response=$(curl -s -X POST \
-        "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_API_KEY}" \
-        -H "Content-Type: application/json" \
-        -d "{\"email\":\"${email}\",\"password\":\"${password}\",\"returnSecureToken\":true}")
-    
-    local error
-    error=$(printf '%s' "$response" | grep -o '"message":"[^"]*"' | cut -d'"' -f4)
-    
-    if [ -n "$error" ]; then
-        show_error "Sign up failed: $error"
-        return 1
-    fi
-    
-    printf '%s' "$response" > "$auth_file"
-    show_success "Account created successfully!"
-    return 0
-}
-
-# Sign in with email/password
-auth_signin() {
-    local email="$1"
-    local password="$2"
-    
-    [ -z "$FIREBASE_API_KEY" ] && die "Firebase API key not configured. Set NYCLI_FIREBASE_API_KEY"
-    
-    show_loading "Signing in"
-    
-    local response
-    response=$(curl -s -X POST \
-        "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}" \
-        -H "Content-Type: application/json" \
-        -d "{\"email\":\"${email}\",\"password\":\"${password}\",\"returnSecureToken\":true}")
-    
-    local error
-    error=$(printf '%s' "$response" | grep -o '"message":"[^"]*"' | cut -d'"' -f4)
-    
-    if [ -n "$error" ]; then
-        show_error "Sign in failed: $error"
-        return 1
-    fi
-    
-    printf '%s' "$response" > "$auth_file"
-    show_success "Signed in successfully!"
-    return 0
-}
-
-# OAuth browser flow (opens browser for Google sign-in)
-auth_oauth() {
-    [ -z "$FIREBASE_API_KEY" ] && die "Firebase API key not configured"
-    [ -z "$FIREBASE_AUTH_DOMAIN" ] && die "Firebase auth domain not configured"
-    
-    # Generate a temporary local server to receive the token
-    local port=9876
-    local callback_url="http://localhost:${port}/callback"
-    
-    # Create a simple callback HTML page
-    local callback_html="$cache_dir/callback.html"
-    cat > "$callback_html" << 'HTMLEOF'
-<!DOCTYPE html>
-<html>
-<head>
-    <title>NY-CLI Authentication</title>
-    <style>
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #fff;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-        }
-        .container { text-align: center; }
-        h1 { color: #a855f7; }
-        p { color: #94a3b8; }
-        .success { color: #22c55e; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🎉 Authentication Successful!</h1>
-        <p class="success">You can close this window and return to the terminal.</p>
-        <p>NY-CLI is ready to use.</p>
-    </div>
-</body>
-</html>
-HTMLEOF
-
-    printf "\n${CYAN}╭────────────────────────────────────────╮${RESET}\n"
-    printf "${CYAN}│${RESET}  ${BOLD}Google Sign-In${RESET}                        ${CYAN}│${RESET}\n"
-    printf "${CYAN}├────────────────────────────────────────┤${RESET}\n"
-    printf "${CYAN}│${RESET}  Opening browser for authentication... ${CYAN}│${RESET}\n"
-    printf "${CYAN}│${RESET}  Complete sign-in in your browser.     ${CYAN}│${RESET}\n"
-    printf "${CYAN}╰────────────────────────────────────────╯${RESET}\n\n"
-    
-    # For browser-based OAuth, we'll use a different approach
-    # Create a special auth page on the nyanime site that handles this
-    local auth_url="${NYANIME_API}/cli-auth?callback=${callback_url}"
-    
-    show_info "A browser window will open for authentication."
-    show_info "After signing in, your token will be saved locally."
+do_login() {
+    printf "\n"
+    printf '%b\n' "${MAGENTA}╭─────────────────────────────────────────────────╮${RESET}"
+    printf '%b\n' "${MAGENTA}│${RESET}  ${BOLD}🔐 Login to NyAnime${RESET}                            ${MAGENTA}│${RESET}"
+    printf '%b\n' "${MAGENTA}├─────────────────────────────────────────────────┤${RESET}"
+    printf '%b\n' "${MAGENTA}│${RESET}  1. Sign up/login at nyanime.tech              ${MAGENTA}│${RESET}"
+    printf '%b\n' "${MAGENTA}│${RESET}  2. Go to your Profile page                    ${MAGENTA}│${RESET}"
+    printf '%b\n' "${MAGENTA}│${RESET}  3. Copy the Token shown there                 ${MAGENTA}│${RESET}"
+    printf '%b\n' "${MAGENTA}│${RESET}  4. Paste it here                              ${MAGENTA}│${RESET}"
+    printf '%b\n' "${MAGENTA}╰─────────────────────────────────────────────────╯${RESET}"
     printf "\n"
     
-    open_browser "$auth_url"
+    local login_url="https://www.nyanime.tech/signup"
+    msg "Opening browser..."
+    open_url "$login_url"
     
-    printf "${YELLOW}Waiting for authentication...${RESET}\n"
-    printf "${DIM}(Press Ctrl+C to cancel)${RESET}\n\n"
+    msg_info "If browser didn't open, visit: ${login_url}"
+    msg_info "After signing in, go to Profile to find your Token"
+    printf "\n"
     
-    # For now, we'll use a manual token entry as fallback
-    # since setting up a local HTTP server in pure shell is complex
-    printf "${CYAN}If the browser didn't open, visit:${RESET}\n"
-    printf "${WHITE}${auth_url}${RESET}\n\n"
-    
-    printf "${CYAN}After signing in, paste the token shown on the page:${RESET}\n"
-    printf "${CYAN}Token: ${RESET}"
+    prompt "Your username: "
+    read -r username
+    prompt "Paste token: "
     read -r token
     
-    if [ -n "$token" ]; then
-        # Verify the token with Firebase
-        local response
-        response=$(curl -s -X POST \
-            "https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}" \
+    if [ -n "$username" ] && [ -n "$token" ]; then
+        printf '%s\n%s\n' "$username" "$token" > "$AUTH_FILE"
+        chmod 600 "$AUTH_FILE"
+        printf "\n"
+        msg_success "Welcome, ${username}! 🎉"
+        # Try to sync any pending watch history
+        sync_pending_history
+    else
+        msg_error "Login cancelled"
+    fi
+}
+
+do_logout() {
+    if [ -f "$AUTH_FILE" ]; then
+        local user
+        user=$(get_username)
+        rm -f "$AUTH_FILE"
+        msg_success "Goodbye, ${user}!"
+    else
+        msg_info "Not logged in"
+    fi
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WATCH HISTORY & CLOUD SYNC
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Check if online
+is_online() {
+    curl -s --connect-timeout 2 --max-time 3 "https://www.google.com" >/dev/null 2>&1
+}
+
+# Save watch progress to pending sync file (for offline support)
+save_pending_sync() {
+    local anime_id="$1" episode_id="$2" timestamp="$3" ep_num="$4"
+    local sync_time
+    sync_time=$(date +%s)
+    
+    # Remove existing entry for this anime
+    [ -f "$PENDING_SYNC_FILE" ] && grep -v "^${anime_id}|" "$PENDING_SYNC_FILE" > "${PENDING_SYNC_FILE}.tmp" 2>/dev/null && mv "${PENDING_SYNC_FILE}.tmp" "$PENDING_SYNC_FILE"
+    
+    # Add new entry: anime_id|episode_id|timestamp|ep_num|sync_time
+    printf '%s|%s|%s|%s|%s\n' "$anime_id" "$episode_id" "$timestamp" "$ep_num" "$sync_time" >> "$PENDING_SYNC_FILE"
+}
+
+# Sync pending history to Firestore
+sync_pending_history() {
+    [ ! -f "$PENDING_SYNC_FILE" ] && return 0
+    [ ! -s "$PENDING_SYNC_FILE" ] && return 0
+    
+    is_logged_in || return 0
+    is_online || return 0
+    
+    local token
+    token=$(get_token)
+    [ -z "$token" ] && return 0
+    
+    local synced=0
+    local temp_file="${PENDING_SYNC_FILE}.syncing"
+    
+    # Process each pending entry
+    while IFS='|' read -r anime_id episode_id timestamp ep_num sync_time; do
+        [ -z "$anime_id" ] && continue
+        
+        # Send to backend API
+        response=$(curl -s -X POST "${NYANIME_BASE}/api/cli/sync-watch" \
             -H "Content-Type: application/json" \
-            -d "{\"idToken\":\"${token}\"}")
+            -H "Authorization: Bearer ${token}" \
+            -d "{\"animeId\": \"${anime_id}\", \"episodeId\": \"${episode_id}\", \"timestamp\": ${timestamp}, \"episodeNum\": ${ep_num}}" \
+            2>/dev/null)
         
-        local email
-        email=$(printf '%s' "$response" | grep -o '"email":"[^"]*"' | head -1 | cut -d'"' -f4)
-        
-        if [ -n "$email" ]; then
-            # Save the token
-            printf '{"idToken":"%s","email":"%s"}' "$token" "$email" > "$auth_file"
-            show_success "Authenticated as $email"
-            return 0
+        if printf '%s' "$response" | grep -q '"success"' 2>/dev/null; then
+            synced=$((synced + 1))
         else
-            show_error "Invalid token"
-            return 1
+            # Keep failed entries for retry
+            printf '%s|%s|%s|%s|%s\n' "$anime_id" "$episode_id" "$timestamp" "$ep_num" "$sync_time" >> "$temp_file"
         fi
+    done < "$PENDING_SYNC_FILE"
+    
+    # Replace pending file with failed entries only
+    if [ -f "$temp_file" ]; then
+        mv "$temp_file" "$PENDING_SYNC_FILE"
     else
-        show_error "No token provided"
-        return 1
+        rm -f "$PENDING_SYNC_FILE"
     fi
+    
+    [ $synced -gt 0 ] && msg_success "Synced $synced items to cloud"
 }
 
-auth_logout() {
-    if [ -f "$auth_file" ]; then
-        rm -f "$auth_file"
-        show_success "Logged out successfully"
-    else
-        show_info "You were not logged in"
-    fi
+# Background sync daemon (called during playback)
+start_sync_daemon() {
+    local anime_id="$1" episode_id="$2" ep_num="$3"
+    
+    # Create a background process that syncs every 10 seconds
+    (
+        while true; do
+            sleep "$SYNC_INTERVAL"
+            
+            # Get current playback position (this is approximate since we can't query mpv easily)
+            local current_ts
+            current_ts=$(date +%s)
+            
+            # Save to pending sync
+            save_pending_sync "$anime_id" "$episode_id" "$current_ts" "$ep_num"
+            
+            # Try to sync if online
+            sync_pending_history >/dev/null 2>&1
+        done
+    ) &
+    SYNC_PID=$!
 }
 
-# ══════════════════════════════════════════════════════════════════════════════
-# WATCH HISTORY (Synced with Firebase Firestore)
-# ══════════════════════════════════════════════════════════════════════════════
+stop_sync_daemon() {
+    [ -n "${SYNC_PID:-}" ] && kill "$SYNC_PID" 2>/dev/null
+    SYNC_PID=""
+}
 
-history_file="$data_dir/history.json"
-
-# Local history for non-logged-in users
-save_local_history() {
-    local anime_id="$1"
-    local anime_title="$2"
-    local episode="$3"
+save_to_history() {
+    local anime_id="$1" title="$2" episode="$3" episode_id="${4:-}"
     local timestamp
     timestamp=$(date +%s)
     
-    # Create history entry
-    local entry="{\"id\":\"${anime_id}\",\"title\":\"${anime_title}\",\"episode\":${episode},\"timestamp\":${timestamp}}"
+    # Save to local history
+    [ -f "$HISTORY_FILE" ] && grep -v "^${anime_id}|" "$HISTORY_FILE" > "${HISTORY_FILE}.tmp" 2>/dev/null && mv "${HISTORY_FILE}.tmp" "$HISTORY_FILE"
     
-    # Load existing history
-    local history="[]"
-    [ -f "$history_file" ] && history=$(cat "$history_file")
+    printf '%s|%s|%s|%s\n' "$anime_id" "$title" "$episode" "$timestamp" | cat - "$HISTORY_FILE" 2>/dev/null > "${HISTORY_FILE}.tmp" && mv "${HISTORY_FILE}.tmp" "$HISTORY_FILE" || printf '%s|%s|%s|%s\n' "$anime_id" "$title" "$episode" "$timestamp" > "$HISTORY_FILE"
     
-    # Remove existing entry for this anime and add new one
-    history=$(printf '%s' "$history" | sed 's/{"id":"'"${anime_id}"'"[^}]*},\?//g' | sed 's/,]/]/g')
+    head -50 "$HISTORY_FILE" > "${HISTORY_FILE}.tmp" && mv "${HISTORY_FILE}.tmp" "$HISTORY_FILE"
     
-    # Add new entry at the beginning
-    if [ "$history" = "[]" ]; then
-        history="[$entry]"
-    else
-        history=$(printf '%s' "$history" | sed "s/^\[/[$entry,/")
-    fi
+    # Save to pending sync for cloud backup
+    [ -n "$episode_id" ] && save_pending_sync "$anime_id" "$episode_id" "$timestamp" "$episode"
     
-    printf '%s' "$history" > "$history_file"
-}
-
-# Sync history to Firebase Firestore
-sync_history_to_cloud() {
-    if ! is_logged_in; then
-        return
-    fi
-    
-    local token
-    token=$(get_user_token)
-    local user_id
-    user_id=$(get_user_id)
-    
-    [ -z "$token" ] || [ -z "$user_id" ] && return
-    [ ! -f "$history_file" ] && return
-    
-    local history
-    history=$(cat "$history_file")
-    
-    # Firestore REST API to update user's watch history
-    curl -s -X PATCH \
-        "https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${user_id}?updateMask.fieldPaths=watchHistory" \
-        -H "Authorization: Bearer ${token}" \
-        -H "Content-Type: application/json" \
-        -d "{\"fields\":{\"watchHistory\":{\"stringValue\":\"${history}\"}}}" >/dev/null 2>&1
-}
-
-# Fetch history from Firebase Firestore
-fetch_cloud_history() {
-    if ! is_logged_in; then
-        return
-    fi
-    
-    local token
-    token=$(get_user_token)
-    local user_id
-    user_id=$(get_user_id)
-    
-    [ -z "$token" ] || [ -z "$user_id" ] && return
-    
-    local response
-    response=$(curl -s \
-        "https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${user_id}" \
-        -H "Authorization: Bearer ${token}")
-    
-    local cloud_history
-    cloud_history=$(printf '%s' "$response" | grep -o '"watchHistory":{[^}]*}' | sed 's/.*"stringValue":"\([^"]*\)".*/\1/')
-    
-    if [ -n "$cloud_history" ]; then
-        printf '%s' "$cloud_history" > "$history_file"
-    fi
-}
-
-get_continue_watching() {
-    [ ! -f "$history_file" ] && return
-    cat "$history_file"
+    # Try immediate sync if online
+    sync_pending_history >/dev/null 2>&1 &
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ANIME API FUNCTIONS
+# ANIME API
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Search for anime using Consumet API
 search_anime() {
-    local query="$1"
-    local encoded_query
-    encoded_query=$(url_encode "$query")
+    local query encoded
+    query="$1"
+    encoded=$(urlencode "$query")
     
-    show_loading "Searching"
+    msg "Searching..."
     
-    local response
-    response=$(curl -s "${CONSUMET_API}/anime/gogoanime/${encoded_query}" -A "$agent")
-    
-    # Parse results
-    printf '%s' "$response" | tr '{' '\n' | grep -o '"id":"[^"]*".*"title":"[^"]*"' | \
-        sed 's/"id":"\([^"]*\)".*"title":"\([^"]*\)"/\1\t\2/' | head -20
+    curl -s "${ANIWATCH_API}/api/v2/hianime/search?q=${encoded}" -H "User-Agent: $USER_AGENT" 2>/dev/null | \
+        tr '{' '\n' | grep '"id"' | while read -r line; do
+            id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            name=$(printf '%s' "$line" | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            [ -n "$id" ] && [ -n "$name" ] && printf '%s|%s\n' "$id" "$name"
+        done | head -20
 }
 
-# Search using Aniwatch API
-search_anime_aniwatch() {
-    local query="$1"
-    local encoded_query
-    encoded_query=$(url_encode "$query")
-    
-    show_loading "Searching"
-    
-    local response
-    response=$(curl -s "${ANIWATCH_API}/anime/search?q=${encoded_query}" -A "$agent")
-    
-    # Parse results - extract id and name
-    printf '%s' "$response" | tr '{' '\n' | grep -o '"id":"[^"]*".*"name":"[^"]*"' | \
-        sed 's/"id":"\([^"]*\)".*"name":"\([^"]*\)"/\1\t\2/' | head -20
-}
-
-# Get anime info
-get_anime_info() {
-    local anime_id="$1"
-    
-    show_loading "Fetching anime info"
-    
-    local response
-    response=$(curl -s "${ANIWATCH_API}/anime/info?id=${anime_id}" -A "$agent")
-    
-    printf '%s' "$response"
-}
-
-# Get episode list
 get_episodes() {
     local anime_id="$1"
     
-    show_loading "Fetching episodes"
+    msg "Loading episodes..."
     
-    local response
-    response=$(curl -s "${ANIWATCH_API}/anime/episodes/${anime_id}" -A "$agent")
-    
-    # Parse episodes
-    printf '%s' "$response" | tr '{' '\n' | grep -o '"episodeId":"[^"]*".*"number":[0-9]*' | \
-        sed 's/"episodeId":"\([^"]*\)".*"number":\([0-9]*\)/\2\t\1/'
+    curl -s "${ANIWATCH_API}/api/v2/hianime/anime/${anime_id}/episodes" -H "User-Agent: $USER_AGENT" 2>/dev/null | \
+        tr '{' '\n' | grep '"episodeId"' | while read -r line; do
+            ep_id=$(printf '%s' "$line" | sed -n 's/.*"episodeId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            ep_num=$(printf '%s' "$line" | sed -n 's/.*"number"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')
+            title=$(printf '%s' "$line" | sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            [ -n "$ep_id" ] && [ -n "$ep_num" ] && printf '%s|%s|%s\n' "$ep_num" "$ep_id" "$title"
+        done
 }
 
-# Get streaming links
-get_stream_url() {
-    local episode_id="$1"
+get_stream() {
+    local episode_id="$1" server="${2:-hd-1}" category="${3:-sub}"
     
-    show_loading "Fetching stream"
+    msg "Getting stream..."
     
-    # Try to get streaming sources
-    local response
-    response=$(curl -s "${ANIWATCH_API}/anime/episode-srcs?id=${episode_id}" -A "$agent")
-    
-    # Extract m3u8 URL
-    local stream_url
-    stream_url=$(printf '%s' "$response" | grep -o '"url":"[^"]*\.m3u8[^"]*"' | head -1 | cut -d'"' -f4)
-    
-    if [ -z "$stream_url" ]; then
-        # Try alternate sources
-        stream_url=$(printf '%s' "$response" | grep -o '"file":"[^"]*"' | head -1 | cut -d'"' -f4)
-    fi
-    
-    printf '%s' "$stream_url"
+    curl -s "${ANIWATCH_API}/api/v2/hianime/episode/sources?animeEpisodeId=${episode_id}&server=${server}&category=${category}" \
+        -H "User-Agent: $USER_AGENT" 2>/dev/null | \
+        grep -o '"url"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/'
 }
 
-# Get subtitles
 get_subtitles() {
     local episode_id="$1"
     
-    local response
-    response=$(curl -s "${ANIWATCH_API}/anime/episode-srcs?id=${episode_id}" -A "$agent")
+    curl -s "${ANIWATCH_API}/api/v2/hianime/episode/sources?animeEpisodeId=${episode_id}" \
+        -H "User-Agent: $USER_AGENT" 2>/dev/null | \
+        grep -o '"file"[[:space:]]*:[[:space:]]*"[^"]*\.vtt[^"]*"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/'
+}
+
+get_trending() {
+    msg "Fetching trending..."
     
-    # Extract subtitle URL (English)
-    printf '%s' "$response" | grep -o '"tracks":\[[^]]*\]' | grep -o '"file":"[^"]*".*"label":"English"' | \
-        sed 's/"file":"\([^"]*\)".*/\1/' | head -1
+    curl -s "${ANIWATCH_API}/api/v2/hianime/home" -H "User-Agent: $USER_AGENT" 2>/dev/null | \
+        tr '{' '\n' | grep '"id"' | while read -r line; do
+            id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            name=$(printf '%s' "$line" | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            [ -n "$id" ] && [ -n "$name" ] && printf '%s|%s\n' "$id" "$name"
+        done | head -15
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RECOMMENDATIONS (AI-powered)
+# VIDEO PLAYER
 # ══════════════════════════════════════════════════════════════════════════════
 
-get_recommendations() {
-    if ! is_logged_in; then
-        # Return popular anime for non-logged-in users
-        show_loading "Fetching popular anime"
-        local response
-        response=$(curl -s "${ANIWATCH_API}/anime/home" -A "$agent")
-        printf '%s' "$response" | tr '{' '\n' | grep -o '"id":"[^"]*".*"name":"[^"]*"' | \
-            sed 's/"id":"\([^"]*\)".*"name":"\([^"]*\)"/\1\t\2/' | head -10
-        return
-    fi
+play_video() {
+    local url="$1" title="$2" subtitle="$3"
     
-    # For logged-in users, analyze watch history and get recommendations
-    show_loading "Analyzing your taste"
+    [ -z "$url" ] && die "No stream available"
     
-    local history
-    history=$(get_continue_watching)
+    msg_success "Starting playback..."
+    printf '%b\n\n' "  ${DIM}${title}${RESET}"
     
-    if [ -z "$history" ] || [ "$history" = "[]" ]; then
-        # No history, return trending
-        local response
-        response=$(curl -s "${ANIWATCH_API}/anime/home" -A "$agent")
-        printf '%s' "$response" | tr '{' '\n' | grep -o '"id":"[^"]*".*"name":"[^"]*"' | \
-            sed 's/"id":"\([^"]*\)".*"name":"\([^"]*\)"/\1\t\2/' | head -10
-        return
-    fi
-    
-    # Get genre-based recommendations from watched anime
-    # Extract the first watched anime ID for recommendations
-    local watched_id
-    watched_id=$(printf '%s' "$history" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-    
-    if [ -n "$watched_id" ]; then
-        local info
-        info=$(curl -s "${ANIWATCH_API}/anime/info?id=${watched_id}" -A "$agent")
-        
-        # Get recommendations from this anime
-        printf '%s' "$info" | grep -o '"recommendedAnimes":\[[^]]*\]' | tr '{' '\n' | \
-            grep -o '"id":"[^"]*".*"name":"[^"]*"' | \
-            sed 's/"id":"\([^"]*\)".*"name":"\([^"]*\)"/\1\t\2/' | head -10
-    fi
-}
-
-get_random_anime() {
-    show_loading "Finding a random anime"
-    
-    # Get a random anime from trending
-    local response
-    response=$(curl -s "${ANIWATCH_API}/anime/home" -A "$agent")
-    
-    # Extract all anime IDs and pick a random one
-    local animes
-    animes=$(printf '%s' "$response" | tr '{' '\n' | grep -o '"id":"[^"]*".*"name":"[^"]*"' | \
-        sed 's/"id":"\([^"]*\)".*"name":"\([^"]*\)"/\1\t\2/')
-    
-    local count
-    count=$(printf '%s\n' "$animes" | wc -l)
-    
-    if [ "$count" -gt 0 ]; then
-        local random_index
-        random_index=$(awk 'BEGIN { srand(); print int(rand() * '"$count"') + 1 }')
-        printf '%s\n' "$animes" | sed -n "${random_index}p"
-    fi
-}
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PLAYER
-# ══════════════════════════════════════════════════════════════════════════════
-
-play_episode() {
-    local stream_url="$1"
-    local title="$2"
-    local subtitle_url="$3"
-    
-    [ -z "$stream_url" ] && die "No stream URL found"
-    
-    show_info "Starting playback..."
-    
-    local sub_flag=""
-    [ -n "$subtitle_url" ] && sub_flag="--sub-file=${subtitle_url}"
-    
-    case "$player" in
+    case "$PLAYER" in
         mpv*)
-            if [ -n "$sub_flag" ]; then
-                $player --force-media-title="$title" "$sub_flag" "$stream_url"
+            if [ -n "$subtitle" ]; then
+                $PLAYER --force-media-title="$title" --sub-file="$subtitle" "$url"
             else
-                $player --force-media-title="$title" "$stream_url"
+                $PLAYER --force-media-title="$title" "$url"
             fi
             ;;
-        vlc*)
-            $player --meta-title="$title" "$stream_url"
-            ;;
-        iina*)
-            $player --mpv-force-media-title="$title" "$stream_url"
-            ;;
-        *)
-            $player "$stream_url"
-            ;;
+        vlc*) $PLAYER --meta-title="$title" --play-and-exit "$url" ;;
+        iina*) $PLAYER --mpv-force-media-title="$title" "$url" ;;
+        *) $PLAYER "$url" ;;
     esac
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MAIN MENU FUNCTIONS
+# MAIN FEATURES
 # ══════════════════════════════════════════════════════════════════════════════
-
-show_profile() {
-    if ! is_logged_in; then
-        show_info "Not logged in"
-        return
-    fi
-    
-    local email
-    email=$(get_user_email)
-    local name
-    name=$(get_user_name)
-    
-    printf "\n${MAGENTA}╭────────────────────────────────────────╮${RESET}\n"
-    printf "${MAGENTA}│${RESET}  ${BOLD}👤 Profile${RESET}                            ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}├────────────────────────────────────────┤${RESET}\n"
-    printf "${MAGENTA}│${RESET}  ${CYAN}Name:${RESET}  %-28s ${MAGENTA}│${RESET}\n" "$name"
-    printf "${MAGENTA}│${RESET}  ${CYAN}Email:${RESET} %-28s ${MAGENTA}│${RESET}\n" "$email"
-    printf "${MAGENTA}╰────────────────────────────────────────╯${RESET}\n"
-    
-    printf "\n"
-    local action
-    action=$(menu_select "Profile options:" "Logout" "Back")
-    
-    case "$action" in
-        "Logout") auth_logout ;;
-    esac
-}
 
 do_search() {
-    printf "\n${CYAN}🔍 Search anime: ${RESET}"
+    printf "\n"
+    prompt "Search anime: "
     read -r query
-    
     [ -z "$query" ] && return
     
-    local results
-    results=$(search_anime_aniwatch "$query")
+    printf "\n"
+    results=$(search_anime "$query")
     
-    printf "\r\033[K"  # Clear line
+    [ -z "$results" ] && msg_error "No results" && return
     
-    if [ -z "$results" ]; then
-        show_error "No results found"
-        return
-    fi
+    printf '%b\n' "\n${CYAN}Results:${RESET}"
+    print_line
+    i=1
+    printf '%s\n' "$results" | while IFS='|' read -r id title; do
+        printf '%b\n' "  ${WHITE}$(printf '%2d' $i))${RESET} $title"
+        i=$((i + 1))
+    done
+    print_line
     
-    # Display results
-    printf "\n${CYAN}Search Results:${RESET}\n"
-    printf "%s\n" "$results" | nl -w 2
-    
-    printf "\n${CYAN}Select anime (number): ${RESET}"
+    printf "\n"
+    prompt "Select [1-20]: "
     read -r choice
+    [ "$choice" = "q" ] && return
     
-    local selected
     selected=$(printf '%s\n' "$results" | sed -n "${choice}p")
-    
     [ -z "$selected" ] && return
     
-    local anime_id
-    anime_id=$(printf '%s' "$selected" | cut -f1)
-    local anime_title
-    anime_title=$(printf '%s' "$selected" | cut -f2)
+    anime_id=$(printf '%s' "$selected" | cut -d'|' -f1)
+    anime_title=$(printf '%s' "$selected" | cut -d'|' -f2)
     
     watch_anime "$anime_id" "$anime_title"
 }
 
 watch_anime() {
-    local anime_id="$1"
-    local anime_title="$2"
+    local anime_id="$1" anime_title="$2"
     
-    # Get episodes
-    local episodes
+    printf "\n"
     episodes=$(get_episodes "$anime_id")
+    [ -z "$episodes" ] && msg_error "No episodes" && return
     
-    printf "\r\033[K"  # Clear line
+    ep_count=$(printf '%s\n' "$episodes" | wc -l)
     
-    if [ -z "$episodes" ]; then
-        show_error "No episodes found"
-        return
+    printf '%b\n' "\n${CYAN}${anime_title}${RESET} ${DIM}(${ep_count} eps)${RESET}"
+    print_line
+    
+    if [ "$ep_count" -gt 20 ]; then
+        printf '%s\n' "$episodes" | head -10 | while IFS='|' read -r num id title; do
+            printf '%b\n' "  ${WHITE}$(printf '%3s' "$num"))${RESET} Episode $num"
+        done
+        printf '%b\n' "  ${DIM}     ... ($((ep_count - 15)) more) ...${RESET}"
+        printf '%s\n' "$episodes" | tail -5 | while IFS='|' read -r num id title; do
+            printf '%b\n' "  ${WHITE}$(printf '%3s' "$num"))${RESET} Episode $num"
+        done
+    else
+        printf '%s\n' "$episodes" | while IFS='|' read -r num id title; do
+            printf '%b\n' "  ${WHITE}$(printf '%3s' "$num"))${RESET} Episode $num"
+        done
     fi
+    print_line
     
-    # Display episodes
-    printf "\n${CYAN}Episodes for: ${WHITE}%s${RESET}\n" "$anime_title"
-    printf "%s\n" "$episodes" | while IFS='	' read -r ep_num ep_id; do
-        printf "${WHITE}%s)${RESET} Episode %s\n" "$ep_num" "$ep_num"
-    done
-    
-    printf "\n${CYAN}Select episode (number or 'q' to quit): ${RESET}"
+    printf "\n"
+    prompt "Episode [1-$ep_count]: "
     read -r ep_choice
-    
     [ "$ep_choice" = "q" ] && return
     
-    local selected_ep
-    selected_ep=$(printf '%s\n' "$episodes" | grep "^${ep_choice}	" | cut -f2)
+    ep_line=$(printf '%s\n' "$episodes" | grep "^${ep_choice}|")
+    [ -z "$ep_line" ] && msg_error "Invalid" && return
     
-    [ -z "$selected_ep" ] && show_error "Invalid episode" && return
-    
-    # Get stream URL
-    local stream_url
-    stream_url=$(get_stream_url "$selected_ep")
-    
-    printf "\r\033[K"  # Clear line
-    
-    if [ -z "$stream_url" ]; then
-        show_error "Could not get stream URL"
-        return
-    fi
-    
-    # Get subtitles
-    local subtitle_url
-    subtitle_url=$(get_subtitles "$selected_ep")
-    
-    # Save to history
-    save_local_history "$anime_id" "$anime_title" "$ep_choice"
-    sync_history_to_cloud
-    
-    # Play
-    play_episode "$stream_url" "$anime_title - Episode $ep_choice" "$subtitle_url"
-    
-    # After playback, offer next episode
-    local next_ep=$((ep_choice + 1))
-    local next_ep_id
-    next_ep_id=$(printf '%s\n' "$episodes" | grep "^${next_ep}	" | cut -f2)
-    
-    if [ -n "$next_ep_id" ]; then
-        printf "\n${CYAN}Play next episode (${next_ep})? [Y/n]: ${RESET}"
-        read -r answer
-        case "$answer" in
-            [nN]*) ;;
-            *) 
-                stream_url=$(get_stream_url "$next_ep_id")
-                subtitle_url=$(get_subtitles "$next_ep_id")
-                save_local_history "$anime_id" "$anime_title" "$next_ep"
-                sync_history_to_cloud
-                play_episode "$stream_url" "$anime_title - Episode $next_ep" "$subtitle_url"
-                ;;
-        esac
-    fi
+    episode_id=$(printf '%s' "$ep_line" | cut -d'|' -f2)
+    play_episode "$anime_id" "$anime_title" "$ep_choice" "$episode_id" "$episodes"
 }
 
-do_continue_watching() {
-    # Fetch from cloud first
-    fetch_cloud_history
+play_episode() {
+    local anime_id="$1" anime_title="$2" ep_num="$3" episode_id="$4" episodes="$5"
     
-    local history
-    history=$(get_continue_watching)
+    printf "\n"
     
-    if [ -z "$history" ] || [ "$history" = "[]" ]; then
-        show_info "No watch history yet. Start watching something!"
-        return
-    fi
+    stream_url=$(get_stream "$episode_id")
+    [ -z "$stream_url" ] && stream_url=$(get_stream "$episode_id" "hd-2")
+    [ -z "$stream_url" ] && msg_error "No stream available" && return
     
-    printf "\n${CYAN}Continue Watching:${RESET}\n"
+    subtitle_url=$(get_subtitles "$episode_id")
+    save_to_history "$anime_id" "$anime_title" "$ep_num" "$episode_id"
     
-    # Parse and display history
-    local i=1
-    printf '%s' "$history" | tr '{' '\n' | grep '"id"' | while IFS= read -r entry; do
-        local title
-        title=$(printf '%s' "$entry" | sed 's/.*"title":"\([^"]*\)".*/\1/')
-        local episode
-        episode=$(printf '%s' "$entry" | sed 's/.*"episode":\([0-9]*\).*/\1/')
-        local anime_id
-        anime_id=$(printf '%s' "$entry" | sed 's/.*"id":"\([^"]*\)".*/\1/')
-        
-        printf "${WHITE}%d)${RESET} %s ${DIM}(Episode %s)${RESET}\n" "$i" "$title" "$episode"
-        i=$((i + 1))
-    done
+    # Start background sync daemon during playback
+    start_sync_daemon "$anime_id" "$episode_id" "$ep_num"
     
-    printf "\n${CYAN}Select to continue (number): ${RESET}"
+    play_video "$stream_url" "${anime_title} - Episode ${ep_num}" "$subtitle_url"
+    
+    # Stop sync daemon after playback ends
+    stop_sync_daemon
+    
+    # Final sync attempt
+    sync_pending_history >/dev/null 2>&1 &
+    
+    printf "\n"
+    print_line
+    printf '%b\n' "  ${WHITE}n)${RESET} Next  ${WHITE}r)${RESET} Replay  ${WHITE}s)${RESET} Select  ${WHITE}q)${RESET} Quit"
+    print_line
+    prompt "Choice: "
     read -r choice
     
-    [ -z "$choice" ] && return
-    
-    # Get selected entry
-    local selected
-    selected=$(printf '%s' "$history" | tr '{' '\n' | grep '"id"' | sed -n "${choice}p")
-    
-    [ -z "$selected" ] && return
-    
-    local anime_id
-    anime_id=$(printf '%s' "$selected" | sed 's/.*"id":"\([^"]*\)".*/\1/')
-    local anime_title
-    anime_title=$(printf '%s' "$selected" | sed 's/.*"title":"\([^"]*\)".*/\1/')
-    local next_episode
-    next_episode=$(printf '%s' "$selected" | sed 's/.*"episode":\([0-9]*\).*/\1/')
-    next_episode=$((next_episode + 1))
-    
-    printf "\n${CYAN}Continue from episode %s? [Y/n]: ${RESET}" "$next_episode"
-    read -r answer
-    
-    case "$answer" in
-        [nN]*) watch_anime "$anime_id" "$anime_title" ;;
-        *) 
-            local episodes
-            episodes=$(get_episodes "$anime_id")
-            local ep_id
-            ep_id=$(printf '%s\n' "$episodes" | grep "^${next_episode}	" | cut -f2)
-            
-            if [ -n "$ep_id" ]; then
-                local stream_url
-                stream_url=$(get_stream_url "$ep_id")
-                local subtitle_url
-                subtitle_url=$(get_subtitles "$ep_id")
-                save_local_history "$anime_id" "$anime_title" "$next_episode"
-                sync_history_to_cloud
-                play_episode "$stream_url" "$anime_title - Episode $next_episode" "$subtitle_url"
+    case "$choice" in
+        n)
+            next_ep=$((ep_num + 1))
+            next_line=$(printf '%s\n' "$episodes" | grep "^${next_ep}|")
+            if [ -n "$next_line" ]; then
+                next_id=$(printf '%s' "$next_line" | cut -d'|' -f2)
+                play_episode "$anime_id" "$anime_title" "$next_ep" "$next_id" "$episodes"
             else
-                show_info "No more episodes available"
-                watch_anime "$anime_id" "$anime_title"
+                msg_info "No more episodes"
             fi
             ;;
+        r) play_episode "$anime_id" "$anime_title" "$ep_num" "$episode_id" "$episodes" ;;
+        s) watch_anime "$anime_id" "$anime_title" ;;
     esac
 }
 
-do_recommendations() {
-    local recs
-    recs=$(get_recommendations)
+do_continue() {
+    [ ! -f "$HISTORY_FILE" ] && msg_info "No history yet" && return
     
-    printf "\r\033[K"  # Clear line
+    # Try to sync any pending history first
+    sync_pending_history >/dev/null 2>&1
     
-    if [ -z "$recs" ]; then
-        show_info "No recommendations available"
-        return
-    fi
+    printf '%b\n' "\n${CYAN}Continue Watching:${RESET}"
+    print_line
     
-    printf "\n${CYAN}📚 Recommended for You:${RESET}\n"
-    printf "%s\n" "$recs" | nl -w 2
+    i=1
+    head -10 "$HISTORY_FILE" | while IFS='|' read -r id title episode ts; do
+        printf '%b\n' "  ${WHITE}$(printf '%2d' $i))${RESET} $title ${DIM}(Ep $episode)${RESET}"
+        i=$((i + 1))
+    done
+    print_line
     
-    printf "\n${CYAN}Select anime (number): ${RESET}"
+    printf "\n"
+    prompt "Select: "
     read -r choice
+    [ "$choice" = "q" ] && return
     
-    local selected
-    selected=$(printf '%s\n' "$recs" | sed -n "${choice}p")
-    
+    selected=$(sed -n "${choice}p" "$HISTORY_FILE")
     [ -z "$selected" ] && return
     
-    local anime_id
-    anime_id=$(printf '%s' "$selected" | cut -f1)
-    local anime_title
-    anime_title=$(printf '%s' "$selected" | cut -f2)
+    anime_id=$(printf '%s' "$selected" | cut -d'|' -f1)
+    anime_title=$(printf '%s' "$selected" | cut -d'|' -f2)
+    last_ep=$(printf '%s' "$selected" | cut -d'|' -f3)
     
+    episodes=$(get_episodes "$anime_id")
+    next_ep=$((last_ep + 1))
+    next_line=$(printf '%s\n' "$episodes" | grep "^${next_ep}|")
+    
+    if [ -n "$next_line" ]; then
+        msg_info "Continuing Episode ${next_ep}"
+        episode_id=$(printf '%s' "$next_line" | cut -d'|' -f2)
+        play_episode "$anime_id" "$anime_title" "$next_ep" "$episode_id" "$episodes"
+    else
+        watch_anime "$anime_id" "$anime_title"
+    fi
+}
+
+do_recommendations() {
+    printf "\n"
+    trending=$(get_trending)
+    [ -z "$trending" ] && msg_error "Failed to fetch" && return
+    
+    printf '%b\n' "\n${CYAN}📚 Trending:${RESET}"
+    print_line
+    
+    i=1
+    printf '%s\n' "$trending" | while IFS='|' read -r id title; do
+        printf '%b\n' "  ${WHITE}$(printf '%2d' $i))${RESET} $title"
+        i=$((i + 1))
+    done
+    print_line
+    
+    printf "\n"
+    prompt "Select: "
+    read -r choice
+    [ "$choice" = "q" ] && return
+    
+    selected=$(printf '%s\n' "$trending" | sed -n "${choice}p")
+    [ -z "$selected" ] && return
+    
+    anime_id=$(printf '%s' "$selected" | cut -d'|' -f1)
+    anime_title=$(printf '%s' "$selected" | cut -d'|' -f2)
     watch_anime "$anime_id" "$anime_title"
 }
 
 do_random() {
-    local random
-    random=$(get_random_anime)
+    printf "\n"
+    msg "Finding random anime..."
     
-    printf "\r\033[K"  # Clear line
+    trending=$(get_trending)
+    [ -z "$trending" ] && msg_error "Failed" && return
     
-    if [ -z "$random" ]; then
-        show_error "Could not find random anime"
-        return
-    fi
+    count=$(printf '%s\n' "$trending" | wc -l)
+    idx=$(awk 'BEGIN { srand(); print int(rand() * '"$count"') + 1 }')
+    selected=$(printf '%s\n' "$trending" | sed -n "${idx}p")
     
-    local anime_id
-    anime_id=$(printf '%s' "$random" | cut -f1)
-    local anime_title
-    anime_title=$(printf '%s' "$random" | cut -f2)
+    anime_id=$(printf '%s' "$selected" | cut -d'|' -f1)
+    anime_title=$(printf '%s' "$selected" | cut -d'|' -f2)
     
-    printf "\n${YELLOW}🎲 Random Pick: ${WHITE}%s${RESET}\n" "$anime_title"
-    printf "${CYAN}Watch this? [Y/n]: ${RESET}"
-    read -r answer
+    printf '%b\n\n' "\n${YELLOW}🎲 Random:${RESET} ${WHITE}${anime_title}${RESET}"
+    prompt "Watch? [Y/n]: "
+    read -r ans
     
-    case "$answer" in
+    case "$ans" in
         [nN]*) return ;;
-        *) 
-            # Get first episode
-            local episodes
+        *)
             episodes=$(get_episodes "$anime_id")
-            local first_ep
-            first_ep=$(printf '%s\n' "$episodes" | head -1 | cut -f2)
-            
-            if [ -n "$first_ep" ]; then
-                local stream_url
-                stream_url=$(get_stream_url "$first_ep")
-                local subtitle_url
-                subtitle_url=$(get_subtitles "$first_ep")
-                save_local_history "$anime_id" "$anime_title" 1
-                sync_history_to_cloud
-                play_episode "$stream_url" "$anime_title - Episode 1" "$subtitle_url"
-            else
-                show_error "No episodes found"
-            fi
+            first=$(printf '%s\n' "$episodes" | head -1)
+            [ -n "$first" ] && {
+                ep_id=$(printf '%s' "$first" | cut -d'|' -f2)
+                play_episode "$anime_id" "$anime_title" "1" "$ep_id" "$episodes"
+            }
             ;;
     esac
 }
 
-# ══════════════════════════════════════════════════════════════════════════════
-# MAIN MENU
-# ══════════════════════════════════════════════════════════════════════════════
-
-main_menu_guest() {
-    while true; do
-        show_banner
-        printf "${CYAN}Welcome! Please sign in to unlock all features.${RESET}\n\n"
-        
-        local options="🔍 Search
-🔐 Login
-📝 Sign Up
-❓ Help
-🚪 Exit"
-        
-        printf "${CYAN}╭────────────────────────────────────────╮${RESET}\n"
-        printf "${CYAN}│${RESET}  ${WHITE}1)${RESET} 🔍 Search Anime                    ${CYAN}│${RESET}\n"
-        printf "${CYAN}│${RESET}  ${WHITE}2)${RESET} 🔐 Login                           ${CYAN}│${RESET}\n"
-        printf "${CYAN}│${RESET}  ${WHITE}3)${RESET} 📝 Sign Up                         ${CYAN}│${RESET}\n"
-        printf "${CYAN}│${RESET}  ${WHITE}4)${RESET} ❓ Help                            ${CYAN}│${RESET}\n"
-        printf "${CYAN}│${RESET}  ${WHITE}q)${RESET} 🚪 Exit                            ${CYAN}│${RESET}\n"
-        printf "${CYAN}╰────────────────────────────────────────╯${RESET}\n"
-        printf "\n${CYAN}Choice: ${RESET}"
-        read -r choice
-        
-        case "$choice" in
-            1) do_search ;;
-            2) 
-                printf "\n${CYAN}Email: ${RESET}"
-                read -r email
-                printf "${CYAN}Password: ${RESET}"
-                stty -echo
-                read -r password
-                stty echo
-                printf "\n"
-                if auth_signin "$email" "$password"; then
-                    fetch_cloud_history
-                    main_menu_user
-                    return
-                fi
-                ;;
-            3)
-                printf "\n${CYAN}Email: ${RESET}"
-                read -r email
-                printf "${CYAN}Password (min 6 chars): ${RESET}"
-                stty -echo
-                read -r password
-                stty echo
-                printf "\n"
-                if auth_signup "$email" "$password"; then
-                    main_menu_user
-                    return
-                fi
-                ;;
-            4) show_help ;;
-            q|Q) 
-                printf "\n${MAGENTA}Sayonara! 👋${RESET}\n"
-                exit 0
-                ;;
-        esac
-        
-        printf "\n${DIM}Press Enter to continue...${RESET}"
-        read -r _
-    done
+show_profile() {
+    is_logged_in || { msg_info "Not logged in"; return; }
+    
+    local username
+    username=$(get_username)
+    
+    printf '%b\n' "\n${MAGENTA}╭────────────────────────────────╮${RESET}"
+    printf '%b\n' "${MAGENTA}│${RESET}  ${BOLD}👤 ${username}${RESET}"
+    printf '%b\n\n' "${MAGENTA}╰────────────────────────────────╯${RESET}"
+    
+    # Show sync status
+    if [ -f "$PENDING_SYNC_FILE" ] && [ -s "$PENDING_SYNC_FILE" ]; then
+        local pending_count
+        pending_count=$(wc -l < "$PENDING_SYNC_FILE")
+        printf '%b\n' "  ${YELLOW}⏳ ${pending_count} items pending sync${RESET}"
+        printf '%b\n\n' "  ${DIM}Will sync when online${RESET}"
+    fi
+    
+    printf '%b\n\n' "  ${WHITE}1)${RESET} Logout  ${WHITE}2)${RESET} Sync Now  ${WHITE}3)${RESET} Back"
+    prompt "Choice: "
+    read -r c
+    case "$c" in
+        1) do_logout ;;
+        2) msg "Syncing..."; sync_pending_history ;;
+    esac
 }
 
-main_menu_user() {
-    while true; do
-        show_banner
-        local name
-        name=$(get_user_name)
-        printf "${CYAN}Welcome back, ${WHITE}%s${CYAN}! 🎉${RESET}\n\n" "$name"
-        
-        printf "${CYAN}╭────────────────────────────────────────╮${RESET}\n"
-        printf "${CYAN}│${RESET}  ${WHITE}1)${RESET} 👤 Profile                         ${CYAN}│${RESET}\n"
-        printf "${CYAN}│${RESET}  ${WHITE}2)${RESET} ▶️  Continue Watching               ${CYAN}│${RESET}\n"
-        printf "${CYAN}│${RESET}  ${WHITE}3)${RESET} 🔍 Search                          ${CYAN}│${RESET}\n"
-        printf "${CYAN}│${RESET}  ${WHITE}4)${RESET} 📚 Recommendations                 ${CYAN}│${RESET}\n"
-        printf "${CYAN}│${RESET}  ${WHITE}5)${RESET} 🎲 Random                          ${CYAN}│${RESET}\n"
-        printf "${CYAN}│${RESET}  ${WHITE}6)${RESET} ❓ Help                            ${CYAN}│${RESET}\n"
-        printf "${CYAN}│${RESET}  ${WHITE}q)${RESET} 🚪 Exit                            ${CYAN}│${RESET}\n"
-        printf "${CYAN}╰────────────────────────────────────────╯${RESET}\n"
-        printf "\n${CYAN}Choice: ${RESET}"
-        read -r choice
-        
-        case "$choice" in
-            1) show_profile ;;
-            2) do_continue_watching ;;
-            3) do_search ;;
-            4) do_recommendations ;;
-            5) do_random ;;
-            6) show_help ;;
-            q|Q) 
-                sync_history_to_cloud
-                printf "\n${MAGENTA}Sayonara! 👋${RESET}\n"
-                exit 0
-                ;;
-        esac
-        
-        printf "\n${DIM}Press Enter to continue...${RESET}"
-        read -r _
-    done
-}
+# ══════════════════════════════════════════════════════════════════════════════
+# HELP & MENUS
+# ══════════════════════════════════════════════════════════════════════════════
 
 show_help() {
-    printf "\n${MAGENTA}╭────────────────────────────────────────────────╮${RESET}\n"
-    printf "${MAGENTA}│${RESET}  ${BOLD}NY-CLI Help${RESET}                                   ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}├────────────────────────────────────────────────┤${RESET}\n"
-    printf "${MAGENTA}│${RESET}                                                ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}  ${CYAN}Usage:${RESET} ny-cli [options] [query]             ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}                                                ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}  ${CYAN}Options:${RESET}                                    ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    -s, --search <query>  Search for anime     ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    -c, --continue        Continue watching    ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    -r, --random          Play random anime    ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    -l, --login           Login to account     ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    -L, --logout          Logout               ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    -h, --help            Show this help       ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    -v, --version         Show version         ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}                                                ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}  ${CYAN}Environment Variables:${RESET}                      ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    NYCLI_FIREBASE_API_KEY    Firebase API key ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    NYCLI_FIREBASE_AUTH_DOMAIN  Auth domain    ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    NYCLI_FIREBASE_PROJECT_ID   Project ID     ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    NYCLI_PLAYER              Video player     ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    NYCLI_QUALITY             Video quality    ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}                                                ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}  ${CYAN}Examples:${RESET}                                   ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    ny-cli                  Interactive mode   ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    ny-cli -s \"one piece\"   Search directly    ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    ny-cli -c               Continue watching  ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}    ny-cli -r               Random anime       ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}│${RESET}                                                ${MAGENTA}│${RESET}\n"
-    printf "${MAGENTA}╰────────────────────────────────────────────────╯${RESET}\n"
+    printf '%b\n' "
+${BOLD}NY-CLI${RESET} v${VERSION} - Terminal Anime Streaming
+
+${CYAN}USAGE:${RESET}  ny-cli [OPTIONS] [QUERY]
+
+${CYAN}OPTIONS:${RESET}
+    -s, --search <q>    Search anime
+    -c, --continue      Continue watching  
+    -r, --random        Random anime
+    -t, --trending      Show trending
+    -l, --login         Login
+    -L, --logout        Logout
+    -h, --help          Help
+    -v, --version       Version
+
+${CYAN}EXAMPLES:${RESET}
+    ny-cli                  Interactive mode
+    ny-cli \"one piece\"      Quick search
+    ny-cli -c               Continue watching
+
+${CYAN}PLAYER CONTROLS (mpv):${RESET}
+    Space  Play/Pause    f  Fullscreen
+    ←/→    Seek 5s       q  Quit
+    ↑/↓    Seek 60s      v  Subtitles
+"
+}
+
+main_menu() {
+    while true; do
+        show_banner
+        
+        if is_logged_in; then
+            local username
+            username=$(get_username)
+            printf '%b\n\n' "${CYAN}Welcome, ${WHITE}${username}${CYAN}! 🎉${RESET}"
+            
+            printf '%b\n' "${CYAN}╭────────────────────────────────────────╮${RESET}"
+            printf '%b\n' "${CYAN}│${RESET}  ${WHITE}1)${RESET} 👤 Profile                         ${CYAN}│${RESET}"
+            printf '%b\n' "${CYAN}│${RESET}  ${WHITE}2)${RESET} ▶️  Continue Watching               ${CYAN}│${RESET}"
+            printf '%b\n' "${CYAN}│${RESET}  ${WHITE}3)${RESET} 🔍 Search                          ${CYAN}│${RESET}"
+            printf '%b\n' "${CYAN}│${RESET}  ${WHITE}4)${RESET} 📚 Trending                        ${CYAN}│${RESET}"
+            printf '%b\n' "${CYAN}│${RESET}  ${WHITE}5)${RESET} 🎲 Random                          ${CYAN}│${RESET}"
+            printf '%b\n' "${CYAN}│${RESET}  ${WHITE}h)${RESET} ❓ Help                            ${CYAN}│${RESET}"
+            printf '%b\n' "${CYAN}│${RESET}  ${WHITE}q)${RESET} 🚪 Exit                            ${CYAN}│${RESET}"
+            printf '%b\n\n' "${CYAN}╰────────────────────────────────────────╯${RESET}"
+            prompt "Choice: "
+            read -r c
+            
+            case "$c" in
+                1) show_profile ;;
+                2) do_continue ;;
+                3) do_search ;;
+                4) do_recommendations ;;
+                5) do_random ;;
+                h|H) show_help; printf '%b' "\n${DIM}Press Enter...${RESET}"; read -r _ ;;
+                q|Q) printf '%b\n\n' "\n${MAGENTA}Sayonara! 👋${RESET}"; exit 0 ;;
+            esac
+        else
+            printf '%b\n\n' "${CYAN}Welcome! Sign in for all features.${RESET}"
+            
+            printf '%b\n' "${CYAN}╭────────────────────────────────────────╮${RESET}"
+            printf '%b\n' "${CYAN}│${RESET}  ${WHITE}1)${RESET} 🔍 Search                          ${CYAN}│${RESET}"
+            printf '%b\n' "${CYAN}│${RESET}  ${WHITE}2)${RESET} 📚 Trending                        ${CYAN}│${RESET}"
+            printf '%b\n' "${CYAN}│${RESET}  ${WHITE}3)${RESET} 🔐 Login                           ${CYAN}│${RESET}"
+            printf '%b\n' "${CYAN}│${RESET}  ${WHITE}h)${RESET} ❓ Help                            ${CYAN}│${RESET}"
+            printf '%b\n' "${CYAN}│${RESET}  ${WHITE}q)${RESET} 🚪 Exit                            ${CYAN}│${RESET}"
+            printf '%b\n\n' "${CYAN}╰────────────────────────────────────────╯${RESET}"
+            prompt "Choice: "
+            read -r c
+            
+            case "$c" in
+                1) do_search ;;
+                2) do_recommendations ;;
+                3) do_login ;;
+                h|H) show_help; printf '%b' "\n${DIM}Press Enter...${RESET}"; read -r _ ;;
+                q|Q) printf '%b\n\n' "\n${MAGENTA}Sayonara! 👋${RESET}"; exit 0 ;;
+            esac
+        fi
+    done
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MAIN ENTRY POINT
+# ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
 
 main() {
-    # Check dependencies
-    dep_check "curl" "sed" "grep"
+    check_deps
+    init_dirs
     
-    # Ensure directories exist
-    ensure_dirs
-    
-    # Parse command line arguments
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            -h|--help)
-                show_help
-                exit 0
-                ;;
-            -v|--version)
-                printf "ny-cli version %s\n" "$version_number"
-                exit 0
-                ;;
-            -s|--search)
-                shift
-                query="$1"
-                show_banner
-                if [ -n "$query" ]; then
-                    local results
-                    results=$(search_anime_aniwatch "$query")
-                    if [ -n "$results" ]; then
-                        printf "\n${CYAN}Search Results:${RESET}\n"
-                        printf "%s\n" "$results" | nl -w 2
-                        printf "\n${CYAN}Select anime (number): ${RESET}"
-                        read -r choice
-                        local selected
-                        selected=$(printf '%s\n' "$results" | sed -n "${choice}p")
-                        if [ -n "$selected" ]; then
-                            local anime_id
-                            anime_id=$(printf '%s' "$selected" | cut -f1)
-                            local anime_title
-                            anime_title=$(printf '%s' "$selected" | cut -f2)
-                            watch_anime "$anime_id" "$anime_title"
-                        fi
-                    else
-                        show_error "No results found"
-                    fi
-                fi
-                exit 0
-                ;;
-            -c|--continue)
-                show_banner
-                do_continue_watching
-                exit 0
-                ;;
-            -r|--random)
-                show_banner
-                do_random
-                exit 0
-                ;;
-            -l|--login)
-                show_banner
-                printf "\n${CYAN}Email: ${RESET}"
-                read -r email
-                printf "${CYAN}Password: ${RESET}"
-                stty -echo
-                read -r password
-                stty echo
+    case "${1:-}" in
+        -h|--help) show_help; exit 0 ;;
+        -v|--version) printf "ny-cli %s\n" "$VERSION"; exit 0 ;;
+        -l|--login) show_banner; do_login; exit 0 ;;
+        -L|--logout) do_logout; exit 0 ;;
+        -c|--continue) show_banner; do_continue; exit 0 ;;
+        -r|--random) show_banner; do_random; exit 0 ;;
+        -t|--trending) show_banner; do_recommendations; exit 0 ;;
+        -s|--search)
+            shift
+            show_banner
+            [ -n "$1" ] && {
+                results=$(search_anime "$*")
+                [ -n "$results" ] && {
+                    printf '%b\n' "\n${CYAN}Results:${RESET}"
+                    print_line
+                    i=1
+                    printf '%s\n' "$results" | while IFS='|' read -r id title; do
+                        printf '%b\n' "  ${WHITE}$(printf '%2d' $i))${RESET} $title"
+                        i=$((i + 1))
+                    done
+                    print_line
+                    printf "\n"
+                    prompt "Select: "
+                    read -r c
+                    selected=$(printf '%s\n' "$results" | sed -n "${c}p")
+                    [ -n "$selected" ] && watch_anime "$(printf '%s' "$selected" | cut -d'|' -f1)" "$(printf '%s' "$selected" | cut -d'|' -f2)"
+                } || msg_error "No results"
+            }
+            exit 0
+            ;;
+        "")
+            main_menu
+            ;;
+        *)
+            show_banner
+            results=$(search_anime "$*")
+            [ -n "$results" ] && {
+                printf '%b\n' "\n${CYAN}Results:${RESET}"
+                print_line
+                i=1
+                printf '%s\n' "$results" | while IFS='|' read -r id title; do
+                    printf '%b\n' "  ${WHITE}$(printf '%2d' $i))${RESET} $title"
+                    i=$((i + 1))
+                done
+                print_line
                 printf "\n"
-                auth_signin "$email" "$password"
-                exit 0
-                ;;
-            -L|--logout)
-                auth_logout
-                exit 0
-                ;;
-            *)
-                # Treat as search query
-                query="$*"
-                show_banner
-                if [ -n "$query" ]; then
-                    local results
-                    results=$(search_anime_aniwatch "$query")
-                    if [ -n "$results" ]; then
-                        printf "\n${CYAN}Search Results:${RESET}\n"
-                        printf "%s\n" "$results" | nl -w 2
-                        printf "\n${CYAN}Select anime (number): ${RESET}"
-                        read -r choice
-                        local selected
-                        selected=$(printf '%s\n' "$results" | sed -n "${choice}p")
-                        if [ -n "$selected" ]; then
-                            local anime_id
-                            anime_id=$(printf '%s' "$selected" | cut -f1)
-                            local anime_title
-                            anime_title=$(printf '%s' "$selected" | cut -f2)
-                            watch_anime "$anime_id" "$anime_title"
-                        fi
-                    else
-                        show_error "No results found"
-                    fi
-                fi
-                exit 0
-                ;;
-        esac
-        shift
-    done
-    
-    # No arguments, run interactive mode
-    if is_logged_in; then
-        fetch_cloud_history
-        main_menu_user
-    else
-        main_menu_guest
-    fi
+                prompt "Select: "
+                read -r c
+                selected=$(printf '%s\n' "$results" | sed -n "${c}p")
+                [ -n "$selected" ] && watch_anime "$(printf '%s' "$selected" | cut -d'|' -f1)" "$(printf '%s' "$selected" | cut -d'|' -f2)"
+            } || msg_error "No results"
+            exit 0
+            ;;
+    esac
 }
 
-# Run main
 main "$@"
-
-# ══════════════════════════════════════════════════════════════════════════════
-# LICENSE
-# ══════════════════════════════════════════════════════════════════════════════
-#
-# ny-cli - Terminal-based anime streaming client
-# Copyright (C) 2024 Anjishnu Sengupta
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the MIT License.
-#
-# Project repository: https://github.com/AnjishnuSengupta/ny-cli
-# Website: https://nyanime.tech

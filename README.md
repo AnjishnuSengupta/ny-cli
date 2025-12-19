@@ -18,18 +18,30 @@ A beautiful terminal-based anime streaming client inspired by [ani-cli](https://
 ## ✨ Features
 
 - 🎨 **Beautiful Terminal UI** — Stunning ASCII art and colorful interface
-- 🔐 **Firebase Authentication** — Sign up/login to sync across devices
-- ▶️ **Continue Watching** — Resume where you left off, synced to cloud
+- � **Zero Configuration** — Works out of the box, no setup required
+- 🔐 **Easy Authentication** — Browser-based login via nyanime.tech
+- ▶️ **Continue Watching** — Resume where you left off
 - 🔍 **Search** — Find any anime instantly
-- 📚 **Recommendations** — AI-powered suggestions based on your watch history
+- 🔥 **Trending** — See what's popular right now
 - 🎲 **Random Mode** — Discover new anime randomly
-- 🎬 **Multiple Players** — Support for mpv, vlc, iina, and more
-- 📝 **Subtitles** — Automatic subtitle fetching
-- 💾 **Local History** — Works offline too
+- 🎬 **Multiple Players** — Support for mpv, vlc, iina
+- 💾 **Local History** — Watch history saved locally
 
 ## 📦 Installation
 
-### Quick Install (Recommended)
+### Arch Linux (AUR)
+
+```bash
+yay -S ny-cli
+```
+
+### Quick Install (All Systems)
+
+```bash
+curl -sL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.sh | sh
+```
+
+### Manual Install
 
 ```bash
 # Clone the repository
@@ -39,17 +51,8 @@ cd ny-cli
 # Make it executable
 chmod +x ny-cli
 
-# Install to your PATH (optional)
+# Install to your PATH
 sudo cp ny-cli /usr/local/bin/
-```
-
-### Manual Install
-
-```bash
-# Download directly
-curl -sL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/ny-cli -o ny-cli
-chmod +x ny-cli
-sudo mv ny-cli /usr/local/bin/
 ```
 
 ## 🔧 Dependencies
@@ -128,21 +131,12 @@ ny-cli -v
 
 ## ⚙️ Configuration
 
-### Environment Variables
+### Environment Variables (Optional)
 
-Set these in your `~/.bashrc`, `~/.zshrc`, or shell config:
+All settings are pre-configured. Optionally customize:
 
 ```bash
-# Firebase Configuration (required for auth)
-export NYCLI_FIREBASE_API_KEY="your_api_key"
-export NYCLI_FIREBASE_AUTH_DOMAIN="your_project.firebaseapp.com"
-export NYCLI_FIREBASE_PROJECT_ID="your_project_id"
-
-# API Endpoints (optional, uses defaults)
-export NYCLI_API="https://nyanime.tech"
-export NYCLI_ANIWATCH_API="https://api.nyanime.tech"
-
-# Player (optional, defaults to mpv)
+# Player (defaults to mpv)
 export NYCLI_PLAYER="mpv"  # or vlc, iina
 
 # Quality (optional)
@@ -154,12 +148,20 @@ export NYCLI_CACHE_DIR="$HOME/.cache/ny-cli"
 export NYCLI_DATA_DIR="$HOME/.local/share/ny-cli"
 ```
 
-### Getting Firebase Credentials
+### Login (Optional)
 
-1. Go to [Firebase Console](https://console.firebase.google.com/)
-2. Create a new project or use your existing nyanime project
-3. Go to Project Settings → Your Apps → Web App
-4. Copy the API key, auth domain, and project ID
+To enable cloud sync features, login via browser:
+
+```bash
+ny-cli -l
+```
+
+This opens nyanime.tech/signup in your browser. After signing up/logging in:
+1. Go to your **Profile** page
+2. Copy the **Token** shown there
+3. Paste it in the terminal when prompted
+
+Your watch history will sync between the CLI and website!
 
 ## 🖥️ Supported Platforms
 
@@ -202,13 +204,10 @@ export NYCLI_DATA_DIR="$HOME/.local/share/ny-cli"
 Install mpv: `sudo apt install mpv` (or equivalent for your distro)
 
 ### "No stream URL found"
-The anime might not have sources available. Try another anime or source.
+The anime might not have sources available. Try another anime or episode.
 
 ### Video won't play
 Make sure mpv is installed and working: `mpv --version`
-
-### Can't login
-Check your Firebase credentials are set correctly in environment variables.
 
 ## 🤝 Contributing
 
