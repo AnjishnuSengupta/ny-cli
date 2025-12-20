@@ -544,29 +544,27 @@ get_stream() {
         response=$(printf '%s' "$response" | sed 's/.*"data"[[:space:]]*:[[:space:]]*//' | sed 's/}[[:space:]]*$//')
     fi
     
-    # Extract stream URL from sources array (not from tracks)
-    # Use POSIX-compatible sed instead of grep -P
-    STREAM_URL=$(printf '%s' "$response" | tr ',' '\n' | grep '"url"' | head -1 | sed 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+    # Extract stream URL from sources array - must be inside "sources":[ section
+    # The sources array contains the video, tracks array contains subtitles
+    STREAM_URL=$(printf '%s' "$response" | sed -n 's/.*"sources"[[:space:]]*:[[:space:]]*\[.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+    
+    # Fallback: try extracting m3u8 URL directly
+    [ -z "$STREAM_URL" ] && STREAM_URL=$(printf '%s' "$response" | grep -o '"url"[[:space:]]*:[[:space:]]*"[^"]*\.m3u8"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
     
     # Extract referer from headers
     STREAM_REFERER=$(printf '%s' "$response" | grep -o '"Referer"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
     [ -z "$STREAM_REFERER" ] && STREAM_REFERER="https://megacloud.blog/"
     
-    # Extract subtitles - simple POSIX-compatible approach
+    # Extract subtitles from tracks array - API uses "url" and "lang" fields
     STREAM_SUBTITLES=""
     STREAM_SUBTITLES_ALL=""
     
-    # Method 1: Find English subtitles by looking for "English" near a "file" URL
-    STREAM_SUBTITLES=$(printf '%s' "$response" | tr ',' '\n' | grep -i 'english' | grep -o '"file"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+    # Extract tracks section and find English subtitle
+    # Tracks are in format: {"url":"...","lang":"English"}
+    STREAM_SUBTITLES=$(printf '%s' "$response" | tr '{' '\n' | grep -i '"lang"[[:space:]]*:[[:space:]]*"English"' | grep -o '"url"[[:space:]]*:[[:space:]]*"[^"]*\.vtt"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
     
-    # Method 2: If no English with "file", try "url" field
-    [ -z "$STREAM_SUBTITLES" ] && STREAM_SUBTITLES=$(printf '%s' "$response" | tr ',' '\n' | grep -i 'english' | grep -o '"url"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
-    
-    # Method 3: Get any .vtt subtitle file
-    [ -z "$STREAM_SUBTITLES" ] && STREAM_SUBTITLES=$(printf '%s' "$response" | grep -o '"file"[[:space:]]*:[[:space:]]*"[^"]*\.vtt"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
-    
-    # Method 4: Any subtitle from tracks with captions kind
-    [ -z "$STREAM_SUBTITLES" ] && STREAM_SUBTITLES=$(printf '%s' "$response" | tr '{' '\n' | grep -i 'captions' | grep -o '"file"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+    # Fallback: any .vtt file from tracks
+    [ -z "$STREAM_SUBTITLES" ] && STREAM_SUBTITLES=$(printf '%s' "$response" | grep -o '"url"[[:space:]]*:[[:space:]]*"[^"]*\.vtt"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
     
     # Extract intro timestamps
     STREAM_INTRO_START=$(printf '%s' "$response" | sed -n 's/.*"intro"[[:space:]]*:[[:space:]]*{[^}]*"start"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)
