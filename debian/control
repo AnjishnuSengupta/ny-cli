@@ -1,0 +1,20 @@
+Source: ny-cli
+Section: video
+Priority: optional
+Maintainer: Anjishnu Sengupta <your-email@example.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.0
+Homepage: https://github.com/AnjishnuSengupta/ny-cli
+Vcs-Browser: https://github.com/AnjishnuSengupta/ny-cli
+Vcs-Git: https://github.com/AnjishnuSengupta/ny-cli.git
+Rules-Requires-Root: no
+
+Package: ny-cli
+Architecture: all
+Depends: ${misc:Depends}, curl, grep, sed
+Recommends: mpv
+Suggests: fzf, vlc
+Description: Terminal-based anime streaming client
+ NY-CLI is a beautiful terminal-based anime streaming client
+ powered by nyanime.tech. Features include search, trending,
+ watch history, cloud sync, and support for multiple video players.

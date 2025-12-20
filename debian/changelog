@@ -1,0 +1,9 @@
+ny-cli (1.0.0-1) unstable; urgency=medium
+
+  * Initial release.
+  * Terminal-based anime streaming client
+  * Search, trending, watch history features
+  * Support for mpv, vlc, iina players
+  * Cloud sync via nyanime.tech
+
+ -- Anjishnu Sengupta <your-email@example.com>  Fri, 20 Dec 2025 12:00:00 +0000
