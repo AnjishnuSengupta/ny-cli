@@ -558,19 +558,31 @@ get_stream() {
     local tracks_json=$(printf '%s' "$response" | grep -o '"tracks":\[[^]]*\]')
     
     if [ -n "$tracks_json" ]; then
-        # Parse each track entry and extract lang and url
-        STREAM_SUBTITLES_ALL=$(printf '%s' "$tracks_json" | tr '{' '\n' | grep -E '"kind"[[:space:]]*:[[:space:]]*"captions"' | while read -r track; do
-            local lang=$(printf '%s' "$track" | grep -oP '"label"[[:space:]]*:[[:space:]]*"\K[^"]+')
-            local url=$(printf '%s' "$track" | grep -oP '"file"[[:space:]]*:[[:space:]]*"\K[^"]+')
-            [ -z "$url" ] && url=$(printf '%s' "$track" | grep -oP '"url"[[:space:]]*:[[:space:]]*"\K[^"]+')
+        # Parse each track entry and extract lang and url using sed (POSIX compatible)
+        # Extract all tracks with kind=captions
+        STREAM_SUBTITLES_ALL=$(printf '%s' "$tracks_json" | tr '{' '\n' | grep -i 'captions' | while read -r track; do
+            # Extract label/lang
+            lang=$(printf '%s' "$track" | sed -n 's/.*"label"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            [ -z "$lang" ] && lang=$(printf '%s' "$track" | sed -n 's/.*"lang"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            # Extract file/url
+            url=$(printf '%s' "$track" | sed -n 's/.*"file"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            [ -z "$url" ] && url=$(printf '%s' "$track" | sed -n 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
             [ -n "$url" ] && [ -n "$lang" ] && printf '%s|%s\n' "$lang" "$url"
         done)
         
-        # Set default English subtitle for backward compatibility
+        # Set default English subtitle for backward compatibility  
         STREAM_SUBTITLES=$(printf '%s\n' "$STREAM_SUBTITLES_ALL" | grep -i '^English' | head -1 | cut -d'|' -f2)
         
         # If no English, use first available
         [ -z "$STREAM_SUBTITLES" ] && STREAM_SUBTITLES=$(printf '%s\n' "$STREAM_SUBTITLES_ALL" | head -1 | cut -d'|' -f2)
+    fi
+    
+    # Fallback: try old extraction method if new one failed
+    if [ -z "$STREAM_SUBTITLES" ]; then
+        STREAM_SUBTITLES=$(printf '%s' "$response" | grep -o '"tracks":\[[^]]*\]' | tr '{' '\n' | grep -i '"label".*[Ee]nglish\|[Ee]nglish.*"label"' | \
+            sed -n 's/.*"file"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+        [ -z "$STREAM_SUBTITLES" ] && STREAM_SUBTITLES=$(printf '%s' "$response" | grep -o '"tracks":\[[^]]*\]' | \
+            sed -n 's/.*"file"[[:space:]]*:[[:space:]]*"\([^"]*\.vtt\)".*/\1/p' | head -1)
     fi
     
     # Extract intro timestamps
@@ -681,9 +693,9 @@ play_video() {
             # Disable ytdl to prevent interference with HLS
             mpv_cmd="$mpv_cmd --ytdl=no"
             
-            # Add ALL available subtitles if we have them
+            # Add subtitles - try multiple subtitle sources in order of preference
             if [ -n "$STREAM_SUBTITLES_ALL" ]; then
-                # Build subtitle args - use process substitution alternative for POSIX
+                # Build subtitle args for all available tracks
                 local sub_args=""
                 local oldIFS="$IFS"
                 IFS='
@@ -695,9 +707,12 @@ play_video() {
                     fi
                 done
                 IFS="$oldIFS"
-                mpv_cmd="$mpv_cmd $sub_args"
-                # Set English as default subtitle language, auto-select subtitles
-                mpv_cmd="$mpv_cmd --slang=eng,en,english --sub-auto=fuzzy --sub-visibility=yes"
+                if [ -n "$sub_args" ]; then
+                    mpv_cmd="$mpv_cmd $sub_args"
+                    mpv_cmd="$mpv_cmd --slang=eng,en,english --sub-auto=fuzzy --sub-visibility=yes"
+                elif [ -n "$subtitle" ]; then
+                    mpv_cmd="$mpv_cmd --sub-file='$subtitle' --sub-visibility=yes"
+                fi
             elif [ -n "$subtitle" ]; then
                 # Fallback to single subtitle file
                 mpv_cmd="$mpv_cmd --sub-file='$subtitle' --sub-visibility=yes"
