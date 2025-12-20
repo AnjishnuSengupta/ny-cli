@@ -4,6 +4,6 @@
 	dh $@
 
 override_dh_auto_install:
-	install -Dm755 ny-cli $(DESTDIR)/usr/bin/ny-cli
-	install -Dm644 LICENSE $(DESTDIR)/usr/share/licenses/ny-cli/LICENSE
-	install -Dm644 README.md $(DESTDIR)/usr/share/doc/ny-cli/README.md
+	install -Dm755 ny-cli debian/ny-cli/usr/bin/ny-cli
+	install -Dm644 LICENSE debian/ny-cli/usr/share/licenses/ny-cli/LICENSE
+	install -Dm644 README.md debian/ny-cli/usr/share/doc/ny-cli/README.md
