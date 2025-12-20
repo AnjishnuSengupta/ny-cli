@@ -1,5 +1,5 @@
 Name:           ny-cli
-Version:        1.1.0
+Version:        1.1.1
 Release:        1%{?dist}
 Summary:        Terminal-based anime streaming client
 
@@ -32,13 +32,17 @@ install -Dm644 README.md %{buildroot}%{_docdir}/%{name}/README.md
 %{_bindir}/ny-cli
 
 %changelog
-* Fri Dec 20 2025 Anjishnu Sengupta <itsaemail@duck.com> - 1.1.0-1
+* Sat Dec 20 2025 Anjishnu Sengupta <itsaemail@duck.com> - 1.1.1-1
+- Default to English subtitles
+- Changed Sayonara to Sayounara
+
+* Sat Dec 20 2025 Anjishnu Sengupta <itsaemail@duck.com> - 1.1.0-1
 - Multi-language subtitle support (all available subtitles loaded, English default)
 - Improved random function uses full anime database
 - Fixed install.sh colored output
 - UI improvements and bug fixes
 
-* Fri Dec 20 2025 Anjishnu Sengupta <itsaemail@duck.com> - 1.0.0-1
+* Sat Dec 20 2025 Anjishnu Sengupta <itsaemail@duck.com> - 1.0.0-1
 - Initial package release
 - Terminal-based anime streaming client
 - Search, trending, watch history features
