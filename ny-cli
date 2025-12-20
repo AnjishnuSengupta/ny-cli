@@ -555,16 +555,24 @@ get_stream() {
     STREAM_REFERER=$(printf '%s' "$response" | grep -o '"Referer"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
     [ -z "$STREAM_REFERER" ] && STREAM_REFERER="https://megacloud.blog/"
     
-    # Extract subtitles from tracks array - API uses "url" and "lang" fields
+    # Extract ALL subtitles from tracks array (excluding thumbnails)
+    # Format: lang|url per line for all available subtitle tracks
     STREAM_SUBTITLES=""
     STREAM_SUBTITLES_ALL=""
     
-    # Extract tracks section and find English subtitle
-    # Tracks are in format: {"url":"...","lang":"English"}
-    STREAM_SUBTITLES=$(printf '%s' "$response" | tr '{' '\n' | grep -i '"lang"[[:space:]]*:[[:space:]]*"English"' | grep -o '"url"[[:space:]]*:[[:space:]]*"[^"]*\.vtt"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+    # Get all subtitle tracks - each track has "url" and "lang" fields
+    # Exclude thumbnails track
+    STREAM_SUBTITLES_ALL=$(printf '%s' "$response" | tr '{' '\n' | grep '"lang"' | grep -v -i 'thumbnails' | while read -r track; do
+        lang=$(printf '%s' "$track" | sed -n 's/.*"lang"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+        url=$(printf '%s' "$track" | sed -n 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+        [ -n "$url" ] && [ -n "$lang" ] && printf '%s|%s\n' "$lang" "$url"
+    done)
     
-    # Fallback: any .vtt file from tracks
-    [ -z "$STREAM_SUBTITLES" ] && STREAM_SUBTITLES=$(printf '%s' "$response" | grep -o '"url"[[:space:]]*:[[:space:]]*"[^"]*\.vtt"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+    # Set default English subtitle for backward compatibility
+    STREAM_SUBTITLES=$(printf '%s\n' "$STREAM_SUBTITLES_ALL" | grep -i '^English|' | head -1 | cut -d'|' -f2)
+    
+    # If no English, use first available
+    [ -z "$STREAM_SUBTITLES" ] && STREAM_SUBTITLES=$(printf '%s\n' "$STREAM_SUBTITLES_ALL" | head -1 | cut -d'|' -f2)
     
     # Extract intro timestamps
     STREAM_INTRO_START=$(printf '%s' "$response" | sed -n 's/.*"intro"[[:space:]]*:[[:space:]]*{[^}]*"start"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)
@@ -674,8 +682,18 @@ play_video() {
             # Disable ytdl to prevent interference with HLS
             mpv_cmd="$mpv_cmd --ytdl=no"
             
-            # Add subtitles if available
-            if [ -n "$subtitle" ]; then
+            # Add all available subtitles so user can switch between languages
+            if [ -n "$STREAM_SUBTITLES_ALL" ]; then
+                # Write subtitle URLs to temp file, then read back
+                local sub_file="${CACHE_DIR}/sub_urls.txt"
+                printf '%s\n' "$STREAM_SUBTITLES_ALL" | cut -d'|' -f2 > "$sub_file"
+                while IFS= read -r sub_url; do
+                    [ -n "$sub_url" ] && mpv_cmd="$mpv_cmd --sub-files-append='$sub_url'"
+                done < "$sub_file"
+                rm -f "$sub_file"
+                mpv_cmd="$mpv_cmd --slang=eng,en,English --sub-visibility=yes"
+            elif [ -n "$subtitle" ]; then
+                # Fallback to single subtitle file
                 mpv_cmd="$mpv_cmd --sub-file='$subtitle' --sub-visibility=yes"
             fi
             
