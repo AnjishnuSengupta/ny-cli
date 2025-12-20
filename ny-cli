@@ -21,6 +21,10 @@ NYANIME_BASE="https://www.nyanime.tech"
 ANIWATCH_API="https://nyanime-backend-v2.onrender.com"
 CONSUMET_API="https://consumet-api-gs81.onrender.com"
 
+# Firebase Configuration (NyAnime project)
+FIREBASE_PROJECT_ID="nyanime-tech"
+FIRESTORE_BASE="https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents"
+
 # User agent
 USER_AGENT="Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0"
 
@@ -216,7 +220,7 @@ do_login() {
     printf '%b\n' "${MAGENTA}├─────────────────────────────────────────────────┤${RESET}"
     printf '%b\n' "${MAGENTA}│${RESET}  1. Sign up/login at nyanime.tech              ${MAGENTA}│${RESET}"
     printf '%b\n' "${MAGENTA}│${RESET}  2. Go to your Profile page                    ${MAGENTA}│${RESET}"
-    printf '%b\n' "${MAGENTA}│${RESET}  3. Copy the Token shown there                 ${MAGENTA}│${RESET}"
+    printf '%b\n' "${MAGENTA}│${RESET}  3. Copy your User ID shown there              ${MAGENTA}│${RESET}"
     printf '%b\n' "${MAGENTA}│${RESET}  4. Paste it here                              ${MAGENTA}│${RESET}"
     printf '%b\n' "${MAGENTA}╰─────────────────────────────────────────────────╯${RESET}"
     printf "\n"
@@ -226,23 +230,39 @@ do_login() {
     open_url "$login_url"
     
     msg_info "If browser didn't open, visit: ${login_url}"
-    msg_info "After signing in, go to Profile to find your Token"
+    msg_info "After signing in, go to Profile to find your User ID"
     printf "\n"
     
     prompt "Your username: "
     read -r username
-    prompt "Paste token: "
-    read -r token
+    [ -z "$username" ] && { msg_error "Login cancelled"; return; }
     
-    if [ -n "$username" ] && [ -n "$token" ]; then
-        printf '%s\n%s\n' "$username" "$token" > "$AUTH_FILE"
+    prompt "Paste User ID: "
+    read -r firebase_uid
+    [ -z "$firebase_uid" ] && { msg_error "Login cancelled"; return; }
+    
+    # Verify the UID exists in Firebase by checking the user document
+    msg "Verifying account..."
+    local verify_resp
+    verify_resp=$(curl -s --connect-timeout 10 --max-time 15 \
+        "${FIRESTORE_BASE}/users/${firebase_uid}" 2>/dev/null)
+    
+    # Check if we got a valid response (user exists)
+    if printf '%s' "$verify_resp" | grep -q '"fields"' 2>/dev/null; then
+        printf '%s\n%s\n' "$username" "$firebase_uid" > "$AUTH_FILE"
         chmod 600 "$AUTH_FILE"
         printf "\n"
         msg_success "Welcome, ${username}! 🎉"
+        msg_info "Your watch history will sync to the cloud"
         # Try to sync any pending watch history
         sync_pending_history
     else
-        msg_error "Login cancelled"
+        # User might not exist yet or network error - store locally anyway
+        printf '%s\n%s\n' "$username" "$firebase_uid" > "$AUTH_FILE"
+        chmod 600 "$AUTH_FILE"
+        printf "\n"
+        msg_success "Welcome, ${username}!"
+        msg_warn "Could not verify account - history will sync when online"
     fi
 }
 
@@ -279,7 +299,11 @@ save_pending_sync() {
     printf '%s|%s|%s|%s|%s\n' "$anime_id" "$episode_id" "$timestamp" "$ep_num" "$sync_time" >> "$PENDING_SYNC_FILE"
 }
 
-# Sync pending history to Firestore
+# Sync pending history to Firestore (using Firebase REST API)
+# Note: Without authentication, we can only read public data. For writing,
+# the user needs to be authenticated via nyanime.tech first, which sets up
+# their Firestore document. We store history locally and sync when the 
+# backend API endpoint becomes available.
 sync_pending_history() {
     [ ! -f "$PENDING_SYNC_FILE" ] && return 0
     [ ! -s "$PENDING_SYNC_FILE" ] && return 0
@@ -287,9 +311,9 @@ sync_pending_history() {
     is_logged_in || return 0
     is_online || return 0
     
-    local token
-    token=$(get_token)
-    [ -z "$token" ] && return 0
+    local firebase_uid
+    firebase_uid=$(get_token)
+    [ -z "$firebase_uid" ] && return 0
     
     local synced=0
     local temp_file="${PENDING_SYNC_FILE}.syncing"
@@ -298,17 +322,19 @@ sync_pending_history() {
     while IFS='|' read -r anime_id episode_id timestamp ep_num sync_time; do
         [ -z "$anime_id" ] && continue
         
-        # Send to backend API
+        # Try to sync via nyanime API (when available)
+        # For now, just save locally - the backend API will be added later
+        local response
         response=$(curl -s -X POST "${NYANIME_BASE}/api/cli/sync-watch" \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${token}" \
+            -H "X-Firebase-UID: ${firebase_uid}" \
             -d "{\"animeId\": \"${anime_id}\", \"episodeId\": \"${episode_id}\", \"timestamp\": ${timestamp}, \"episodeNum\": ${ep_num}}" \
-            2>/dev/null)
+            --connect-timeout 5 --max-time 10 2>/dev/null)
         
         if printf '%s' "$response" | grep -q '"success"' 2>/dev/null; then
             synced=$((synced + 1))
         else
-            # Keep failed entries for retry
+            # Keep failed entries for retry (API not ready yet)
             printf '%s|%s|%s|%s|%s\n' "$anime_id" "$episode_id" "$timestamp" "$ep_num" "$sync_time" >> "$temp_file"
         fi
     done < "$PENDING_SYNC_FILE"
