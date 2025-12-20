@@ -1,4 +1,4 @@
-# Maintainer: Anjishnu Sengupta <your-email@example.com>
+# Maintainer: Anjishnu Sengupta <anjishnusengupta947@gmail.com>
 pkgname=ny-cli
 pkgver=1.0.0
 pkgrel=1
