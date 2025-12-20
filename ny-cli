@@ -10,7 +10,7 @@
 # Just install and run - no configuration needed!
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION="1.1.0"
+VERSION="1.1.1"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # BACKEND CONFIGURATION (Pre-configured - no user setup needed)
@@ -684,14 +684,16 @@ play_video() {
             
             # Add all available subtitles so user can switch between languages
             if [ -n "$STREAM_SUBTITLES_ALL" ]; then
-                # Write subtitle URLs to temp file, then read back
+                # Write subtitle URLs to temp file - English first, then others
                 local sub_file="${CACHE_DIR}/sub_urls.txt"
-                printf '%s\n' "$STREAM_SUBTITLES_ALL" | cut -d'|' -f2 > "$sub_file"
+                # Put English first so it's the default track
+                printf '%s\n' "$STREAM_SUBTITLES_ALL" | grep -i '^English|' | cut -d'|' -f2 > "$sub_file"
+                printf '%s\n' "$STREAM_SUBTITLES_ALL" | grep -vi '^English|' | cut -d'|' -f2 >> "$sub_file"
                 while IFS= read -r sub_url; do
                     [ -n "$sub_url" ] && mpv_cmd="$mpv_cmd --sub-files-append='$sub_url'"
                 done < "$sub_file"
                 rm -f "$sub_file"
-                mpv_cmd="$mpv_cmd --slang=eng,en,English --sub-visibility=yes"
+                mpv_cmd="$mpv_cmd --slang=eng,en,English --sid=1 --sub-visibility=yes"
             elif [ -n "$subtitle" ]; then
                 # Fallback to single subtitle file
                 mpv_cmd="$mpv_cmd --sub-file='$subtitle' --sub-visibility=yes"
@@ -1069,7 +1071,7 @@ main_menu() {
                 4) do_recommendations ;;
                 5) do_random ;;
                 h|H) show_help; printf '%b' "\n${DIM}Press Enter...${RESET}"; read -r _ ;;
-                q|Q) printf '%b\n\n' "\n${MAGENTA}Sayonara! 👋${RESET}"; exit 0 ;;
+                q|Q) printf '%b\n\n' "\n${MAGENTA}Sayounara! 👋${RESET}"; exit 0 ;;
             esac
         else
             printf '%b\n\n' "${CYAN}Welcome! Sign in for all features.${RESET}"
@@ -1089,7 +1091,7 @@ main_menu() {
                 2) do_recommendations ;;
                 3) do_login ;;
                 h|H) show_help; printf '%b' "\n${DIM}Press Enter...${RESET}"; read -r _ ;;
-                q|Q) printf '%b\n\n' "\n${MAGENTA}Sayonara! 👋${RESET}"; exit 0 ;;
+                q|Q) printf '%b\n\n' "\n${MAGENTA}Sayounara! 👋${RESET}"; exit 0 ;;
             esac
         fi
     done
