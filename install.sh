@@ -92,7 +92,7 @@ fi
 
 printf "\n"
 printf "${GREEN}╭────────────────────────────────────────╮${RESET}\n"
-printf "${GREEN}│${RESET}  Installation complete! 🎉              ${GREEN}│${RESET}\n"
+printf "${GREEN}│${RESET}  Installation complete! 🎉             ${GREEN}│${RESET}\n"
 printf "${GREEN}├────────────────────────────────────────┤${RESET}\n"
 printf "${GREEN}│${RESET}  Run 'ny-cli' to start watching anime  ${GREEN}│${RESET}\n"
 printf "${GREEN}│${RESET}  Run 'ny-cli --help' for options       ${GREEN}│${RESET}\n"
