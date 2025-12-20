@@ -247,34 +247,11 @@ This opens nyanime.tech/signup in your browser. After signing up/logging in:
 
 Your watch history will sync between the CLI and website!
 
-## 🔄 Updating
-
-### Arch Linux
-```bash
-yay -Syu ny-cli
-```
-
-### Debian/Ubuntu
-```bash
-sudo apt update && sudo apt upgrade ny-cli
-```
-
-### Fedora
-```bash
-sudo dnf upgrade ny-cli
-```
-
-### Manual Update
-```bash
-cd ny-cli && git pull && sudo install -Dm755 ny-cli /usr/local/bin/ny-cli
-```
-
 ## 🖥️ Supported Platforms
 
 - ✅ Linux (all distros)
 - ✅ macOS
 - ✅ WSL (Windows Subsystem for Linux)
-- ✅ Termux (Android)
 
 ## 🎮 Controls
 
@@ -306,9 +283,6 @@ cd ny-cli && git pull && sudo install -Dm755 ny-cli /usr/local/bin/ny-cli
 
 ## 🐛 Troubleshooting
 
-### "Missing dependency: mpv"
-Install mpv: `sudo apt install mpv` (or equivalent for your distro)
-
 ### "No stream URL found"
 The anime might not have sources available. Try another anime or episode.
 
@@ -326,33 +300,10 @@ Contributions are welcome! Feel free to:
 
 MIT License — Use freely, just give credit!
 
-## � Package Maintainer Guide
-
-Want to package `ny-cli` for your distro? Here's how:
-
-### Arch Linux (AUR)
-1. The `PKGBUILD` is included in the repository
-2. Test locally: `makepkg -si`
-3. Submit to AUR: https://wiki.archlinux.org/title/AUR_submission_guidelines
-
-### Debian/Ubuntu
-1. Packaging files are in `debian/` directory
-2. Build: `dpkg-buildpackage -us -uc -b`
-3. For PPA: https://help.launchpad.net/Packaging/PPA
-
-### Fedora (COPR)
-1. RPM spec file: `ny-cli.spec`
-2. Build: `rpmbuild -ba ny-cli.spec`
-3. COPR: https://docs.pagure.org/copr.copr/user_documentation.html
-
-### Homebrew
-1. Create a tap repository
-2. Add formula pointing to release tarball
-
-## �🔗 Links
+## 🔗 Links
 
 - 🌐 **Website:** [nyanime.tech](https://nyanime.tech)
-- 📦 **Repository:** [github.com/AnjishnuSengupta/ny-cli](https://github.com/AnjishnuSengupta/ny-cli)
+- 📦 **Repository:** [github.com/AnjishnuSengupta/nyanime](https://github.com/AnjishnuSengupta/nyanime)
 - 🐛 **Issues:** [Report bugs here](https://github.com/AnjishnuSengupta/ny-cli/issues)
 
 ## ⚠️ Disclaimer
