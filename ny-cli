@@ -10,7 +10,7 @@
 # Just install and run - no configuration needed!
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # BACKEND CONFIGURATION (Pre-configured - no user setup needed)
@@ -83,7 +83,7 @@ EOF
     printf '%b' "${RESET}"
     printf '%b\n' "${DIM}${CYAN}         ⟨ Your Gateway to Anime Streaming ⟩${RESET}"
     printf '%b\n' "${DIM}         ─────────────────────────────────────${RESET}"
-    printf '%b\n\n' "${DIM}         v${VERSION} ${RESET}${DIM}• ${CYAN}nyanime.tech${RESET}"
+    printf '%b\n\n' "${DIM}              v${VERSION} • ${CYAN}nyanime.tech${RESET}"
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -551,13 +551,27 @@ get_stream() {
     STREAM_REFERER=$(printf '%s' "$response" | grep -o '"Referer"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
     [ -z "$STREAM_REFERER" ] && STREAM_REFERER="https://megacloud.blog/"
     
-    # Extract English subtitles from tracks array (prefer English, fallback to first available)
-    STREAM_SUBTITLES=$(printf '%s' "$response" | grep -o '"tracks":\[[^]]*\]' | tr '{' '\n' | grep -i '"lang".*[Ee]nglish' | \
-        grep -oP '"url"\s*:\s*"\K[^"]+' | head -1)
+    # Extract ALL subtitles from tracks array - format: "lang|url" per line
+    # This allows users to have all subtitle languages available
+    STREAM_SUBTITLES=""
+    STREAM_SUBTITLES_ALL=""
+    local tracks_json=$(printf '%s' "$response" | grep -o '"tracks":\[[^]]*\]')
     
-    # If no English subs, try any subtitle VTT file from tracks
-    [ -z "$STREAM_SUBTITLES" ] && STREAM_SUBTITLES=$(printf '%s' "$response" | grep -o '"tracks":\[[^]]*\]' | \
-        grep -oP '"url"\s*:\s*"[^"]*\.vtt' | head -1 | sed 's/.*"\([^"]*\)/\1/')
+    if [ -n "$tracks_json" ]; then
+        # Parse each track entry and extract lang and url
+        STREAM_SUBTITLES_ALL=$(printf '%s' "$tracks_json" | tr '{' '\n' | grep -E '"kind"[[:space:]]*:[[:space:]]*"captions"' | while read -r track; do
+            local lang=$(printf '%s' "$track" | grep -oP '"label"[[:space:]]*:[[:space:]]*"\K[^"]+')
+            local url=$(printf '%s' "$track" | grep -oP '"file"[[:space:]]*:[[:space:]]*"\K[^"]+')
+            [ -z "$url" ] && url=$(printf '%s' "$track" | grep -oP '"url"[[:space:]]*:[[:space:]]*"\K[^"]+')
+            [ -n "$url" ] && [ -n "$lang" ] && printf '%s|%s\n' "$lang" "$url"
+        done)
+        
+        # Set default English subtitle for backward compatibility
+        STREAM_SUBTITLES=$(printf '%s\n' "$STREAM_SUBTITLES_ALL" | grep -i '^English' | head -1 | cut -d'|' -f2)
+        
+        # If no English, use first available
+        [ -z "$STREAM_SUBTITLES" ] && STREAM_SUBTITLES=$(printf '%s\n' "$STREAM_SUBTITLES_ALL" | head -1 | cut -d'|' -f2)
+    fi
     
     # Extract intro timestamps
     STREAM_INTRO_START=$(printf '%s' "$response" | sed -n 's/.*"intro"[[:space:]]*:[[:space:]]*{[^}]*"start"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)
@@ -667,8 +681,25 @@ play_video() {
             # Disable ytdl to prevent interference with HLS
             mpv_cmd="$mpv_cmd --ytdl=no"
             
-            # Add subtitles if available
-            if [ -n "$subtitle" ]; then
+            # Add ALL available subtitles if we have them
+            if [ -n "$STREAM_SUBTITLES_ALL" ]; then
+                # Build subtitle args - use process substitution alternative for POSIX
+                local sub_args=""
+                local oldIFS="$IFS"
+                IFS='
+'
+                for line in $STREAM_SUBTITLES_ALL; do
+                    local sub_url=$(printf '%s' "$line" | cut -d'|' -f2)
+                    if [ -n "$sub_url" ]; then
+                        sub_args="$sub_args --sub-files-append='$sub_url'"
+                    fi
+                done
+                IFS="$oldIFS"
+                mpv_cmd="$mpv_cmd $sub_args"
+                # Set English as default subtitle language, auto-select subtitles
+                mpv_cmd="$mpv_cmd --slang=eng,en,english --sub-auto=fuzzy --sub-visibility=yes"
+            elif [ -n "$subtitle" ]; then
+                # Fallback to single subtitle file
                 mpv_cmd="$mpv_cmd --sub-file='$subtitle' --sub-visibility=yes"
             fi
             
@@ -921,15 +952,24 @@ do_random() {
     printf "\n"
     msg "Finding random anime..."
     
-    trending=$(get_trending)
-    [ -z "$trending" ] && msg_error "Failed" && return
+    # Generate random search query from common anime terms for true randomness
+    local random_terms="a b c d e f g h i j k l m n o p q r s t u v w x y z 1 2 3"
+    local term_count=29
+    local rand_idx=$(awk 'BEGIN { srand(); print int(rand() * '"$term_count"') + 1 }')
+    local query=$(printf '%s' "$random_terms" | tr ' ' '\n' | sed -n "${rand_idx}p")
     
-    count=$(printf '%s\n' "$trending" | wc -l)
-    idx=$(awk 'BEGIN { srand(); print int(rand() * '"$count"') + 1 }')
-    selected=$(printf '%s\n' "$trending" | sed -n "${idx}p")
+    # Search with random letter/number to get diverse results
+    local results
+    results=$(search_anime "$query" 2>/dev/null)
+    [ -z "$results" ] && { msg_error "Failed to find anime"; return; }
     
-    anime_id=$(printf '%s' "$selected" | cut -d'|' -f1)
-    anime_title=$(printf '%s' "$selected" | cut -d'|' -f2)
+    # Pick random anime from results
+    local count=$(printf '%s\n' "$results" | wc -l)
+    local idx=$(awk 'BEGIN { srand(); print int(rand() * '"$count"') + 1 }')
+    local selected=$(printf '%s\n' "$results" | sed -n "${idx}p")
+    
+    local anime_id=$(printf '%s' "$selected" | cut -d'|' -f1)
+    local anime_title=$(printf '%s' "$selected" | cut -d'|' -f2)
     
     printf '%b\n\n' "\n${YELLOW}🎲 Random:${RESET} ${WHITE}${anime_title}${RESET}"
     prompt "Watch? [Y/n]: "
@@ -1018,7 +1058,7 @@ main_menu() {
             
             printf '%b\n' "${CYAN}╭────────────────────────────────────────╮${RESET}"
             printf '%b\n' "${CYAN}│${RESET}  ${WHITE}1)${RESET} 👤 Profile                         ${CYAN}│${RESET}"
-            printf '%b\n' "${CYAN}│${RESET}  ${WHITE}2)${RESET} ▶️  Continue Watching               ${CYAN}│${RESET}"
+            printf '%b\n' "${CYAN}│${RESET}  ${WHITE}2)${RESET} ▶️  Continue Watching              ${CYAN}│${RESET}"
             printf '%b\n' "${CYAN}│${RESET}  ${WHITE}3)${RESET} 🔍 Search                          ${CYAN}│${RESET}"
             printf '%b\n' "${CYAN}│${RESET}  ${WHITE}4)${RESET} 📚 Trending                        ${CYAN}│${RESET}"
             printf '%b\n' "${CYAN}│${RESET}  ${WHITE}5)${RESET} 🎲 Random                          ${CYAN}│${RESET}"

@@ -1,3 +1,12 @@
+ny-cli (1.1.0-1) unstable; urgency=medium
+
+  * Multi-language subtitle support (all available subtitles loaded, English default)
+  * Improved random function uses full anime database
+  * Fixed install.sh colored output
+  * UI improvements and bug fixes
+
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Fri, 20 Dec 2025 13:00:00 +0000
+
 ny-cli (1.0.0-1) unstable; urgency=medium
 
   * Initial release.
@@ -6,4 +15,4 @@ ny-cli (1.0.0-1) unstable; urgency=medium
   * Support for mpv, vlc, iina players
   * Cloud sync via nyanime.tech
 
- -- Anjishnu Sengupta <your-email@example.com>  Fri, 20 Dec 2025 12:00:00 +0000
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Fri, 20 Dec 2025 12:00:00 +0000
