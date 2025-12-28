@@ -23,7 +23,7 @@ printf "  ╚═╝  ╚═══╝   ╚═╝          ╚═════╝�
 printf "${RESET}\n"
 printf "${DIM}${CYAN}       ⟨ Your Gateway to Anime Streaming ⟩${RESET}\n"
 printf "${DIM}       ─────────────────────────────────────${RESET}\n"
-printf "${DIM}            v1.1.0 • nyanime.tech${RESET}\n"
+printf "${DIM}            v2.0.0 • nyanime.tech${RESET}\n"
 printf "\n"
 
 # Determine install location

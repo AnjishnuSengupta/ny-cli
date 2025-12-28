@@ -1,4 +1,4 @@
-ny-cli (1.2.0-1) unstable; urgency=medium
+ny-cli (2.0.0-1) unstable; urgency=medium
 
   * Cloud sync: Fetch watch history from nyanime.tech website
   * Cloud sync: Push watch history from ny-cli to website
