@@ -1,0 +1,46 @@
+name: Publish to AUR
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  aur-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Update PKGBUILD version
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+
+      - name: Generate .SRCINFO
+        uses: docker://archlinux:latest
+        with:
+          entrypoint: /bin/bash
+          args: |
+            -c "
+            pacman -Sy --noconfirm base-devel
+            useradd -m builder
+            chown -R builder:builder .
+            su builder -c 'makepkg --printsrcinfo > .SRCINFO'
+            "
+
+      - name: Publish to AUR
+        uses: KSXGitHub/github-actions-deploy-aur@v3.0.1
+        with:
+          pkgname: ny-cli
+          pkgbuild: ./PKGBUILD
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to version ${{ steps.version.outputs.VERSION }}"
+          force_push: true
