@@ -1,3 +1,13 @@
+ny-cli (1.2.0-1) unstable; urgency=medium
+
+  * Cloud sync: Fetch watch history from nyanime.tech website
+  * Cloud sync: Push watch history from ny-cli to website
+  * Fixed duplicate entries in continue watching list
+  * Improved history deduplication with awk
+  * Better offline support with pending sync
+
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Sat, 28 Dec 2025 12:00:00 +0000
+
 ny-cli (1.1.0-1) unstable; urgency=medium
 
   * Multi-language subtitle support (all available subtitles loaded, English default)
