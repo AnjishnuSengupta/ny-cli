@@ -11,7 +11,7 @@
 
 A beautiful terminal-based anime streaming client inspired by [ani-cli](https://github.com/pystardust/ani-cli), powered by [nyanime.tech](https://nyanime.tech).
 
-[![Version](https://img.shields.io/badge/version-1.1.1-purple)](https://github.com/AnjishnuSengupta/ny-cli)
+[![Version](https://img.shields.io/badge/version-2.5.0-purple)](https://github.com/AnjishnuSengupta/ny-cli)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Shell](https://img.shields.io/badge/shell-POSIX-blue)](https://en.wikipedia.org/wiki/POSIX)
 

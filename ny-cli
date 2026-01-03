@@ -10,7 +10,7 @@
 # Just install and run - no configuration needed!
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION="2.0.0"
+VERSION="2.5.0"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # BACKEND CONFIGURATION (Pre-configured - no user setup needed)

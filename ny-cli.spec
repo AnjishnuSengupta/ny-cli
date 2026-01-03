@@ -1,5 +1,5 @@
 Name:           ny-cli
-Version:        2.0.0
+Version:        2.5.0
 Release:        1%{?dist}
 Summary:        Terminal-based anime streaming client
 
@@ -32,6 +32,11 @@ install -Dm644 README.md %{buildroot}%{_docdir}/%{name}/README.md
 %{_bindir}/ny-cli
 
 %changelog
+* Fri Jan 03 2026 Anjishnu Sengupta <itsaemail@duck.com> - 2.5.0-1
+- Unified Continue Watching: CLI and website share the same history
+- Cloud sync uses main Firestore history field for bidirectional sync
+- Server fetches malId from API for proper website compatibility
+
 * Sat Dec 28 2025 Anjishnu Sengupta <itsaemail@duck.com> - 2.0.0-1
 - Cloud sync: Fetch watch history from nyanime.tech website
 - Cloud sync: Push watch history from ny-cli to website

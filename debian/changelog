@@ -1,3 +1,12 @@
+ny-cli (2.5.0-1) unstable; urgency=medium
+
+  * Unified Continue Watching: CLI and website now share the same history
+  * Cloud sync uses main Firestore history field for bidirectional sync
+  * Server now fetches malId from API for proper website compatibility
+  * All synced entries visible on both nyanime.tech and ny-cli
+
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Fri, 03 Jan 2026 12:00:00 +0000
+
 ny-cli (2.0.0-1) unstable; urgency=medium
 
   * Cloud sync: Fetch watch history from nyanime.tech website
