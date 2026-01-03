@@ -300,40 +300,40 @@ fetch_and_merge_cloud_history() {
     
     msg "Syncing with cloud..."
     
-    # Fetch history from the CLI sync API
+    # Fetch history from the CLI history API (GET request)
     local response
     response=$(curl -s --connect-timeout 10 --max-time 30 \
-        "${NYANIME_BASE}/api/cli/sync-watch" \
+        "${NYANIME_BASE}/api/cli/history" \
         -H "X-Firebase-UID: ${firebase_uid}" \
         2>/dev/null)
     
     # Check if we got valid history from the API
     if printf '%s' "$response" | grep -q '"success"' 2>/dev/null; then
-        # Parse API format - contains animeSlug and animeTitle
-        local merged_count=0
+        # Parse API format - contains animeSlug, animeTitle, episodeNum
         local cloud_tmp="${CACHE_DIR}/cloud_merged.tmp"
         > "$cloud_tmp"
         
         # Extract each history item with slug and title
         printf '%s' "$response" | tr '{' '\n' | grep '"animeSlug"' | while read -r item; do
-            local slug title ep_id
+            local slug title ep_num
             slug=$(printf '%s' "$item" | sed -n 's/.*"animeSlug"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
             title=$(printf '%s' "$item" | sed -n 's/.*"animeTitle"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-            ep_id=$(printf '%s' "$item" | sed -n 's/.*"episodeId"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')
+            ep_num=$(printf '%s' "$item" | sed -n 's/.*"episodeNum"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')
             
-            if [ -n "$slug" ] && [ -n "$title" ] && [ -n "$ep_id" ]; then
+            if [ -n "$slug" ] && [ -n "$title" ]; then
+                [ -z "$ep_num" ] && ep_num=1
                 # Check if this anime is already in local history
                 if [ -f "$HISTORY_FILE" ]; then
                     if ! grep -q "^${slug}|" "$HISTORY_FILE" 2>/dev/null; then
                         # Add to local history (new entry from cloud)
                         local timestamp
                         timestamp=$(date +%s)
-                        printf '%s|%s|%s|%s\n' "$slug" "$title" "$ep_id" "$timestamp" >> "$cloud_tmp"
+                        printf '%s|%s|%s|%s\n' "$slug" "$title" "$ep_num" "$timestamp" >> "$cloud_tmp"
                     fi
                 else
                     local timestamp
                     timestamp=$(date +%s)
-                    printf '%s|%s|%s|%s\n' "$slug" "$title" "$ep_id" "$timestamp" >> "$cloud_tmp"
+                    printf '%s|%s|%s|%s\n' "$slug" "$title" "$ep_num" "$timestamp" >> "$cloud_tmp"
                 fi
             fi
         done
@@ -356,33 +356,23 @@ fetch_and_merge_cloud_history() {
         return 0
     fi
     
-    # Fallback: API not available, try direct Firestore read (limited parsing)
-    response=$(curl -s --connect-timeout 10 --max-time 15 \
-        "${FIRESTORE_BASE}/users/${firebase_uid}" 2>/dev/null)
-    
-    if printf '%s' "$response" | grep -q '"history"' 2>/dev/null; then
-        msg_info "Cloud sync API not available - using cached data"
-    fi
+    msg_info "Cloud sync not available - using local history"
 }
 
 # Save watch progress to pending sync file (for offline support)
 save_pending_sync() {
-    local anime_id="$1" episode_id="$2" timestamp="$3" ep_num="$4"
+    local anime_slug="$1" anime_title="$2" ep_num="$3"
     local sync_time
     sync_time=$(date +%s)
     
     # Remove existing entry for this anime
-    [ -f "$PENDING_SYNC_FILE" ] && grep -v "^${anime_id}|" "$PENDING_SYNC_FILE" > "${PENDING_SYNC_FILE}.tmp" 2>/dev/null && mv "${PENDING_SYNC_FILE}.tmp" "$PENDING_SYNC_FILE"
+    [ -f "$PENDING_SYNC_FILE" ] && grep -v "^${anime_slug}|" "$PENDING_SYNC_FILE" > "${PENDING_SYNC_FILE}.tmp" 2>/dev/null && mv "${PENDING_SYNC_FILE}.tmp" "$PENDING_SYNC_FILE"
     
-    # Add new entry: anime_id|episode_id|timestamp|ep_num|sync_time
-    printf '%s|%s|%s|%s|%s\n' "$anime_id" "$episode_id" "$timestamp" "$ep_num" "$sync_time" >> "$PENDING_SYNC_FILE"
+    # Add new entry: anime_slug|anime_title|ep_num|sync_time
+    printf '%s|%s|%s|%s\n' "$anime_slug" "$anime_title" "$ep_num" "$sync_time" >> "$PENDING_SYNC_FILE"
 }
 
-# Sync pending history to Firestore (using Firebase REST API)
-# Note: Without authentication, we can only read public data. For writing,
-# the user needs to be authenticated via nyanime.tech first, which sets up
-# their Firestore document. We store history locally and sync when the 
-# backend API endpoint becomes available.
+# Sync pending history to cloud via nyanime API
 sync_pending_history() {
     [ ! -f "$PENDING_SYNC_FILE" ] && return 0
     [ ! -s "$PENDING_SYNC_FILE" ] && return 0
@@ -398,23 +388,24 @@ sync_pending_history() {
     local temp_file="${PENDING_SYNC_FILE}.syncing"
     
     # Process each pending entry
-    while IFS='|' read -r anime_id episode_id timestamp ep_num sync_time; do
-        [ -z "$anime_id" ] && continue
+    while IFS='|' read -r anime_slug anime_title ep_num sync_time; do
+        [ -z "$anime_slug" ] && continue
+        [ -z "$anime_title" ] && anime_title="$anime_slug"
+        [ -z "$ep_num" ] && ep_num=1
         
-        # Try to sync via nyanime API (when available)
-        # For now, just save locally - the backend API will be added later
+        # Sync via nyanime API with slug-based format
         local response
         response=$(curl -s -X POST "${NYANIME_BASE}/api/cli/sync-watch" \
             -H "Content-Type: application/json" \
             -H "X-Firebase-UID: ${firebase_uid}" \
-            -d "{\"animeId\": \"${anime_id}\", \"episodeId\": \"${episode_id}\", \"timestamp\": ${timestamp}, \"episodeNum\": ${ep_num}}" \
+            -d "{\"animeSlug\": \"${anime_slug}\", \"animeTitle\": \"${anime_title}\", \"episodeNum\": ${ep_num}}" \
             --connect-timeout 5 --max-time 10 2>/dev/null)
         
         if printf '%s' "$response" | grep -q '"success"' 2>/dev/null; then
             synced=$((synced + 1))
         else
-            # Keep failed entries for retry (API not ready yet)
-            printf '%s|%s|%s|%s|%s\n' "$anime_id" "$episode_id" "$timestamp" "$ep_num" "$sync_time" >> "$temp_file"
+            # Keep failed entries for retry
+            printf '%s|%s|%s|%s\n' "$anime_slug" "$anime_title" "$ep_num" "$sync_time" >> "$temp_file"
         fi
     done < "$PENDING_SYNC_FILE"
     
@@ -430,19 +421,15 @@ sync_pending_history() {
 
 # Background sync daemon (called during playback)
 start_sync_daemon() {
-    local anime_id="$1" episode_id="$2" ep_num="$3"
+    local anime_slug="$1" anime_title="$2" ep_num="$3"
     
     # Create a background process that syncs every 10 seconds
     (
         while true; do
             sleep "$SYNC_INTERVAL"
             
-            # Get current playback position (this is approximate since we can't query mpv easily)
-            local current_ts
-            current_ts=$(date +%s)
-            
-            # Save to pending sync
-            save_pending_sync "$anime_id" "$episode_id" "$current_ts" "$ep_num"
+            # Save to pending sync with slug and title
+            save_pending_sync "$anime_slug" "$anime_title" "$ep_num"
             
             # Try to sync if online
             sync_pending_history >/dev/null 2>&1
@@ -457,19 +444,19 @@ stop_sync_daemon() {
 }
 
 save_to_history() {
-    local anime_id="$1" title="$2" episode="$3" episode_id="${4:-}"
+    local anime_slug="$1" title="$2" episode="$3"
     local timestamp
     timestamp=$(date +%s)
     
     # Save to local history - remove ALL existing entries for this anime (deduplicate)
     if [ -f "$HISTORY_FILE" ]; then
-        grep -v "^${anime_id}|" "$HISTORY_FILE" > "${HISTORY_FILE}.tmp" 2>/dev/null
+        grep -v "^${anime_slug}|" "$HISTORY_FILE" > "${HISTORY_FILE}.tmp" 2>/dev/null
         mv "${HISTORY_FILE}.tmp" "$HISTORY_FILE" 2>/dev/null || true
     fi
     
     # Create new entry and prepend to history
     local new_entry
-    new_entry=$(printf '%s|%s|%s|%s\n' "$anime_id" "$title" "$episode" "$timestamp")
+    new_entry=$(printf '%s|%s|%s|%s\n' "$anime_slug" "$title" "$episode" "$timestamp")
     
     if [ -f "$HISTORY_FILE" ] && [ -s "$HISTORY_FILE" ]; then
         printf '%s\n' "$new_entry" | cat - "$HISTORY_FILE" > "${HISTORY_FILE}.tmp"
@@ -484,8 +471,8 @@ save_to_history() {
         mv "${HISTORY_FILE}.tmp" "$HISTORY_FILE"
     fi
     
-    # Save to pending sync for cloud backup
-    [ -n "$episode_id" ] && save_pending_sync "$anime_id" "$episode_id" "$timestamp" "$episode"
+    # Save to pending sync for cloud backup (slug, title, episode)
+    save_pending_sync "$anime_slug" "$title" "$episode"
     
     # Try immediate sync if online
     sync_pending_history >/dev/null 2>&1 &
@@ -932,11 +919,11 @@ play_episode() {
     
     [ -z "$STREAM_URL" ] && msg_error "No stream URL found" && return
     
-    # Save to history
-    save_to_history "$anime_id" "$anime_title" "$ep_num" "$episode_id"
+    # Save to history (slug, title, episode)
+    save_to_history "$anime_id" "$anime_title" "$ep_num"
     
-    # Start background sync daemon during playback
-    start_sync_daemon "$anime_id" "$episode_id" "$ep_num"
+    # Start background sync daemon during playback (slug, title, episode)
+    start_sync_daemon "$anime_id" "$anime_title" "$ep_num"
     
     # Play the video with referer header
     play_video "$STREAM_URL" "${anime_title} - Episode ${ep_num}" "$STREAM_SUBTITLES" "$STREAM_REFERER"
