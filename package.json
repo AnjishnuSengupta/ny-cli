@@ -2,7 +2,6 @@
   "name": "@anjishnusengupta/ny-cli",
   "version": "3.0.0",
   "description": "Terminal-based anime streaming client — self-hosted scraping via aniwatch",
-  "type": "module",
   "main": "backend.mjs",
   "bin": {
     "ny-cli": "./ny-cli"
