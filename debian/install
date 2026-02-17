@@ -1,1 +1,1 @@
-ny-cli usr/bin
+# Installation handled by debian/rules override

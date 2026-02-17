@@ -21,3 +21,5 @@ LICENSE
 *.swo
 *~
 .DS_Store
+
+.directory

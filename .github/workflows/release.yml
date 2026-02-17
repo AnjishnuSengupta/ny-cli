@@ -17,16 +17,22 @@ jobs:
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
       
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y debhelper devscripts fakeroot build-essential
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debhelper devscripts fakeroot build-essential nodejs npm
       
       - name: Build .deb package
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
           # Create proper debian source directory
           mkdir -p build/ny-cli-${VERSION}
-          cp ny-cli LICENSE README.md build/ny-cli-${VERSION}/
+          cp ny-cli backend.mjs package.json install.sh LICENSE README.md build/ny-cli-${VERSION}/
           cp -r debian build/ny-cli-${VERSION}/
+          
+          # Update debian changelog version
           cd build/ny-cli-${VERSION}
+          sed -i "1s/ny-cli ([^)]*)/ny-cli (${VERSION}-1)/" debian/changelog
+          
           # Build the package
           dpkg-buildpackage -us -uc -b
           
@@ -47,7 +53,7 @@ jobs:
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
       
       - name: Install build dependencies
-        run: dnf install -y rpm-build rpmdevtools
+        run: dnf install -y rpm-build rpmdevtools nodejs npm
       
       - name: Setup RPM build tree
         run: rpmdev-setuptree
@@ -56,8 +62,12 @@ jobs:
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
           mkdir -p $HOME/rpmbuild/SOURCES
-          tar czf $HOME/rpmbuild/SOURCES/ny-cli-${VERSION}.tar.gz --transform "s,^,ny-cli-${VERSION}/," ny-cli LICENSE README.md
+          tar czf $HOME/rpmbuild/SOURCES/ny-cli-${VERSION}.tar.gz \
+            --transform "s,^,ny-cli-${VERSION}/," \
+            ny-cli backend.mjs package.json install.sh LICENSE README.md
           cp ny-cli.spec $HOME/rpmbuild/SPECS/
+          # Ensure spec version matches tag
+          sed -i "s/^Version:.*/Version:        ${VERSION}/" $HOME/rpmbuild/SPECS/ny-cli.spec
       
       - name: Build RPM
         run: rpmbuild -ba $HOME/rpmbuild/SPECS/ny-cli.spec

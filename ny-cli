@@ -20,8 +20,8 @@ VERSION="3.0.0"
 NYANIME_BASE="https://www.nyanime.tech"
 
 # Local backend script (uses aniwatch npm package directly)
-# Resolved relative to the ny-cli script location
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolved relative to the ny-cli script location (resolves symlinks)
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 BACKEND_SCRIPT="${SCRIPT_DIR}/backend.mjs"
 
 # Firebase Configuration (NyAnime project)

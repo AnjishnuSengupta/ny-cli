@@ -3,7 +3,18 @@
 %:
 	dh $@
 
+override_dh_auto_build:
+	npm install --omit=dev --ignore-scripts 2>/dev/null || npm install --production --ignore-scripts 2>/dev/null
+
 override_dh_auto_install:
-	install -Dm755 ny-cli debian/ny-cli/usr/bin/ny-cli
+	# Install application to /usr/lib/ny-cli
+	install -d debian/ny-cli/usr/lib/ny-cli
+	install -m755 ny-cli debian/ny-cli/usr/lib/ny-cli/ny-cli
+	install -m644 backend.mjs debian/ny-cli/usr/lib/ny-cli/backend.mjs
+	install -m644 package.json debian/ny-cli/usr/lib/ny-cli/package.json
+	cp -a node_modules debian/ny-cli/usr/lib/ny-cli/
+	# Symlink to /usr/bin
+	install -d debian/ny-cli/usr/bin
+	ln -sf /usr/lib/ny-cli/ny-cli debian/ny-cli/usr/bin/ny-cli
 	install -Dm644 LICENSE debian/ny-cli/usr/share/licenses/ny-cli/LICENSE
 	install -Dm644 README.md debian/ny-cli/usr/share/doc/ny-cli/README.md

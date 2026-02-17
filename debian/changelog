@@ -1,3 +1,12 @@
+ny-cli (3.0.0-1) unstable; urgency=medium
+
+  * Self-hosted scraping via aniwatch npm package (no external API dependency)
+  * Parallel server racing with Promise.any() for faster streaming
+  * Reduced timeouts for faster responsiveness
+  * Published as scoped npm package @anjishnusengupta/ny-cli
+
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Tue, 17 Feb 2026 12:00:00 +0000
+
 ny-cli (2.5.0-1) unstable; urgency=medium
 
   * Unified Continue Watching: CLI and website now share the same history
@@ -5,7 +14,7 @@ ny-cli (2.5.0-1) unstable; urgency=medium
   * Server now fetches malId from API for proper website compatibility
   * All synced entries visible on both nyanime.tech and ny-cli
 
- -- Anjishnu Sengupta <itsaemail@duck.com>  Fri, 03 Jan 2026 12:00:00 +0000
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Sat, 03 Jan 2026 12:00:00 +0000
 
 ny-cli (2.0.0-1) unstable; urgency=medium
 
@@ -15,7 +24,7 @@ ny-cli (2.0.0-1) unstable; urgency=medium
   * Improved history deduplication with awk
   * Better offline support with pending sync
 
- -- Anjishnu Sengupta <itsaemail@duck.com>  Sat, 28 Dec 2025 12:00:00 +0000
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Sun, 28 Dec 2025 12:00:00 +0000
 
 ny-cli (1.1.0-1) unstable; urgency=medium
 
@@ -24,7 +33,7 @@ ny-cli (1.1.0-1) unstable; urgency=medium
   * Fixed install.sh colored output
   * UI improvements and bug fixes
 
- -- Anjishnu Sengupta <itsaemail@duck.com>  Fri, 20 Dec 2025 13:00:00 +0000
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Sat, 20 Dec 2025 13:00:00 +0000
 
 ny-cli (1.0.0-1) unstable; urgency=medium
 
@@ -34,4 +43,4 @@ ny-cli (1.0.0-1) unstable; urgency=medium
   * Support for mpv, vlc, iina players
   * Cloud sync via nyanime.tech
 
- -- Anjishnu Sengupta <itsaemail@duck.com>  Fri, 20 Dec 2025 12:00:00 +0000
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Sat, 20 Dec 2025 12:00:00 +0000
