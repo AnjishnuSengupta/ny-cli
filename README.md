@@ -73,11 +73,11 @@
 │   ───────────────        ───────────────       ───────────────  │
 │                                                                 │
 │   ▸ HLS Streaming        ▸ User Accounts       ▸ POSIX Shell    │
-│   ▸ Multi-Server         ▸ Watch History       ▸ Node.js 18+   │
-│   ▸ Sub/Dub Toggle       ▸ Cloud Sync          ▸ aniwatch pkg  │
-│   ▸ Skip Intro           ▸ Continue Watch      ▸ Self-Hosted   │
-│   ▸ Auto Subtitles       ▸ Random Anime        ▸ XDG Dirs      │
-│   ▸ MPV/VLC/IINA         ▸ Profile System      ▸ Zero Config   │
+│   ▸ Multi-Server         ▸ Watch History       ▸ Node.js 18+    │
+│   ▸ Sub/Dub Toggle       ▸ Cloud Sync          ▸ aniwatch pkg   │
+│   ▸ Skip Intro           ▸ Continue Watch      ▸ Self-Hosted    │
+│   ▸ Auto Subtitles       ▸ Random Anime        ▸ XDG Dirs       │
+│   ▸ MPV/VLC/IINA         ▸ Profile System      ▸ Zero Config    │
 │                                                                 │
 ╰─────────────────────────────────────────────────────────────────╯
 ```
