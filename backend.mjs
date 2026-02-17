@@ -78,98 +78,73 @@ async function main() {
           process.exit(1);
         }
 
-        // Pre-check available servers (just like nyanime server.js)
-        let availableServers = [];
-        try {
-          const serverData = await hianime.getEpisodeServers(episodeId);
-          const serverList =
-            category === "dub" ? serverData.dub : serverData.sub;
-          availableServers = (serverList || []).map((s) => s.serverName);
-        } catch {
-          availableServers = ["hd-1", "hd-2"];
-        }
+        // Faster timeout — self-hosted scraping is local, no cold-start
+        const PER_SERVER_TIMEOUT = 8000;
 
-        // Known extractors the aniwatch library supports
-        const knownExtractors = ["streamtape", "streamsb", "hd-1", "hd-2"];
-        const serversToTry = knownExtractors.filter((s) =>
-          availableServers.includes(s)
-        );
-        if (serversToTry.length === 0) serversToTry.push("hd-1");
-
-        let lastError = null;
-        const PER_SERVER_TIMEOUT = 15000;
-
-        for (const server of serversToTry) {
-          try {
-            const srcData = await Promise.race([
-              hianime.getEpisodeSources(episodeId, server, category),
-              new Promise((_, reject) =>
-                setTimeout(
-                  () =>
-                    reject(
-                      new Error(
-                        `${server} timed out after ${PER_SERVER_TIMEOUT / 1000}s`
-                      )
-                    ),
-                  PER_SERVER_TIMEOUT
-                )
-              ),
-            ]);
-
+        // Helper: try a single server with timeout
+        const tryServer = (server, cat) =>
+          Promise.race([
+            hianime.getEpisodeSources(episodeId, server, cat),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error(`${server} timed out`)), PER_SERVER_TIMEOUT)
+            ),
+          ]).then((srcData) => {
             if (srcData?.sources?.length > 0) {
               srcData._usedServer = server;
-              srcData._availableServers = availableServers;
-              srcData._triedServers = serversToTry;
-              console.log(JSON.stringify({ success: true, data: srcData }));
-              return;
+              srcData._usedCategory = cat;
+              return srcData;
             }
-          } catch (err) {
-            lastError = err;
+            throw new Error(`${server}: no sources`);
+          });
+
+        // Preferred order: hd-1/hd-2 are fastest, then others
+        const preferredOrder = ["hd-1", "hd-2", "streamtape", "streamsb"];
+
+        // Race all servers in parallel — first success wins
+        const raceServers = async (cat) => {
+          let availableServers;
+          try {
+            const serverData = await Promise.race([
+              hianime.getEpisodeServers(episodeId),
+              new Promise((_, reject) => setTimeout(() => reject(new Error("server list timeout")), 5000)),
+            ]);
+            const serverList = cat === "dub" ? serverData.dub : serverData.sub;
+            availableServers = (serverList || []).map((s) => s.serverName);
+          } catch {
+            availableServers = ["hd-1", "hd-2"];
           }
+
+          const serversToTry = preferredOrder.filter((s) => availableServers.includes(s));
+          if (serversToTry.length === 0) serversToTry.push("hd-1");
+
+          // Promise.any resolves as soon as ANY server succeeds
+          return Promise.any(serversToTry.map((s) => tryServer(s, cat))).then((srcData) => {
+            srcData._availableServers = availableServers;
+            srcData._triedServers = serversToTry;
+            return srcData;
+          });
+        };
+
+        try {
+          const srcData = await raceServers(category);
+          console.log(JSON.stringify({ success: true, data: srcData }));
+          return;
+        } catch {
+          // All servers failed for this category
         }
 
-        // All servers failed for this category — if sub, try dub
+        // If sub failed, try dub as fallback
         if (category === "sub") {
           try {
-            const serverData = await hianime.getEpisodeServers(episodeId);
-            const dubServers = (serverData.dub || []).map((s) => s.serverName);
-            const dubToTry = knownExtractors.filter((s) =>
-              dubServers.includes(s)
-            );
-            if (dubToTry.length === 0) dubToTry.push("hd-1");
-
-            for (const server of dubToTry) {
-              try {
-                const srcData = await Promise.race([
-                  hianime.getEpisodeSources(episodeId, server, "dub"),
-                  new Promise((_, reject) =>
-                    setTimeout(
-                      () => reject(new Error(`${server} dub timed out`)),
-                      PER_SERVER_TIMEOUT
-                    )
-                  ),
-                ]);
-
-                if (srcData?.sources?.length > 0) {
-                  srcData._usedServer = server;
-                  srcData._usedCategory = "dub";
-                  console.log(JSON.stringify({ success: true, data: srcData }));
-                  return;
-                }
-              } catch (err) {
-                lastError = err;
-              }
-            }
+            const srcData = await raceServers("dub");
+            console.log(JSON.stringify({ success: true, data: srcData }));
+            return;
           } catch {
-            // ignore server fetch error
+            // dub also failed
           }
         }
 
-        console.log(
-          JSON.stringify({
-            error: lastError?.message || "All servers failed",
-          })
-        );
+        console.log(JSON.stringify({ error: "All servers failed" }));
         process.exit(1);
         break;
       }

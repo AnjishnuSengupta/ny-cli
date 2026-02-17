@@ -1,0 +1,23 @@
+# Git & CI
+.git/
+.github/
+.gitignore
+.directory
+
+# Packaging (distro-specific)
+debian/
+PKGBUILD
+ny-cli.spec
+
+# Build artifacts
+node_modules/
+package-lock.json
+
+# Docs (README is included by default)
+LICENSE
+
+# Misc
+*.swp
+*.swo
+*~
+.DS_Store

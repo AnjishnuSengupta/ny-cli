@@ -45,7 +45,7 @@ PENDING_SYNC_FILE="$DATA_DIR/pending_sync"
 PLAYER="${NYCLI_PLAYER:-mpv}"
 
 # Sync interval (seconds)
-SYNC_INTERVAL=10
+SYNC_INTERVAL=30
 
 # ══════════════════════════════════════════════════════════════════════════════
 # COLORS & STYLING
@@ -256,7 +256,7 @@ do_login() {
     # Verify the UID exists in Firebase by checking the user document
     msg "Verifying account..."
     local verify_resp
-    verify_resp=$(curl -s --connect-timeout 10 --max-time 15 \
+    verify_resp=$(curl -s --connect-timeout 5 --max-time 8 \
         "${FIRESTORE_BASE}/users/${firebase_uid}" 2>/dev/null)
     
     # Check if we got a valid response (user exists)
@@ -314,7 +314,7 @@ fetch_and_merge_cloud_history() {
     
     # Fetch history from the CLI history API (GET request)
     local response
-    response=$(curl -s --connect-timeout 10 --max-time 30 \
+    response=$(curl -s --connect-timeout 5 --max-time 10 \
         "${NYANIME_BASE}/api/cli/history" \
         -H "X-Firebase-UID: ${firebase_uid}" \
         2>/dev/null)
@@ -496,9 +496,9 @@ save_to_history() {
 
 # Call the Node.js backend helper
 # Usage: call_backend <action> [args...]
-# Returns JSON to stdout
+# Returns JSON to stdout (pino logger noise is filtered out)
 call_backend() {
-    node "$BACKEND_SCRIPT" "$@" 2>/dev/null
+    NODE_ENV=production node "$BACKEND_SCRIPT" "$@" 2>/dev/null | grep -m1 '"success"\|"error"'
 }
 
 # JSON parsing helpers (pure POSIX shell)

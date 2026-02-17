@@ -1,11 +1,15 @@
 {
-  "name": "ny-cli",
+  "name": "@anjishnusengupta/ny-cli",
   "version": "3.0.0",
   "description": "Terminal-based anime streaming client — self-hosted scraping via aniwatch",
   "type": "module",
   "main": "backend.mjs",
+  "bin": {
+    "ny-cli": "./ny-cli"
+  },
   "scripts": {
-    "test": "node backend.mjs home"
+    "test": "node backend.mjs home",
+    "postinstall": "echo '\\nRun ny-cli to start watching anime!\\n'"
   },
   "keywords": [
     "anime",
@@ -13,10 +17,26 @@
     "streaming",
     "terminal",
     "hianime",
-    "aniwatch"
+    "aniwatch",
+    "mpv"
   ],
   "author": "Anjishnu Sengupta",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AnjishnuSengupta/ny-cli.git"
+  },
+  "homepage": "https://nyanime.tech",
+  "bugs": {
+    "url": "https://github.com/AnjishnuSengupta/ny-cli/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "linux",
+    "darwin"
+  ],
   "dependencies": {
     "aniwatch": "^2.24.3"
   }
