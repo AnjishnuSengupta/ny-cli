@@ -1,25 +1,28 @@
 #!/bin/sh
 # ══════════════════════════════════════════════════════════════════════════════
 # NY-CLI - Terminal-based Anime Streaming Client
-# Version: 1.0.0
+# Version: 3.0.0
 # Author: Anjishnu Sengupta
 # Website: https://nyanime.tech
 # Repository: https://github.com/AnjishnuSengupta/ny-cli
 #
-# Inspired by ani-cli, powered by nyanime backend
-# Just install and run - no configuration needed!
+# Inspired by ani-cli, powered by aniwatch npm package (self-hosted scraping)
+# Just install and run - no external API dependency!
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION="2.5.0"
+VERSION="3.0.0"
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BACKEND CONFIGURATION (Pre-configured - no user setup needed)
+# BACKEND CONFIGURATION (Self-hosted via aniwatch npm package)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# NyAnime Backend APIs
+# NyAnime Website (for cloud sync & stream proxy)
 NYANIME_BASE="https://www.nyanime.tech"
-ANIWATCH_API="https://nyanime-backend-v2.onrender.com"
-CONSUMET_API="https://consumet-api-gs81.onrender.com"
+
+# Local backend script (uses aniwatch npm package directly)
+# Resolved relative to the ny-cli script location
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BACKEND_SCRIPT="${SCRIPT_DIR}/backend.mjs"
 
 # Firebase Configuration (NyAnime project)
 FIREBASE_PROJECT_ID="nyanime-tech"
@@ -128,9 +131,18 @@ die() {
 # ══════════════════════════════════════════════════════════════════════════════
 
 check_deps() {
-    for cmd in curl sed grep; do
+    for cmd in curl sed grep node; do
         command -v "$cmd" >/dev/null 2>&1 || die "Missing required dependency: $cmd"
     done
+
+    # Check that backend.mjs and node_modules exist
+    if [ ! -f "$BACKEND_SCRIPT" ]; then
+        die "Backend script not found at $BACKEND_SCRIPT. Run install.sh or npm install in the ny-cli directory."
+    fi
+    if [ ! -d "${SCRIPT_DIR}/node_modules" ]; then
+        msg "Installing aniwatch package..."
+        (cd "$SCRIPT_DIR" && npm install --production 2>/dev/null) || die "Failed to install dependencies. Run 'npm install' in $SCRIPT_DIR"
+    fi
     
     if ! command -v "$PLAYER" >/dev/null 2>&1; then
         if command -v mpv >/dev/null 2>&1; then
@@ -479,8 +491,15 @@ save_to_history() {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ANIME API - Using NyAnime Backend (aniwatch-api)
+# ANIME API - Self-hosted scraping via aniwatch npm package
 # ══════════════════════════════════════════════════════════════════════════════
+
+# Call the Node.js backend helper
+# Usage: call_backend <action> [args...]
+# Returns JSON to stdout
+call_backend() {
+    node "$BACKEND_SCRIPT" "$@" 2>/dev/null
+}
 
 # JSON parsing helpers (pure POSIX shell)
 # Extract a JSON string value by key
@@ -499,41 +518,25 @@ json_get_number() {
 # Returns: id|name|type|episodes lines
 search_anime() {
     local query="$1"
-    local encoded
-    encoded=$(urlencode "$query")
     
     msg "Searching for '$query'..."
     
     local response
-    response=$(curl -s --connect-timeout 10 --max-time 30 \
-        "${ANIWATCH_API}/api/v2/hianime/search?q=${encoded}" \
-        -H "User-Agent: $USER_AGENT" \
-        -H "Accept: application/json" 2>/dev/null)
+    response=$(call_backend search "$query")
     
     [ -z "$response" ] && return 1
+    printf '%s' "$response" | grep -q '"success"' || return 1
     
-    # Extract just the animes array content (avoid other arrays like mostPopularAnimes)
-    local animes_json
-    animes_json=$(printf '%s' "$response" | sed -n 's/.*"animes":\[\(.*\)],".*/\1/p' 2>/dev/null)
-    
-    [ -z "$animes_json" ] && return 1
-    
-    # Save to temp file for line-by-line processing
-    local tmp_file="${CACHE_DIR}/search_result.tmp"
-    printf '%s' "$animes_json" | tr '}' '\n' | grep '"id"' > "$tmp_file" 2>/dev/null
-    
-    # Process each line and output id|name|type|episodes
-    while IFS= read -r line; do
+    # Parse animes array from response
+    # Each anime has: id, name, type, episodes.sub, episodes.dub
+    printf '%s' "$response" | tr '{' '\n' | grep '"id"' | while IFS= read -r line; do
         local id name type sub
         id=$(printf '%s' "$line" | grep -oP '"id"\s*:\s*"\K[^"]+' 2>/dev/null)
         name=$(printf '%s' "$line" | grep -oP '"name"\s*:\s*"\K[^"]+' 2>/dev/null)
         type=$(printf '%s' "$line" | grep -oP '"type"\s*:\s*"\K[^"]+' 2>/dev/null)
         sub=$(printf '%s' "$line" | grep -oP '"sub"\s*:\s*\K[0-9]+' 2>/dev/null)
         [ -n "$id" ] && [ -n "$name" ] && printf '%s|%s|%s|%s\n' "$id" "$name" "${type:-TV}" "${sub:-0}"
-    done < "$tmp_file"
-    
-    # Cleanup
-    rm -f "$tmp_file" 2>/dev/null
+    done
 }
 
 # Get episodes for an anime
@@ -544,25 +547,13 @@ get_episodes() {
     msg "Loading episodes..."
     
     local response
-    response=$(curl -s --connect-timeout 10 --max-time 30 \
-        "${ANIWATCH_API}/api/v2/hianime/anime/${anime_id}/episodes" \
-        -H "User-Agent: $USER_AGENT" \
-        -H "Accept: application/json" 2>/dev/null)
+    response=$(call_backend episodes "$anime_id")
     
     [ -z "$response" ] && return 1
+    printf '%s' "$response" | grep -q '"success"' || return 1
     
-    # Extract episodes array content
-    local episodes_json
-    episodes_json=$(printf '%s' "$response" | sed -n 's/.*"episodes":\[\(.*\)\]}.*/\1/p' 2>/dev/null)
-    
-    [ -z "$episodes_json" ] && return 1
-    
-    # Save to temp file for line-by-line processing
-    local tmp_file="${CACHE_DIR}/episodes_result.tmp"
-    printf '%s' "$episodes_json" | tr '}' '\n' | grep '"episodeId"' > "$tmp_file" 2>/dev/null
-    
-    # Process each line and output ep_num|episode_id|title|is_filler
-    while IFS= read -r line; do
+    # Parse episodes array
+    printf '%s' "$response" | tr '{' '\n' | grep '"episodeId"' | while IFS= read -r line; do
         local ep_id ep_num title is_filler
         ep_id=$(printf '%s' "$line" | grep -oP '"episodeId"\s*:\s*"\K[^"]+' 2>/dev/null)
         ep_num=$(printf '%s' "$line" | grep -oP '"number"\s*:\s*\K[0-9]+' 2>/dev/null)
@@ -570,23 +561,16 @@ get_episodes() {
         is_filler="0"
         printf '%s' "$line" | grep -q '"isFiller"[[:space:]]*:[[:space:]]*true' && is_filler="1"
         [ -n "$ep_id" ] && [ -n "$ep_num" ] && printf '%s|%s|%s|%s\n' "$ep_num" "$ep_id" "${title:-Episode $ep_num}" "$is_filler"
-    done < "$tmp_file"
-    
-    # Cleanup
-    rm -f "$tmp_file" 2>/dev/null
+    done
 }
 
 # Get available servers for an episode
 # Returns: server_name lines
 get_servers() {
     local episode_id="$1"
-    local encoded_ep
-    encoded_ep=$(urlencode "$episode_id")
     
     local response
-    response=$(curl -s --connect-timeout 10 --max-time 30 \
-        "${ANIWATCH_API}/api/v2/hianime/episode/servers?animeEpisodeId=${encoded_ep}" \
-        -H "User-Agent: $USER_AGENT" 2>/dev/null)
+    response=$(call_backend servers "$episode_id")
     
     [ -z "$response" ] && return 1
     
@@ -595,16 +579,13 @@ get_servers() {
         sed 's/.*"\([^"]*\)"/\1/' | sort -u
 }
 
-# Get streaming sources for an episode
+# Get streaming sources for an episode (uses multi-server fallback in backend)
 # Sets global variables: STREAM_URL, STREAM_REFERER, STREAM_SUBTITLES, STREAM_INTRO_START, STREAM_INTRO_END
 get_stream() {
     local episode_id="$1"
-    local server="${2:-hd-1}"
-    local category="${3:-sub}"
-    local encoded_ep
-    encoded_ep=$(urlencode "$episode_id")
+    local category="${2:-sub}"
     
-    msg "Getting stream (server: $server, category: $category)..."
+    msg "Getting stream (self-hosted scraping, category: $category)..."
     
     # Reset globals
     STREAM_URL=""
@@ -614,20 +595,17 @@ get_stream() {
     STREAM_INTRO_END=""
     
     local response
-    response=$(curl -s --connect-timeout 15 --max-time 45 \
-        "${ANIWATCH_API}/api/v2/hianime/episode/sources?animeEpisodeId=${encoded_ep}&server=${server}&category=${category}" \
-        -H "User-Agent: $USER_AGENT" \
-        -H "Accept: application/json" 2>/dev/null)
+    response=$(call_backend sources "$episode_id" "$category")
     
     [ -z "$response" ] && return 1
+    printf '%s' "$response" | grep -q '"success"' || return 1
     
     # Handle data wrapper
     if printf '%s' "$response" | grep -q '"data"' 2>/dev/null; then
         response=$(printf '%s' "$response" | sed 's/.*"data"[[:space:]]*:[[:space:]]*//' | sed 's/}[[:space:]]*$//')
     fi
     
-    # Extract stream URL from sources array - must be inside "sources":[ section
-    # The sources array contains the video, tracks array contains subtitles
+    # Extract stream URL from sources array
     STREAM_URL=$(printf '%s' "$response" | sed -n 's/.*"sources"[[:space:]]*:[[:space:]]*\[.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
     
     # Fallback: try extracting m3u8 URL directly
@@ -637,23 +615,18 @@ get_stream() {
     STREAM_REFERER=$(printf '%s' "$response" | grep -o '"Referer"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
     [ -z "$STREAM_REFERER" ] && STREAM_REFERER="https://megacloud.blog/"
     
-    # Extract ALL subtitles from tracks array (excluding thumbnails)
-    # Format: lang|url per line for all available subtitle tracks
+    # Extract ALL subtitles from tracks/subtitles array
     STREAM_SUBTITLES=""
     STREAM_SUBTITLES_ALL=""
     
-    # Get all subtitle tracks - each track has "url" and "lang" fields
-    # Exclude thumbnails track
     STREAM_SUBTITLES_ALL=$(printf '%s' "$response" | tr '{' '\n' | grep '"lang"' | grep -v -i 'thumbnails' | while read -r track; do
         lang=$(printf '%s' "$track" | sed -n 's/.*"lang"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
         url=$(printf '%s' "$track" | sed -n 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
         [ -n "$url" ] && [ -n "$lang" ] && printf '%s|%s\n' "$lang" "$url"
     done)
     
-    # Set default English subtitle for backward compatibility
+    # Set default English subtitle
     STREAM_SUBTITLES=$(printf '%s\n' "$STREAM_SUBTITLES_ALL" | grep -i '^English|' | head -1 | cut -d'|' -f2)
-    
-    # If no English, use first available
     [ -z "$STREAM_SUBTITLES" ] && STREAM_SUBTITLES=$(printf '%s\n' "$STREAM_SUBTITLES_ALL" | head -1 | cut -d'|' -f2)
     
     # Extract intro timestamps
@@ -664,31 +637,13 @@ get_stream() {
     return 1
 }
 
-# Try multiple servers to get a working stream
+# Get stream with category fallback (sub → dub)
 get_stream_with_fallback() {
     local episode_id="$1"
     local category="${2:-sub}"
     
-    # Servers to try in order of reliability
-    local servers="hd-1 hd-2 megacloud"
-    
-    for server in $servers; do
-        if get_stream "$episode_id" "$server" "$category"; then
-            [ -n "$STREAM_URL" ] && return 0
-        fi
-    done
-    
-    # Try dub if sub failed
-    if [ "$category" = "sub" ]; then
-        msg_warn "No sub found, trying dub..."
-        for server in $servers; do
-            if get_stream "$episode_id" "$server" "dub"; then
-                [ -n "$STREAM_URL" ] && return 0
-            fi
-        done
-    fi
-    
-    return 1
+    # The backend already handles multi-server fallback and sub→dub fallback
+    get_stream "$episode_id" "$category"
 }
 
 # Get trending/home anime
@@ -697,9 +652,7 @@ get_trending() {
     msg "Fetching trending..."
     
     local response
-    response=$(curl -s --connect-timeout 10 --max-time 30 \
-        "${ANIWATCH_API}/api/v2/hianime/home" \
-        -H "User-Agent: $USER_AGENT" 2>/dev/null)
+    response=$(call_backend home)
     
     [ -z "$response" ] && return 1
     
@@ -708,7 +661,7 @@ get_trending() {
         response=$(printf '%s' "$response" | sed 's/.*"data"[[:space:]]*:[[:space:]]*//' | sed 's/}[[:space:]]*$//')
     fi
     
-    # Parse trending animes (from trendingAnimes section)
+    # Parse trending animes
     printf '%s' "$response" | tr '{' '\n' | grep '"id"' | while read -r line; do
         local id name
         id=$(json_get_string "$line" "id")

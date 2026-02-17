@@ -1,0 +1,23 @@
+{
+  "name": "ny-cli",
+  "version": "3.0.0",
+  "description": "Terminal-based anime streaming client — self-hosted scraping via aniwatch",
+  "type": "module",
+  "main": "backend.mjs",
+  "scripts": {
+    "test": "node backend.mjs home"
+  },
+  "keywords": [
+    "anime",
+    "cli",
+    "streaming",
+    "terminal",
+    "hianime",
+    "aniwatch"
+  ],
+  "author": "Anjishnu Sengupta",
+  "license": "MIT",
+  "dependencies": {
+    "aniwatch": "^2.24.3"
+  }
+}
