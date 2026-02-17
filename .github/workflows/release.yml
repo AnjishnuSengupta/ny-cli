@@ -95,6 +95,7 @@ jobs:
 
   release:
     needs: [build-deb, build-rpm]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
