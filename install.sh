@@ -25,7 +25,7 @@ printf "  ╚═╝  ╚═══╝   ╚═╝          ╚═════╝�
 printf "${RESET}\n"
 printf "${DIM}${CYAN}       ⟨ Your Gateway to Anime Streaming ⟩${RESET}\n"
 printf "${DIM}       ─────────────────────────────────────${RESET}\n"
-printf "${DIM}            v3.0.0 • nyanime.tech${RESET}\n"
+printf "${DIM}            v3.0.2 • nyanime.tech${RESET}\n"
 printf "\n"
 
 REPO_URL="https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main"
