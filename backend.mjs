@@ -4,7 +4,43 @@
 // No external API dependency — self-hosted, just like nyanime.tech
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { HiAnime } from "aniwatch";
+import dns from "node:dns";
+import https from "node:https";
+import http from "node:http";
+
+// Use public DNS (Cloudflare + Google) to bypass ISP-level domain blocking.
+// dns.resolve{4,6} uses these servers; dns.lookup uses the OS resolver.
+dns.setServers(["1.1.1.1", "8.8.8.8", "1.0.0.1", "8.8.4.4"]);
+
+// Custom lookup: prefer IPv6 (bypasses SNI-based DPI blocking on many ISPs),
+// fall back to IPv4 via dns.resolve4, then OS resolver as last resort.
+function customLookup(hostname, options, callback) {
+  if (typeof options === "function") { callback = options; options = {}; }
+  dns.resolve6(hostname, (err6, addr6) => {
+    if (!err6 && addr6 && addr6.length > 0) {
+      if (options.all) {
+        return callback(null, addr6.map(a => ({ address: a, family: 6 })));
+      }
+      return callback(null, addr6[0], 6);
+    }
+    dns.resolve4(hostname, (err4, addr4) => {
+      if (!err4 && addr4 && addr4.length > 0) {
+        if (options.all) {
+          return callback(null, addr4.map(a => ({ address: a, family: 4 })));
+        }
+        return callback(null, addr4[0], 4);
+      }
+      dns.lookup(hostname, options, callback);
+    });
+  });
+}
+
+// Replace global agents so ALL http/https requests use our DNS
+http.globalAgent = new http.Agent({ lookup: customLookup });
+https.globalAgent = new https.Agent({ lookup: customLookup });
+
+// Dynamic import so aniwatch picks up patched global agents
+const { HiAnime } = await import("aniwatch");
 
 const hianime = new HiAnime.Scraper();
 
