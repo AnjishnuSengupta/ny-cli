@@ -14,10 +14,24 @@ dns.setServers(["1.1.1.1", "8.8.8.8", "1.0.0.1", "8.8.4.4"]);
 
 // Custom lookup: prefer IPv6 (bypasses SNI-based DPI blocking on many ISPs),
 // fall back to IPv4 via dns.resolve4, then OS resolver as last resort.
+// Note: IPv4-only consistently fails due to ISP blocking; IPv6 is required.
 function customLookup(hostname, options, callback) {
   if (typeof options === "function") { callback = options; options = {}; }
+
+  // Cache resolved addresses per hostname for the lifetime of this process
+  const cacheKey = hostname;
+  if (customLookup._cache && customLookup._cache[cacheKey]) {
+    const cached = customLookup._cache[cacheKey];
+    if (options.all) {
+      return callback(null, [{ address: cached.address, family: cached.family }]);
+    }
+    return callback(null, cached.address, cached.family);
+  }
+
   dns.resolve6(hostname, (err6, addr6) => {
     if (!err6 && addr6 && addr6.length > 0) {
+      if (!customLookup._cache) customLookup._cache = {};
+      customLookup._cache[cacheKey] = { address: addr6[0], family: 6 };
       if (options.all) {
         return callback(null, addr6.map(a => ({ address: a, family: 6 })));
       }
@@ -25,6 +39,8 @@ function customLookup(hostname, options, callback) {
     }
     dns.resolve4(hostname, (err4, addr4) => {
       if (!err4 && addr4 && addr4.length > 0) {
+        if (!customLookup._cache) customLookup._cache = {};
+        customLookup._cache[cacheKey] = { address: addr4[0], family: 4 };
         if (options.all) {
           return callback(null, addr4.map(a => ({ address: a, family: 4 })));
         }
@@ -35,9 +51,10 @@ function customLookup(hostname, options, callback) {
   });
 }
 
-// Replace global agents so ALL http/https requests use our DNS
-http.globalAgent = new http.Agent({ lookup: customLookup });
-https.globalAgent = new https.Agent({ lookup: customLookup });
+// Replace global agents so ALL http/https requests use our DNS.
+// keepAlive reduces connection overhead for multiple requests to the same host.
+http.globalAgent = new http.Agent({ lookup: customLookup, keepAlive: true });
+https.globalAgent = new https.Agent({ lookup: customLookup, keepAlive: true });
 
 // Dynamic import so aniwatch picks up patched global agents
 const { HiAnime } = await import("aniwatch");
@@ -45,6 +62,22 @@ const { HiAnime } = await import("aniwatch");
 const hianime = new HiAnime.Scraper();
 
 const action = process.argv[2];
+
+// Retry helper: retries an async fn up to `retries` times with a delay between attempts.
+async function withRetry(fn, { retries = 2, delay = 1000, label = "" } = {}) {
+  let lastErr;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (i < retries) {
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastErr;
+}
 
 async function main() {
   try {
@@ -57,14 +90,14 @@ async function main() {
           console.log(JSON.stringify({ error: "Missing search query" }));
           process.exit(1);
         }
-        const data = await hianime.search(query, page);
+        const data = await withRetry(() => hianime.search(query, page), { label: "search" });
         console.log(JSON.stringify({ success: true, data }));
         break;
       }
 
       // ── Home / Trending ──
       case "home": {
-        const data = await hianime.getHomePage();
+        const data = await withRetry(() => hianime.getHomePage(), { label: "home" });
         console.log(JSON.stringify({ success: true, data }));
         break;
       }
@@ -76,7 +109,7 @@ async function main() {
           console.log(JSON.stringify({ error: "Missing anime id" }));
           process.exit(1);
         }
-        const data = await hianime.getInfo(animeId);
+        const data = await withRetry(() => hianime.getInfo(animeId), { label: "info" });
         console.log(JSON.stringify({ success: true, data }));
         break;
       }
@@ -88,7 +121,7 @@ async function main() {
           console.log(JSON.stringify({ error: "Missing anime id" }));
           process.exit(1);
         }
-        const data = await hianime.getEpisodes(animeId);
+        const data = await withRetry(() => hianime.getEpisodes(animeId), { label: "episodes" });
         console.log(JSON.stringify({ success: true, data }));
         break;
       }
@@ -100,12 +133,12 @@ async function main() {
           console.log(JSON.stringify({ error: "Missing episode id" }));
           process.exit(1);
         }
-        const data = await hianime.getEpisodeServers(episodeId);
+        const data = await withRetry(() => hianime.getEpisodeServers(episodeId), { label: "servers" });
         console.log(JSON.stringify({ success: true, data }));
         break;
       }
 
-      // ── Episode Sources (with multi-server fallback) ──
+      // ── Episode Sources (with sequential server fallback + retry) ──
       case "sources": {
         const episodeId = process.argv[3];
         const category = process.argv[4] || "sub";
@@ -114,35 +147,41 @@ async function main() {
           process.exit(1);
         }
 
-        // Faster timeout — self-hosted scraping is local, no cold-start
-        const PER_SERVER_TIMEOUT = 8000;
+        // Increased timeout — source extraction can take 10-15s on slow connections
+        const PER_SERVER_TIMEOUT = 20000;
 
-        // Helper: try a single server with timeout
-        const tryServer = (server, cat) =>
-          Promise.race([
-            hianime.getEpisodeSources(episodeId, server, cat),
+        // Helper: try a single server with timeout + retry
+        const tryServer = async (server, cat) => {
+          const srcData = await Promise.race([
+            withRetry(
+              () => hianime.getEpisodeSources(episodeId, server, cat),
+              { retries: 1, delay: 800, label: `sources-${server}` }
+            ),
             new Promise((_, reject) =>
               setTimeout(() => reject(new Error(`${server} timed out`)), PER_SERVER_TIMEOUT)
             ),
-          ]).then((srcData) => {
-            if (srcData?.sources?.length > 0) {
-              srcData._usedServer = server;
-              srcData._usedCategory = cat;
-              return srcData;
-            }
-            throw new Error(`${server}: no sources`);
-          });
+          ]);
+          if (srcData?.sources?.length > 0) {
+            srcData._usedServer = server;
+            srcData._usedCategory = cat;
+            return srcData;
+          }
+          throw new Error(`${server}: no sources`);
+        };
 
         // Preferred order: hd-1/hd-2 are fastest, then others
         const preferredOrder = ["hd-1", "hd-2", "streamtape", "streamsb"];
 
-        // Race all servers in parallel — first success wins
-        const raceServers = async (cat) => {
+        // Try servers SEQUENTIALLY to avoid rate-limiting (403 errors)
+        const tryServersSequentially = async (cat) => {
           let availableServers;
           try {
             const serverData = await Promise.race([
-              hianime.getEpisodeServers(episodeId),
-              new Promise((_, reject) => setTimeout(() => reject(new Error("server list timeout")), 5000)),
+              withRetry(
+                () => hianime.getEpisodeServers(episodeId),
+                { retries: 1, delay: 500, label: "server-list" }
+              ),
+              new Promise((_, reject) => setTimeout(() => reject(new Error("server list timeout")), 8000)),
             ]);
             const serverList = cat === "dub" ? serverData.dub : serverData.sub;
             availableServers = (serverList || []).map((s) => s.serverName);
@@ -153,16 +192,25 @@ async function main() {
           const serversToTry = preferredOrder.filter((s) => availableServers.includes(s));
           if (serversToTry.length === 0) serversToTry.push("hd-1");
 
-          // Promise.any resolves as soon as ANY server succeeds
-          return Promise.any(serversToTry.map((s) => tryServer(s, cat))).then((srcData) => {
-            srcData._availableServers = availableServers;
-            srcData._triedServers = serversToTry;
-            return srcData;
-          });
+          // Try each server one at a time — avoids rate-limiting
+          let lastError;
+          for (const server of serversToTry) {
+            try {
+              const srcData = await tryServer(server, cat);
+              srcData._availableServers = availableServers;
+              srcData._triedServers = serversToTry;
+              return srcData;
+            } catch (err) {
+              lastError = err;
+              // Small delay between servers to avoid triggering rate limits
+              await new Promise(r => setTimeout(r, 300));
+            }
+          }
+          throw lastError || new Error("No servers available");
         };
 
         try {
-          const srcData = await raceServers(category);
+          const srcData = await tryServersSequentially(category);
           console.log(JSON.stringify({ success: true, data: srcData }));
           return;
         } catch {
@@ -172,7 +220,7 @@ async function main() {
         // If sub failed, try dub as fallback
         if (category === "sub") {
           try {
-            const srcData = await raceServers("dub");
+            const srcData = await tryServersSequentially("dub");
             console.log(JSON.stringify({ success: true, data: srcData }));
             return;
           } catch {
@@ -192,7 +240,7 @@ async function main() {
           console.log(JSON.stringify({ error: "Missing query" }));
           process.exit(1);
         }
-        const data = await hianime.searchSuggestions(query);
+        const data = await withRetry(() => hianime.searchSuggestions(query), { label: "suggestions" });
         console.log(JSON.stringify({ success: true, data }));
         break;
       }
@@ -205,7 +253,7 @@ async function main() {
           console.log(JSON.stringify({ error: "Missing category name" }));
           process.exit(1);
         }
-        const data = await hianime.getCategoryAnime(name, page);
+        const data = await withRetry(() => hianime.getCategoryAnime(name, page), { label: "category" });
         console.log(JSON.stringify({ success: true, data }));
         break;
       }
