@@ -6,7 +6,7 @@
 
 <br/>
 
-[![Version](https://img.shields.io/badge/v3.0.0-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
+[![Version](https://img.shields.io/badge/v4.0.0-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
 [![npm](https://img.shields.io/npm/v/@anjishnusengupta/ny-cli?style=flat-square&color=22c55e&label=npm)](https://www.npmjs.com/package/@anjishnusengupta/ny-cli)
 [![License](https://img.shields.io/badge/MIT-3b82f6?style=flat-square&label=license)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/AnjishnuSengupta/ny-cli?style=flat-square&color=fbbf24)](https://github.com/AnjishnuSengupta/ny-cli/stargazers)
@@ -26,33 +26,33 @@
 
 <br/>
 
-## 🎯 What's New in v3.0.0
+## 🎯 What's New in v4.0.0
 
 <table>
 <tr>
-<td>🔧</td>
-<td><b>Self-Hosted Scraping</b></td>
-<td>Uses the <code>aniwatch</code> npm package directly — no external API dependency</td>
+<td>🎙️</td>
+<td><b>Sub / Dub Selection</b></td>
+<td>Choose between sub (Japanese + subtitles) or dub (English audio) when you select an anime — preference is saved per anime</td>
 </tr>
 <tr>
 <td>⚡</td>
-<td><b>Parallel Server Racing</b></td>
-<td><code>Promise.any()</code> races HD-1, HD-2, StreamTape & StreamSB simultaneously for fastest response</td>
+<td><b>Background Episode Fetching</b></td>
+<td>Episodes load in the background while you pick sub or dub — zero extra wait time</td>
 </tr>
 <tr>
-<td>🔄</td>
-<td><b>Sub/Dub Fallback</b></td>
-<td>Automatically falls back from sub to dub if all sub servers fail</td>
+<td>🌐</td>
+<td><b>Global Network Compatibility</b></td>
+<td>Happy Eyeballs (RFC 6555) dual-stack support — works on IPv4-only, IPv6-only, or dual-stack networks worldwide</td>
 </tr>
 <tr>
-<td>🚫</td>
-<td><b>Zero External APIs</b></td>
-<td>Everything runs locally via Node.js — no cold-start delays or API rate limits</td>
+<td>🛡️</td>
+<td><b>Resilient Connectivity</b></td>
+<td>Mixed IPv4/IPv6 DNS servers, 3-endpoint online check, exponential-backoff retries, crash protection for transient socket errors</td>
 </tr>
 <tr>
 <td>☁️</td>
-<td><b>Cloud Sync</b></td>
-<td>Watch history syncs between CLI and <a href="https://nyanime.tech">nyanime.tech</a> web app</td>
+<td><b>Category-Aware Cloud Sync</b></td>
+<td>Sub/dub preference syncs to <a href="https://nyanime.tech">nyanime.tech</a> — Continue Watching remembers your choice</td>
 </tr>
 </table>
 
@@ -74,9 +74,9 @@
 │                                                                 │
 │   ▸ HLS Streaming        ▸ User Accounts       ▸ POSIX Shell    │
 │   ▸ Multi-Server         ▸ Watch History       ▸ Node.js 18+    │
-│   ▸ Sub/Dub Toggle       ▸ Cloud Sync          ▸ aniwatch pkg   │
+│   ▸ Sub/Dub Select       ▸ Cloud Sync          ▸ aniwatch pkg   │
 │   ▸ Skip Intro           ▸ Continue Watch      ▸ Self-Hosted    │
-│   ▸ Auto Subtitles       ▸ Random Anime        ▸ XDG Dirs       │
+│   ▸ Auto Subtitles       ▸ Random Anime        ▸ Dual-Stack     │
 │   ▸ MPV/VLC/IINA         ▸ Profile System      ▸ Zero Config    │
 │                                                                 │
 ╰─────────────────────────────────────────────────────────────────╯
@@ -93,10 +93,12 @@
 
 | Feature | Description |
 |:--------|:------------|
+| **🎙️ Sub/Dub Selection** | Choose sub or dub per anime — preference saved and synced to cloud |
 | **🔄 Multi-Server Racing** | Races HD-1, HD-2, StreamTape, StreamSB in parallel via `Promise.any()` |
 | **⏭️ Skip Intro** | Press `s` during intro to skip — uses API-provided timestamps |
 | **📝 Multi-Language Subs** | Auto-selects English, with all available languages loaded for switching |
 | **🔁 Sub/Dub Fallback** | If all sub servers fail, automatically retries with dub |
+| **🌐 Dual-Stack Networking** | Happy Eyeballs (RFC 6555) — works on any IPv4, IPv6, or dual-stack network |
 | **🎚️ Player Support** | MPV (recommended), VLC, IINA — auto-detected or configurable |
 
 </details>
@@ -111,8 +113,8 @@
 | **🔐 Browser Auth** | Login via nyanime.tech — just paste your User ID |
 | **📜 Watch History** | Track all watched episodes with timestamps |
 | **☁️ Cloud Sync** | Seamless sync between CLI and nyanime.tech website |
-| **📍 Continue Watching** | Resume from exactly where you left off |
-| **🎲 Random Mode** | Discover new anime with random selection |
+| **📍 Continue Watching** | Resume from where you left off — remembers your sub/dub choice |
+| **🎲 Random Mode** | Discover new anime with random selection + sub/dub prompt |
 | **🔍 Quick Search** | Search directly from command line or interactive menu |
 
 </details>
@@ -128,22 +130,28 @@
 <div align="center">
 
 ```
-╔══════════════════════════════════════════╗
-║                                          ║
-║   $ ny-cli "one piece"                   ║
-║                                          ║
-║   Searching for 'one piece'...           ║
-║   1) One Piece (TV, 1120 eps)            ║
-║   2) One Piece Film: Red (Movie)         ║
-║                                          ║
-║   Select [1-20]: 1                       ║
-║   Loading episodes...                    ║
-║   Episode [1-1120]: 1120                 ║
-║                                          ║
-║   ▸ Starting playback...                 ║
-║     One Piece - Episode 1120             ║
-║                                          ║
-╚══════════════════════════════════════════╝
+╔══════════════════════════════════════════════╗
+║                                              ║
+║   $ ny-cli "one piece"                       ║
+║                                              ║
+║   Searching for 'one piece'...               ║
+║   1) One Piece (TV, 1155 sub / 1143 dub)     ║
+║   2) One Piece Film: Red (Movie, 1 sub)      ║
+║                                              ║
+║   Select [1-20]: 1                           ║
+║   Loading episodes...                        ║
+║                                              ║
+║   1) Sub (Japanese audio + subtitles)        ║
+║   2) Dub (English audio)                     ║
+║   Sub or Dub? [1/2]: 1                       ║
+║                                              ║
+║   One Piece (1155 eps) [SUB]                 ║
+║   Episode [1-1155]: 1155                     ║
+║                                              ║
+║   ▸ Starting playback...                     ║
+║     One Piece - Episode 1155 [SUB]           ║
+║                                              ║
+╚══════════════════════════════════════════════╝
 ```
 
 </div>
