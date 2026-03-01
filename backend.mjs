@@ -7,54 +7,141 @@
 import dns from "node:dns";
 import https from "node:https";
 import http from "node:http";
+import os from "node:os";
+
+// ── Safety net: prevent unhandled errors from crashing the process ──────
+// The aniwatch library can emit socket errors that aren't caught internally.
+process.on("uncaughtException", (err) => {
+  // Silently ignore connection errors during retry/fallback — they're expected
+  if (["ENETUNREACH", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EHOSTUNREACH", "EAI_AGAIN"].includes(err.code)) {
+    return;
+  }
+  // For other errors, output JSON so the shell script can parse it
+  console.log(JSON.stringify({ error: err.message || "Unexpected error" }));
+  process.exit(1);
+});
 
 // Use public DNS (Cloudflare + Google) to bypass ISP-level domain blocking.
-// dns.resolve{4,6} uses these servers; dns.lookup uses the OS resolver.
-dns.setServers(["1.1.1.1", "8.8.8.8", "1.0.0.1", "8.8.4.4"]);
+// Include BOTH IPv4 and IPv6 DNS server addresses so resolution works on:
+//   - IPv4-only WiFi / hotspots
+//   - IPv6-only carrier networks (T-Mobile, etc.)
+//   - Dual-stack environments
+// Order: put the family matching the system first to minimise latency.
+const DNS_V4 = ["1.1.1.1", "8.8.8.8", "1.0.0.1", "8.8.4.4"];
+const DNS_V6 = ["2606:4700:4700::1111", "2001:4860:4860::8888", "2606:4700:4700::1001", "2001:4860:4860::8844"];
 
-// Custom lookup: prefer IPv6 (bypasses SNI-based DPI blocking on many ISPs),
-// fall back to IPv4 via dns.resolve4, then OS resolver as last resort.
-// Note: IPv4-only consistently fails due to ISP blocking; IPv6 is required.
-function customLookup(hostname, options, callback) {
-  if (typeof options === "function") { callback = options; options = {}; }
-
-  // Cache resolved addresses per hostname for the lifetime of this process
-  const cacheKey = hostname;
-  if (customLookup._cache && customLookup._cache[cacheKey]) {
-    const cached = customLookup._cache[cacheKey];
-    if (options.all) {
-      return callback(null, [{ address: cached.address, family: cached.family }]);
-    }
-    return callback(null, cached.address, cached.family);
-  }
-
-  dns.resolve6(hostname, (err6, addr6) => {
-    if (!err6 && addr6 && addr6.length > 0) {
-      if (!customLookup._cache) customLookup._cache = {};
-      customLookup._cache[cacheKey] = { address: addr6[0], family: 6 };
-      if (options.all) {
-        return callback(null, addr6.map(a => ({ address: a, family: 6 })));
-      }
-      return callback(null, addr6[0], 6);
-    }
-    dns.resolve4(hostname, (err4, addr4) => {
-      if (!err4 && addr4 && addr4.length > 0) {
-        if (!customLookup._cache) customLookup._cache = {};
-        customLookup._cache[cacheKey] = { address: addr4[0], family: 4 };
-        if (options.all) {
-          return callback(null, addr4.map(a => ({ address: a, family: 4 })));
+// ── Detect system IPv6 connectivity ─────────────────────────────────────
+// Check if the system has a routable (non-link-local, non-loopback) IPv6 address.
+// If there's no IPv6 address, connecting to IPv6 endpoints will fail with ENETUNREACH.
+function systemHasIPv6() {
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const addr of interfaces[name]) {
+        if (
+          addr.family === "IPv6" &&
+          !addr.internal &&
+          !addr.address.startsWith("fe80") &&   // skip link-local
+          !addr.address.startsWith("::1")        // skip loopback
+        ) {
+          return true;
         }
-        return callback(null, addr4[0], 4);
       }
-      dns.lookup(hostname, options, callback);
+    }
+  } catch {}
+  return false;
+}
+
+const HAS_IPV6 = systemHasIPv6();
+
+// ── Configure DNS servers based on system network capabilities ────────
+// On IPv6-only networks, IPv4 DNS servers (1.1.1.1) are unreachable.
+// On IPv4-only WiFi, IPv6 DNS servers are unreachable.
+// Order the server list so reachable servers come first.
+try {
+  const servers = HAS_IPV6
+    ? [...DNS_V6, ...DNS_V4]   // IPv6 DNS first, then IPv4 fallback
+    : [...DNS_V4, ...DNS_V6]; // IPv4 DNS first (most common)
+  dns.setServers(servers);
+} catch {
+  // If setServers fails (unusual), leave the OS defaults in place.
+}
+
+// ── DNS resolution with timeout ─────────────────────────────────────────
+// Wraps dns.resolve{4,6} with a timeout to prevent hanging on unresponsive DNS.
+function resolveWithTimeout(resolver, hostname, timeoutMs = 3000) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve([]), timeoutMs);
+    resolver(hostname, (err, addrs) => {
+      clearTimeout(timer);
+      resolve(err || !addrs ? [] : addrs);
     });
   });
 }
 
-// Replace global agents so ALL http/https requests use our DNS.
-// keepAlive reduces connection overhead for multiple requests to the same host.
-http.globalAgent = new http.Agent({ lookup: customLookup, keepAlive: true });
-https.globalAgent = new https.Agent({ lookup: customLookup, keepAlive: true });
+// ── Custom DNS lookup (Happy Eyeballs compatible) ───────────────────────
+// When called with `all: true` (by Node.js autoSelectFamily / Happy Eyeballs),
+// returns addresses from BOTH families so Node can race connections and pick
+// whichever connects first.  When called for a single address, returns the
+// best-available family based on system capability.
+function customLookup(hostname, options, callback) {
+  if (typeof options === "function") { callback = options; options = {}; }
+
+  const wantAll = !!options.all;
+
+  if (wantAll) {
+    // ── Happy Eyeballs path: resolve both families in parallel ──
+    Promise.all([
+      HAS_IPV6 ? resolveWithTimeout(dns.resolve6.bind(dns), hostname) : Promise.resolve([]),
+      resolveWithTimeout(dns.resolve4.bind(dns), hostname),
+    ]).then(([v6, v4]) => {
+      const results = [];
+      // IPv6 first (preferred when available), then IPv4
+      for (const a of v6) results.push({ address: a, family: 6 });
+      for (const a of v4) results.push({ address: a, family: 4 });
+
+      if (results.length > 0) {
+        return callback(null, results);
+      }
+      // All custom DNS failed — fall back to OS resolver
+      dns.lookup(hostname, { all: true }, callback);
+    }).catch(() => {
+      dns.lookup(hostname, { all: true }, callback);
+    });
+  } else {
+    // ── Single-address path ──
+    const tryIPv4 = () => {
+      resolveWithTimeout(dns.resolve4.bind(dns), hostname).then((v4) => {
+        if (v4.length > 0) return callback(null, v4[0], 4);
+        // Last resort: OS resolver
+        dns.lookup(hostname, options, callback);
+      }).catch(() => dns.lookup(hostname, options, callback));
+    };
+
+    if (HAS_IPV6) {
+      resolveWithTimeout(dns.resolve6.bind(dns), hostname).then((v6) => {
+        if (v6.length > 0) return callback(null, v6[0], 6);
+        tryIPv4();
+      }).catch(() => tryIPv4());
+    } else {
+      tryIPv4();
+    }
+  }
+}
+
+// ── Replace global HTTP agents ──────────────────────────────────────────
+// autoSelectFamily enables Node.js "Happy Eyeballs" (RFC 6555): when the
+// lookup returns both IPv4 and IPv6 addresses, Node races connections and
+// uses whichever family connects first.  This ensures the app works on
+// IPv4-only WiFi, IPv6-only networks, and dual-stack setups alike.
+const agentOptions = {
+  lookup: customLookup,
+  keepAlive: true,
+  autoSelectFamily: true,
+  autoSelectFamilyAttemptTimeout: 2500, // ms before trying the next family
+};
+http.globalAgent = new http.Agent(agentOptions);
+https.globalAgent = new https.Agent(agentOptions);
 
 // Dynamic import so aniwatch picks up patched global agents
 const { HiAnime } = await import("aniwatch");
@@ -64,15 +151,26 @@ const hianime = new HiAnime.Scraper();
 const action = process.argv[2];
 
 // Retry helper: retries an async fn up to `retries` times with a delay between attempts.
-async function withRetry(fn, { retries = 2, delay = 1000, label = "" } = {}) {
+// On transient network errors (ENETUNREACH, ECONNRESET, etc.) it retries automatically.
+async function withRetry(fn, { retries = 3, delay = 1200, label = "" } = {}) {
+  const TRANSIENT_CODES = new Set([
+    "ENETUNREACH", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT",
+    "EHOSTUNREACH", "EAI_AGAIN", "EPIPE", "ERR_SOCKET_CONNECTION_TIMEOUT",
+    "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET", "ENOTFOUND",
+  ]);
   let lastErr;
   for (let i = 0; i <= retries; i++) {
     try {
       return await fn();
     } catch (err) {
       lastErr = err;
+      const isTransient = TRANSIENT_CODES.has(err.code) ||
+        (err.cause && TRANSIENT_CODES.has(err.cause.code)) ||
+        /timeout|ENETUNREACH|ECONNR|socket/i.test(err.message);
       if (i < retries) {
-        await new Promise(r => setTimeout(r, delay));
+        // Longer back-off for transient network errors
+        const backoff = isTransient ? delay * (i + 1) : delay;
+        await new Promise(r => setTimeout(r, backoff));
       }
     }
   }
