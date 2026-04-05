@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 const API_BASE = process.env.NYCLI_API_BASE || 'http://127.0.0.1:3000';
-const VERSION = '5.1.0';
+const VERSION = '5.1.5';;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
@@ -1477,6 +1477,22 @@ function App() {
     }
   }, []);
 
+  // Load user avatar when viewing profile (for already logged in users)
+  useEffect(() => {
+    if (screen === 'profile' && loggedIn && !userAvatar) {
+      const token = getToken();
+      if (token) {
+        verifyFirebaseUser(token).then(result => {
+          if (result.photoUrl) {
+            setUserPhotoUrl(result.photoUrl);
+            const avatar = renderArtwork(result.photoUrl, 10, 10);
+            if (avatar) setUserAvatar(avatar);
+          }
+        }).catch(() => {});
+      }
+    }
+  }, [screen, loggedIn, userAvatar]);
+
   // ═══════════════════════════════════════════════════════════════════════════
   // MENU ITEMS
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2118,7 +2134,7 @@ function App() {
           onBack={goBack}
           title="[>] Continue Watching"
           color={theme.success}
-          showArtwork={true}
+          showArtwork={false}
         />
       )}
 

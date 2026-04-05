@@ -1,5 +1,5 @@
 #!/bin/sh
-# NY-CLI v5.1.4 Installation Script
+# NY-CLI v5.1.5 Installation Script
 # Universal installer for Linux (Arch, Fedora, Ubuntu/Debian) and macOS
 # Usage: curl -fsSL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.sh | sh
 
@@ -31,7 +31,7 @@ printf "  ╚═╝  ╚═══╝   ╚═╝          ╚═════╝�
 printf "${RESET}\n"
 printf "${DIM}${CYAN}       ⟨ Your Gateway to Anime Streaming ⟩${RESET}\n"
 printf "${DIM}       ─────────────────────────────────────${RESET}\n"
-printf "${DIM}            v5.1.4 • nyanime.qzz.io${RESET}\n"
+printf "${DIM}            v5.1.5 • nyanime.qzz.io${RESET}\n"
 printf "\n"
 
 VERSION="5.1.2"
