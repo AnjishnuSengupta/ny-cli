@@ -141,7 +141,7 @@ const ALLANIME_EPISODE_QUERY =
 
 // Health check endpoint
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', version: '5.0.0' });
+  res.json({ status: 'ok', version: '5.1.0' });
 });
 
 app.get('/api/aniwatch', async (req, res) => {

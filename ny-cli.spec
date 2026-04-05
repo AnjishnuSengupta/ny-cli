@@ -1,5 +1,5 @@
 Name:           ny-cli
-Version:        5.0.0
+Version:        5.1.0
 Release:        1%{?dist}
 Summary:        Beautiful terminal anime streaming client with artwork display and cloud sync
 
@@ -47,7 +47,7 @@ install -Dm644 README.md %{buildroot}%{_docdir}/%{name}/README.md
 /usr/lib/%{name}/
 
 %changelog
-* Thu Apr 03 2026 Anjishnu Sengupta <itsaemail@duck.com> - 5.0.0-1
+* Thu Apr 03 2026 Anjishnu Sengupta <itsaemail@duck.com> - 5.1.0-1
 - React/Ink terminal UI with animated gradients and ripple effects
 - Anime artwork display via Jikan API + chafa
 - Watch progress tracking via mpv IPC
