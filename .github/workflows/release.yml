@@ -38,8 +38,8 @@ jobs:
           cd build/ny-cli-${VERSION}
           sed -i "1s/ny-cli ([^)]*)/ny-cli (${VERSION}-1)/" debian/changelog
           
-          # Install npm dependencies first
-          npm install --omit=dev --ignore-scripts || true
+          # Install npm dependencies with legacy-peer-deps to resolve ink version conflict
+          npm install --omit=dev --ignore-scripts --legacy-peer-deps
           
           # Update rules to skip npm install since we did it
           sed -i 's/npm install.*$/true/' debian/rules
@@ -80,9 +80,9 @@ jobs:
           mkdir -p ny-cli-${VERSION}
           cp ny-cli backend.mjs cli-terminal.tsx cli-terminal-fallback.mjs package.json tsconfig.json install.sh LICENSE README.md ny-cli-${VERSION}/
           
-          # Install npm dependencies
+          # Install npm dependencies with legacy-peer-deps
           cd ny-cli-${VERSION}
-          npm install --omit=dev --ignore-scripts || true
+          npm install --omit=dev --ignore-scripts --legacy-peer-deps
           cd ..
           
           # Create tarball with node_modules included
@@ -93,6 +93,8 @@ jobs:
           sed -i "s/^Version:.*/Version:        ${VERSION}/" $HOME/rpmbuild/SPECS/ny-cli.spec
           # Skip npm install in spec since we already did it
           sed -i 's/npm install.*$/true/' $HOME/rpmbuild/SPECS/ny-cli.spec
+          # Fix the changelog date format
+          sed -i 's/Sat Apr 05/Sun Apr 05/g' $HOME/rpmbuild/SPECS/ny-cli.spec
       
       - name: Build RPM
         run: rpmbuild -ba $HOME/rpmbuild/SPECS/ny-cli.spec

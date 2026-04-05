@@ -1,5 +1,5 @@
 Name:           ny-cli
-Version:        5.1.1
+Version:        5.1.2
 Release:        1%{?dist}
 Summary:        Beautiful terminal anime streaming client with artwork display and cloud sync
 
@@ -25,12 +25,12 @@ ripple effects, and support for mpv and VLC players.
 %autosetup
 
 %build
-npm install --omit=dev --ignore-scripts 2>/dev/null || npm install --production --ignore-scripts 2>/dev/null
+npm install --omit=dev --ignore-scripts --legacy-peer-deps 2>/dev/null || npm install --production --ignore-scripts --legacy-peer-deps 2>/dev/null
 
 %install
 # Install application to /usr/lib/ny-cli
 mkdir -p %{buildroot}/usr/lib/%{name}
-cp -a ny-cli backend.mjs cli-terminal.tsx cli-terminal-fallback.mjs package.json node_modules %{buildroot}/usr/lib/%{name}/
+cp -a ny-cli backend.mjs cli-terminal.tsx cli-terminal-fallback.mjs package.json tsconfig.json node_modules %{buildroot}/usr/lib/%{name}/
 chmod 755 %{buildroot}/usr/lib/%{name}/ny-cli
 
 # Symlink to /usr/bin
@@ -47,7 +47,7 @@ install -Dm644 README.md %{buildroot}%{_docdir}/%{name}/README.md
 /usr/lib/%{name}/
 
 %changelog
-* Sat Apr 05 2026 Anjishnu Sengupta <itsaemail@duck.com> - 5.1.1-1
+* Sun Apr 05 2026 Anjishnu Sengupta <itsaemail@duck.com> - 5.1.2-1
 - React/Ink terminal UI with animated gradients and ripple effects
 - Anime artwork display via Jikan API + chafa
 - Watch progress tracking via mpv IPC

@@ -1,6 +1,6 @@
 # Maintainer: Anjishnu Sengupta <itsaemail@duck.com>
 pkgname=ny-cli
-pkgver=5.1.1
+pkgver=5.1.2
 pkgrel=1
 pkgdesc="Beautiful terminal anime streaming client with artwork display, cloud sync, and watch progress tracking"
 arch=('any')
@@ -26,10 +26,11 @@ package() {
     install -Dm644 cli-terminal.tsx "$pkgdir/usr/lib/$pkgname/cli-terminal.tsx"
     install -Dm644 cli-terminal-fallback.mjs "$pkgdir/usr/lib/$pkgname/cli-terminal-fallback.mjs"
     install -Dm644 package.json "$pkgdir/usr/lib/$pkgname/package.json"
+    install -Dm644 tsconfig.json "$pkgdir/usr/lib/$pkgname/tsconfig.json" || true
 
     # Install npm dependencies
     cd "$pkgdir/usr/lib/$pkgname"
-    npm install --omit=dev --ignore-scripts 2>/dev/null || npm install --production --ignore-scripts 2>/dev/null
+    npm install --omit=dev --ignore-scripts --legacy-peer-deps 2>/dev/null || npm install --production --ignore-scripts --legacy-peer-deps 2>/dev/null
 
     # Symlink to /usr/bin
     install -d "$pkgdir/usr/bin"

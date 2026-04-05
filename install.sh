@@ -1,5 +1,5 @@
 #!/bin/sh
-# NY-CLI v5.1.1 Installation Script
+# NY-CLI v5.1.2 Installation Script
 # Universal installer for Linux (Arch, Fedora, Ubuntu/Debian) and macOS
 # Usage: curl -fsSL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.sh | sh
 
@@ -31,10 +31,10 @@ printf "  ╚═╝  ╚═══╝   ╚═╝          ╚═════╝�
 printf "${RESET}\n"
 printf "${DIM}${CYAN}       ⟨ Your Gateway to Anime Streaming ⟩${RESET}\n"
 printf "${DIM}       ─────────────────────────────────────${RESET}\n"
-printf "${DIM}            v5.1.1 • nyanime.qzz.io${RESET}\n"
+printf "${DIM}            v5.1.2 • nyanime.qzz.io${RESET}\n"
 printf "\n"
 
-VERSION="5.1.1"
+VERSION="5.1.2"
 REPO_URL="https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main"
 GITHUB_REPO="https://github.com/AnjishnuSengupta/ny-cli"
 
@@ -315,9 +315,9 @@ main() {
     # Install npm dependencies
     printf "${CYAN}⟳ Installing npm dependencies...${RESET}\n"
     
-    (cd "$INSTALL_DIR" && npm install --silent --omit=dev 2>/dev/null) || {
+    (cd "$INSTALL_DIR" && npm install --silent --omit=dev --legacy-peer-deps 2>/dev/null) || {
         printf "${YELLOW}⚠ npm install had warnings, continuing...${RESET}\n"
-        (cd "$INSTALL_DIR" && npm install --omit=dev 2>&1 | tail -3)
+        (cd "$INSTALL_DIR" && npm install --omit=dev --legacy-peer-deps 2>&1 | tail -3)
     }
     
     printf "${GREEN}✓ Dependencies installed${RESET}\n"

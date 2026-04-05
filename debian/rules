@@ -4,7 +4,7 @@
 	dh $@
 
 override_dh_auto_build:
-	npm install --omit=dev --ignore-scripts 2>/dev/null || npm install --production --ignore-scripts 2>/dev/null
+	npm install --omit=dev --ignore-scripts --legacy-peer-deps 2>/dev/null || npm install --production --ignore-scripts --legacy-peer-deps 2>/dev/null
 
 override_dh_auto_install:
 	# Install application to /usr/lib/ny-cli
@@ -14,6 +14,7 @@ override_dh_auto_install:
 	install -m644 cli-terminal.tsx debian/ny-cli/usr/lib/ny-cli/cli-terminal.tsx
 	install -m644 cli-terminal-fallback.mjs debian/ny-cli/usr/lib/ny-cli/cli-terminal-fallback.mjs
 	install -m644 package.json debian/ny-cli/usr/lib/ny-cli/package.json
+	install -m644 tsconfig.json debian/ny-cli/usr/lib/ny-cli/tsconfig.json || true
 	cp -a node_modules debian/ny-cli/usr/lib/ny-cli/
 	# Symlink to /usr/bin
 	install -d debian/ny-cli/usr/bin

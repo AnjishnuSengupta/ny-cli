@@ -11,8 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
 
       - name: Get version from tag
         id: version
@@ -29,22 +27,62 @@ jobs:
           sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
           sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
 
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y pacman-package-manager
+
       - name: Generate .SRCINFO
         run: |
-          docker run --rm -v "$PWD:/pkg" -w /pkg archlinux:latest bash -c "
-            pacman -Sy --noconfirm base-devel &&
-            useradd -m builder &&
-            chown -R builder:builder . &&
-            su builder -c 'makepkg --printsrcinfo > .SRCINFO'
-          "
+          # Create a simple .SRCINFO from PKGBUILD
+          cat > .SRCINFO << 'SRCINFO_EOF'
+          pkgbase = ny-cli
+          	pkgdesc = Beautiful terminal anime streaming client with artwork display, cloud sync, and watch progress tracking
+          	pkgver = ${{ steps.version.outputs.VERSION }}
+          	pkgrel = 1
+          	url = https://github.com/AnjishnuSengupta/ny-cli
+          	arch = any
+          	license = MIT
+          	depends = nodejs>=18
+          	depends = npm
+          	optdepends = mpv: recommended video player with IPC support
+          	optdepends = vlc: alternative video player
+          	optdepends = chafa: terminal image rendering for artwork display
+          	optdepends = bun: enhanced terminal UI experience
+          	source = ny-cli-${{ steps.version.outputs.VERSION }}.tar.gz::https://github.com/AnjishnuSengupta/ny-cli/archive/v${{ steps.version.outputs.VERSION }}.tar.gz
+          	sha256sums = SKIP
 
-      - name: Publish to AUR
-        uses: KSXGitHub/github-actions-deploy-aur@v4.1.1
-        with:
-          pkgname: ny-cli
-          pkgbuild: ./PKGBUILD
-          commit_username: ${{ secrets.AUR_USERNAME }}
-          commit_email: ${{ secrets.AUR_EMAIL }}
-          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-          commit_message: "Update to version ${{ steps.version.outputs.VERSION }}"
-          force_push: true
+          pkgname = ny-cli
+          SRCINFO_EOF
+          # Fix indentation (tabs required)
+          sed -i 's/^          /\t/g' .SRCINFO
+          sed -i 's/^\tpkgbase/pkgbase/' .SRCINFO
+          sed -i 's/^\tpkgname/pkgname/' .SRCINFO
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan -t rsa,ecdsa,ed25519 aur.archlinux.org >> ~/.ssh/known_hosts
+          cat > ~/.ssh/config << EOF
+          Host aur.archlinux.org
+            IdentityFile ~/.ssh/aur
+            User aur
+          EOF
+
+      - name: Push to AUR
+        run: |
+          git config --global user.name "${{ secrets.AUR_USERNAME }}"
+          git config --global user.email "${{ secrets.AUR_EMAIL }}"
+          
+          # Clone AUR repo
+          git clone ssh://aur@aur.archlinux.org/ny-cli.git aur-repo || git init aur-repo
+          cd aur-repo
+          
+          # Copy updated files
+          cp ../PKGBUILD .
+          cp ../.SRCINFO .
+          
+          # Commit and push
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to version ${{ steps.version.outputs.VERSION }}" || echo "No changes to commit"
+          git push --force origin master || git push --force origin HEAD:master
