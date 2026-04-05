@@ -30,16 +30,13 @@ jobs:
           sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
 
       - name: Generate .SRCINFO
-        uses: docker://archlinux:latest
-        with:
-          entrypoint: /bin/bash
-          args: |
-            -c "
-            pacman -Sy --noconfirm base-devel
-            useradd -m builder
-            chown -R builder:builder .
+        run: |
+          docker run --rm -v "$PWD:/pkg" -w /pkg archlinux:latest bash -c "
+            pacman -Sy --noconfirm base-devel &&
+            useradd -m builder &&
+            chown -R builder:builder . &&
             su builder -c 'makepkg --printsrcinfo > .SRCINFO'
-            "
+          "
 
       - name: Publish to AUR
         uses: KSXGitHub/github-actions-deploy-aur@v4.1.1

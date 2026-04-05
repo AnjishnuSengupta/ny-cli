@@ -31,12 +31,18 @@ jobs:
           VERSION=${{ steps.version.outputs.VERSION }}
           # Create proper debian source directory
           mkdir -p build/ny-cli-${VERSION}
-          cp ny-cli backend.mjs package.json install.sh LICENSE README.md build/ny-cli-${VERSION}/
+          cp ny-cli backend.mjs cli-terminal.tsx cli-terminal-fallback.mjs package.json tsconfig.json install.sh LICENSE README.md build/ny-cli-${VERSION}/
           cp -r debian build/ny-cli-${VERSION}/
           
           # Update debian changelog version
           cd build/ny-cli-${VERSION}
           sed -i "1s/ny-cli ([^)]*)/ny-cli (${VERSION}-1)/" debian/changelog
+          
+          # Install npm dependencies first
+          npm install --omit=dev --ignore-scripts || true
+          
+          # Update rules to skip npm install since we did it
+          sed -i 's/npm install.*$/true/' debian/rules
           
           # Build the package
           dpkg-buildpackage -us -uc -b
@@ -68,16 +74,25 @@ jobs:
       - name: Setup RPM build tree
         run: rpmdev-setuptree
       
-      - name: Prepare source tarball
+      - name: Prepare source and install deps
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          mkdir -p $HOME/rpmbuild/SOURCES
-          tar czf $HOME/rpmbuild/SOURCES/ny-cli-${VERSION}.tar.gz \
-            --transform "s,^,ny-cli-${VERSION}/," \
-            ny-cli backend.mjs package.json install.sh LICENSE README.md
+          mkdir -p ny-cli-${VERSION}
+          cp ny-cli backend.mjs cli-terminal.tsx cli-terminal-fallback.mjs package.json tsconfig.json install.sh LICENSE README.md ny-cli-${VERSION}/
+          
+          # Install npm dependencies
+          cd ny-cli-${VERSION}
+          npm install --omit=dev --ignore-scripts || true
+          cd ..
+          
+          # Create tarball with node_modules included
+          tar czf $HOME/rpmbuild/SOURCES/ny-cli-${VERSION}.tar.gz ny-cli-${VERSION}
+          
+          # Copy and update spec
           cp ny-cli.spec $HOME/rpmbuild/SPECS/
-          # Ensure spec version matches tag
           sed -i "s/^Version:.*/Version:        ${VERSION}/" $HOME/rpmbuild/SPECS/ny-cli.spec
+          # Skip npm install in spec since we already did it
+          sed -i 's/npm install.*$/true/' $HOME/rpmbuild/SPECS/ny-cli.spec
       
       - name: Build RPM
         run: rpmbuild -ba $HOME/rpmbuild/SPECS/ny-cli.spec
