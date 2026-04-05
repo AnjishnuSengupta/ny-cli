@@ -11,6 +11,8 @@ override_dh_auto_install:
 	install -d debian/ny-cli/usr/lib/ny-cli
 	install -m755 ny-cli debian/ny-cli/usr/lib/ny-cli/ny-cli
 	install -m644 backend.mjs debian/ny-cli/usr/lib/ny-cli/backend.mjs
+	install -m644 cli-terminal.tsx debian/ny-cli/usr/lib/ny-cli/cli-terminal.tsx
+	install -m644 cli-terminal-fallback.mjs debian/ny-cli/usr/lib/ny-cli/cli-terminal-fallback.mjs
 	install -m644 package.json debian/ny-cli/usr/lib/ny-cli/package.json
 	cp -a node_modules debian/ny-cli/usr/lib/ny-cli/
 	# Symlink to /usr/bin

@@ -16,9 +16,18 @@ user.json
 # macOS
 .DS_Store
 
+# Backend logs
+.ny-cli-backend.log
+*.log
+
 # Editor files
 *.swp
 *.swo
 *~
 
 .directory
+
+# Copilot/AI skills (local only)
+.agents/
+.claude/
+skills-lock.json

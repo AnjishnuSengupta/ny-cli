@@ -6,7 +6,7 @@
 
 <br/>
 
-[![Version](https://img.shields.io/badge/v4.0.0-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
+[![Version](https://img.shields.io/badge/v5.0.0-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
 [![npm](https://img.shields.io/npm/v/@anjishnusengupta/ny-cli?style=flat-square&color=22c55e&label=npm)](https://www.npmjs.com/package/@anjishnusengupta/ny-cli)
 [![License](https://img.shields.io/badge/MIT-3b82f6?style=flat-square&label=license)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/AnjishnuSengupta/ny-cli?style=flat-square&color=fbbf24)](https://github.com/AnjishnuSengupta/ny-cli/stargazers)
@@ -14,7 +14,7 @@
 
 <br/>
 
-<kbd>[🌐 **NyAnime Website**](https://nyanime.tech)</kbd>&nbsp;&nbsp;
+<kbd>[🌐 **NyAnime Website**](https://nyanime.qzz.io)</kbd>&nbsp;&nbsp;
 <kbd>[📦 **Releases**](https://github.com/AnjishnuSengupta/ny-cli/releases)</kbd>&nbsp;&nbsp;
 <kbd>[🐛 **Report Bug**](https://github.com/AnjishnuSengupta/ny-cli/issues)</kbd>
 
@@ -26,33 +26,38 @@
 
 <br/>
 
-## 🎯 What's New in v4.0.0
+## 🎯 What's New in v5.0.0
 
 <table>
 <tr>
-<td>🎙️</td>
-<td><b>Sub / Dub Selection</b></td>
-<td>Choose between sub (Japanese + subtitles) or dub (English audio) when you select an anime — preference is saved per anime</td>
+<td>🎨</td>
+<td><b>Anime Artwork Display</b></td>
+<td>See anime cover art in your terminal as you browse — powered by Jikan API + chafa</td>
 </tr>
 <tr>
-<td>⚡</td>
-<td><b>Background Episode Fetching</b></td>
-<td>Episodes load in the background while you pick sub or dub — zero extra wait time</td>
+<td>⏱️</td>
+<td><b>Watch Progress Tracking</b></td>
+<td>Tracks exactly where you left off using mpv IPC — resume to the second</td>
 </tr>
 <tr>
-<td>🌐</td>
-<td><b>Global Network Compatibility</b></td>
-<td>Happy Eyeballs (RFC 6555) dual-stack support — works on IPv4-only, IPv6-only, or dual-stack networks worldwide</td>
+<td>✨</td>
+<td><b>97% Auto-Advance</b></td>
+<td>Watched 97%+ of an episode? Next episode loads automatically from Continue Watching</td>
 </tr>
 <tr>
-<td>🛡️</td>
-<td><b>Resilient Connectivity</b></td>
-<td>Mixed IPv4/IPv6 DNS servers, 3-endpoint online check, exponential-backoff retries, crash protection for transient socket errors</td>
+<td>🌊</td>
+<td><b>Beautiful Ink UI</b></td>
+<td>React-based terminal UI with animated gradients, ripple effects, and centered layout</td>
 </tr>
 <tr>
 <td>☁️</td>
-<td><b>Category-Aware Cloud Sync</b></td>
-<td>Sub/dub preference syncs to <a href="https://nyanime.tech">nyanime.tech</a> — Continue Watching remembers your choice</td>
+<td><b>Enhanced Cloud Sync</b></td>
+<td>Watch time syncs to nyanime.qzz.io — continue from any device</td>
+</tr>
+<tr>
+<td>🔧</td>
+<td><b>Fixed UI Alignment</b></td>
+<td>ASCII icons for consistent box borders, centered menus like the banner</td>
 </tr>
 </table>
 
@@ -72,12 +77,12 @@
 │   🎬  STREAMING          👤  EXPERIENCE        🔧  TECHNICAL    │
 │   ───────────────        ───────────────       ───────────────  │
 │                                                                 │
-│   ▸ HLS Streaming        ▸ User Accounts       ▸ POSIX Shell    │
+│   ▸ HLS Streaming        ▸ User Accounts       ▸ React/Ink UI   │
 │   ▸ Multi-Server         ▸ Watch History       ▸ Node.js 18+    │
-│   ▸ Sub/Dub Select       ▸ Cloud Sync          ▸ aniwatch pkg   │
-│   ▸ Skip Intro           ▸ Continue Watch      ▸ Self-Hosted    │
-│   ▸ Auto Subtitles       ▸ Random Anime        ▸ Dual-Stack     │
-│   ▸ MPV/VLC/IINA         ▸ Profile System      ▸ Zero Config    │
+│   ▸ Sub/Dub Select       ▸ Cloud Sync          ▸ AllAnime API   │
+│   ▸ Artwork Display      ▸ Continue Watch      ▸ Jikan API      │
+│   ▸ Progress Tracking    ▸ 97% Auto-Skip       ▸ mpv IPC        │
+│   ▸ MPV/VLC Support      ▸ Profile System      ▸ Firebase       │
 │                                                                 │
 ╰─────────────────────────────────────────────────────────────────╯
 ```
@@ -94,12 +99,11 @@
 | Feature | Description |
 |:--------|:------------|
 | **🎙️ Sub/Dub Selection** | Choose sub or dub per anime — preference saved and synced to cloud |
-| **🔄 Multi-Server Racing** | Races HD-1, HD-2, StreamTape, StreamSB in parallel via `Promise.any()` |
-| **⏭️ Skip Intro** | Press `s` during intro to skip — uses API-provided timestamps |
-| **📝 Multi-Language Subs** | Auto-selects English, with all available languages loaded for switching |
-| **🔁 Sub/Dub Fallback** | If all sub servers fail, automatically retries with dub |
-| **🌐 Dual-Stack Networking** | Happy Eyeballs (RFC 6555) — works on any IPv4, IPv6, or dual-stack network |
-| **🎚️ Player Support** | MPV (recommended), VLC, IINA — auto-detected or configurable |
+| **🖼️ Anime Artwork** | Cover art displayed in terminal via chafa while browsing |
+| **⏱️ Watch Progress** | mpv IPC tracks your position to the second |
+| **✨ 97% Auto-Advance** | Episode 97%+ watched? Next episode auto-loads |
+| **🔄 Multi-Server** | Races HD-1, HD-2, StreamTape sources in parallel |
+| **🎚️ Player Support** | MPV (recommended), VLC — auto-detected |
 
 </details>
 
@@ -110,12 +114,29 @@
 
 | Feature | Description |
 |:--------|:------------|
-| **🔐 Browser Auth** | Login via nyanime.tech — just paste your User ID |
-| **📜 Watch History** | Track all watched episodes with timestamps |
-| **☁️ Cloud Sync** | Seamless sync between CLI and nyanime.tech website |
-| **📍 Continue Watching** | Resume from where you left off — remembers your sub/dub choice |
-| **🎲 Random Mode** | Discover new anime with random selection + sub/dub prompt |
-| **🔍 Quick Search** | Search directly from command line or interactive menu |
+| **🔐 Browser Auth** | Login via nyanime.qzz.io — just paste your User ID |
+| **📜 Watch History** | Track all watched episodes with timestamps and progress |
+| **☁️ Cloud Sync** | Seamless sync with watch time to nyanime.qzz.io |
+| **📍 Continue Watching** | Resume exactly where you left off |
+| **📚 Trending** | Browse currently trending anime |
+| **🔍 Quick Search** | Fast anime search with artwork preview |
+
+</details>
+
+<details>
+<summary><b>🎨 UI Features</b></summary>
+
+<br/>
+
+| Feature | Description |
+|:--------|:------------|
+| **🌊 Animated Banner** | Color gradient animation on the NY-CLI logo |
+| **💫 Ripple Effects** | Ripple animation on selection |
+| **✨ Shimmer Text** | Rainbow shimmer effect on username |
+| **🔄 Pulsing Elements** | Pulsing status indicators |
+| **📊 Progress Badges** | Visual % watched badges in Continue Watching |
+| **🎯 Centered Layout** | Menu and content centered like the banner |
+| **🔲 ASCII Icons** | Consistent box borders with fixed-width icons |
 
 </details>
 
@@ -130,28 +151,28 @@
 <div align="center">
 
 ```
-╔══════════════════════════════════════════════╗
-║                                              ║
-║   $ ny-cli "one piece"                       ║
-║                                              ║
-║   Searching for 'one piece'...               ║
-║   1) One Piece (TV, 1155 sub / 1143 dub)     ║
-║   2) One Piece Film: Red (Movie, 1 sub)      ║
-║                                              ║
-║   Select [1-20]: 1                           ║
-║   Loading episodes...                        ║
-║                                              ║
-║   1) Sub (Japanese audio + subtitles)        ║
-║   2) Dub (English audio)                     ║
-║   Sub or Dub? [1/2]: 1                       ║
-║                                              ║
-║   One Piece (1155 eps) [SUB]                 ║
-║   Episode [1-1155]: 1155                     ║
-║                                              ║
-║   ▸ Starting playback...                     ║
-║     One Piece - Episode 1155 [SUB]           ║
-║                                              ║
-╚══════════════════════════════════════════════╝
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║     ███╗   ██╗██╗   ██╗       ██████╗██╗     ██╗               ║
+║     ████╗  ██║╚██╗ ██╔╝      ██╔════╝██║     ██║               ║
+║     ██╔██╗ ██║ ╚████╔╝ █████╗██║     ██║     ██║               ║
+║     ██║╚██╗██║  ╚██╔╝  ╚════╝██║     ██║     ██║               ║
+║     ██║ ╚████║   ██║         ╚██████╗███████╗██║               ║
+║     ╚═╝  ╚═══╝   ╚═╝          ╚═════╝╚══════╝╚═╝               ║
+║              ⟨ Your Gateway to Anime Streaming ⟩               ║
+║                                                                ║
+║  ╭──────────────────────────────────────────╮                  ║
+║  │ Welcome, Anjishnu!                       │                  ║
+║  ├──────────────────────────────────────────┤                  ║
+║  │ ▸ 1) [S] Search                          │                  ║
+║  │   2) [T] Trending                        │                  ║
+║  │   3) [>] Continue Watching               │                  ║
+║  │   4) [P] Profile                         │                  ║
+║  │   5) [?] Help                            │                  ║
+║  │   6) [X] Exit                            │                  ║
+║  ╰──────────────────────────────────────────╯                  ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
 ```
 
 </div>
@@ -168,23 +189,67 @@
 
 ### Prerequisites
 
-- **Node.js** 18+
-- **npm**
-- **mpv** (recommended video player)
+| Dependency | Required | Description |
+|:-----------|:--------:|:------------|
+| **Node.js** | ✅ | Version 18+ |
+| **npm** | ✅ | Comes with Node.js |
+| **mpv** | ✅ | Video player (or VLC) |
+| **chafa** | ⬜ | Terminal image renderer (for artwork) |
+| **bun** | ⬜ | For best UI experience |
 
 <br/>
 
-### Installation
+### One-Line Install (Recommended)
 
 ```bash
-# One-line install
-curl -sL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.sh | sh
 ```
 
+This auto-detects your OS and offers to install all dependencies!
+
+<br/>
+
+### Install via npm
+
 ```bash
-# Or via npm
 npm install -g @anjishnusengupta/ny-cli
 ```
+
+Then install system dependencies manually:
+
+<details>
+<summary><b>📦 System Dependencies by OS</b></summary>
+
+<br/>
+
+**🐧 Ubuntu / Debian**
+```bash
+sudo apt install mpv chafa
+```
+
+**🎩 Fedora / RHEL**
+```bash
+sudo dnf install mpv chafa
+```
+
+**🔷 Arch Linux**
+```bash
+sudo pacman -S mpv chafa
+```
+
+**🍎 macOS**
+```bash
+brew install mpv chafa
+```
+
+**Optional: Install Bun for best UI**
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+
+</details>
+
+<br/>
 
 <details>
 <summary><b>📥 Manual Install</b></summary>
@@ -197,7 +262,7 @@ git clone https://github.com/AnjishnuSengupta/ny-cli.git
 cd ny-cli
 
 # Install dependencies
-npm install --production
+npm install
 
 # Make executable and install
 chmod +x ny-cli
@@ -224,30 +289,43 @@ paru -S ny-cli
 ### Usage
 
 ```bash
-# Interactive mode
+# Interactive mode (recommended)
 ny-cli
 
-# Quick search
-ny-cli "attack on titan"
-
-# Direct search
-ny-cli -s "one piece"
-
-# Continue watching
-ny-cli -c
-
-# Trending anime
-ny-cli -t
-
-# Random anime
-ny-cli -r
-
-# Login for cloud sync
-ny-cli -l
-
-# Help
+# For help
 ny-cli -h
 ```
+
+<br/>
+
+---
+
+<br/>
+
+## 🎮 Controls
+
+### Menu Navigation
+
+| Key | Action |
+|:---:|:-------|
+| `↑` / `k` | Move up |
+| `↓` / `j` | Move down |
+| `Enter` | Select |
+| `b` / `←` / `Esc` | Go back |
+| `1-9` | Quick select (when shown) |
+| `q` | Quit |
+
+### During Playback (mpv)
+
+| Key | Action |
+|:---:|:-------|
+| `Space` | Play / Pause |
+| `←` / `→` | Seek ±5s |
+| `↑` / `↓` | Seek ±60s |
+| `f` | Fullscreen |
+| `v` | Toggle subtitles |
+| `m` | Mute |
+| `q` | Quit |
 
 <br/>
 
@@ -263,11 +341,11 @@ ny-cli -h
 
 | Layer | Technologies |
 |:-----:|:-------------|
-| **CLI** | ![Shell](https://img.shields.io/badge/POSIX_Shell-4EAA25?style=flat-square&logo=gnubash&logoColor=white) ![Sed](https://img.shields.io/badge/sed/grep-333333?style=flat-square) |
-| **Backend** | ![Node.js](https://img.shields.io/badge/Node.js_18+-339933?style=flat-square&logo=nodedotjs&logoColor=white) ![ES Modules](https://img.shields.io/badge/ES_Modules-f7df1e?style=flat-square&logo=javascript&logoColor=black) |
-| **Scraping** | ![Aniwatch](https://img.shields.io/badge/aniwatch_npm-a855f7?style=flat-square) ![HiAnime](https://img.shields.io/badge/hianimez.to-25A3E2?style=flat-square) |
-| **Sync** | ![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=flat-square&logo=firebase&logoColor=black) ![NyAnime](https://img.shields.io/badge/nyanime.tech-a855f7?style=flat-square) |
-| **Players** | ![mpv](https://img.shields.io/badge/mpv-690D76?style=flat-square&logo=mpv&logoColor=white) ![VLC](https://img.shields.io/badge/VLC-FF8800?style=flat-square&logo=vlcmediaplayer&logoColor=white) |
+| **CLI** | ![React](https://img.shields.io/badge/React-61dafb?style=flat-square&logo=react&logoColor=black) ![Ink](https://img.shields.io/badge/Ink_5-333333?style=flat-square) ![TypeScript](https://img.shields.io/badge/TSX-3178c6?style=flat-square&logo=typescript&logoColor=white) |
+| **Backend** | ![Node.js](https://img.shields.io/badge/Node.js_18+-339933?style=flat-square&logo=nodedotjs&logoColor=white) ![Express](https://img.shields.io/badge/Express-000000?style=flat-square&logo=express&logoColor=white) |
+| **APIs** | ![AllAnime](https://img.shields.io/badge/AllAnime-06b6d4?style=flat-square) ![Jikan](https://img.shields.io/badge/Jikan_API-25A2E2?style=flat-square) |
+| **Sync** | ![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=flat-square&logo=firebase&logoColor=black) ![NyAnime](https://img.shields.io/badge/nyanime.qzz.io-a855f7?style=flat-square) |
+| **Media** | ![mpv](https://img.shields.io/badge/mpv-690D76?style=flat-square&logo=mpv&logoColor=white) ![chafa](https://img.shields.io/badge/chafa-333333?style=flat-square) |
 
 </div>
 
@@ -281,40 +359,17 @@ ny-cli -h
 
 ```
 ny-cli/
-├── 📄 ny-cli              # Main CLI script (POSIX shell)
-├── 📄 backend.mjs          # Node.js scraping backend (aniwatch)
-├── 📄 package.json          # npm dependencies
-├── 📄 install.sh            # One-line installer
-├── 📂 debian/               # Debian packaging
-│   ├── changelog
-│   ├── control
-│   ├── install
-│   └── rules
-├── 📄 PKGBUILD             # Arch Linux AUR package
-├── 📄 ny-cli.spec           # RPM spec file
-└── 📄 LICENSE               # MIT License
+├── 📄 ny-cli                    # Main launcher script
+├── 📄 cli-terminal.tsx          # Ink/React terminal UI (main)
+├── 📄 cli-terminal-fallback.mjs # Fallback UI (no Bun)
+├── 📄 backend.mjs               # Express API server
+├── 📄 package.json              # npm package config
+├── 📄 install.sh                # Universal installer
+├── 📂 debian/                   # Debian packaging
+├── 📄 PKGBUILD                  # Arch Linux AUR
+├── 📄 ny-cli.spec               # RPM spec
+└── 📄 LICENSE                   # MIT License
 ```
-
-<br/>
-
----
-
-<br/>
-
-## 🎮 Controls
-
-### During Playback (mpv)
-
-| Key | Action |
-|:---:|:-------|
-| `Space` | Play / Pause |
-| `←` / `→` | Seek ±5s |
-| `↑` / `↓` | Seek ±60s |
-| `s` | Skip intro |
-| `f` | Fullscreen |
-| `v` | Toggle subtitles |
-| `m` | Mute |
-| `q` | Quit |
 
 <br/>
 
@@ -357,10 +412,11 @@ git push origin feature/amazing-feature
 
 | | |
 |:-:|:-:|
-| 🌐 **Website** | [nyanime.tech](https://nyanime.tech) |
+| 🌐 **Website** | [nyanime.qzz.io](https://nyanime.qzz.io) |
 | 🖥️ **Web App** | [github.com/AnjishnuSengupta/nyanime](https://github.com/AnjishnuSengupta/nyanime) |
 | 📦 **npm** | [@anjishnusengupta/ny-cli](https://www.npmjs.com/package/@anjishnusengupta/ny-cli) |
-| 📚 **aniwatch** | [ghoshRitesh12/aniwatch](https://github.com/ghoshRitesh12/aniwatch) |
+| 📚 **AllAnime** | [allanime.day](https://allanime.day) |
+| 🎨 **Jikan API** | [jikan.moe](https://jikan.moe) |
 
 </div>
 

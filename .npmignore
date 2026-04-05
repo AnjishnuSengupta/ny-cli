@@ -22,4 +22,13 @@ LICENSE
 *~
 .DS_Store
 
+# Backend logs
+.ny-cli-backend.log
+*.log
+
+# Copilot/AI skills (local only)
+.agents/
+.claude/
+skills-lock.json
+
 .directory

@@ -11,11 +11,11 @@ Rules-Requires-Root: no
 
 Package: ny-cli
 Architecture: all
-Depends: ${misc:Depends}, nodejs (>= 18), grep, sed
-Recommends: mpv
-Suggests: fzf, vlc
-Description: Terminal-based anime streaming client with self-hosted scraping
- NY-CLI is a terminal-based anime streaming client with self-hosted
- scraping via the aniwatch npm package. Zero external API dependency.
- Features include search, trending, watch history, cloud sync, and
- support for multiple video players.
+Depends: ${misc:Depends}, nodejs (>= 18)
+Recommends: mpv, chafa
+Suggests: vlc
+Description: Beautiful terminal anime streaming client with artwork and cloud sync
+ NY-CLI is a React/Ink terminal anime streaming client featuring anime artwork
+ display via Jikan API, watch progress tracking with mpv IPC, 97% auto-advance,
+ cloud sync to nyanime.qzz.io, animated gradients, ripple effects, and support
+ for mpv and VLC video players.

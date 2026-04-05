@@ -1,16 +1,17 @@
 # Maintainer: Anjishnu Sengupta <itsaemail@duck.com>
 pkgname=ny-cli
-pkgver=3.0.0
+pkgver=5.0.0
 pkgrel=1
-pkgdesc="Terminal-based anime streaming client with self-hosted scraping via aniwatch"
+pkgdesc="Beautiful terminal anime streaming client with artwork display, cloud sync, and watch progress tracking"
 arch=('any')
 url="https://github.com/AnjishnuSengupta/ny-cli"
 license=('MIT')
-depends=('nodejs>=18' 'npm' 'grep' 'sed')
+depends=('nodejs>=18' 'npm')
 optdepends=(
-    'mpv: recommended video player'
+    'mpv: recommended video player with IPC support'
     'vlc: alternative video player'
-    'fzf: fuzzy finder for better menus'
+    'chafa: terminal image rendering for artwork display'
+    'bun: enhanced terminal UI experience'
 )
 source=("$pkgname-$pkgver.tar.gz::https://github.com/AnjishnuSengupta/ny-cli/archive/v$pkgver.tar.gz")
 sha256sums=('SKIP')
@@ -22,6 +23,8 @@ package() {
     install -d "$pkgdir/usr/lib/$pkgname"
     install -Dm755 ny-cli "$pkgdir/usr/lib/$pkgname/ny-cli"
     install -Dm644 backend.mjs "$pkgdir/usr/lib/$pkgname/backend.mjs"
+    install -Dm644 cli-terminal.tsx "$pkgdir/usr/lib/$pkgname/cli-terminal.tsx"
+    install -Dm644 cli-terminal-fallback.mjs "$pkgdir/usr/lib/$pkgname/cli-terminal-fallback.mjs"
     install -Dm644 package.json "$pkgdir/usr/lib/$pkgname/package.json"
 
     # Install npm dependencies

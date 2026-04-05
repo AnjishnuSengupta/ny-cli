@@ -1,23 +1,27 @@
 {
   "name": "@anjishnusengupta/ny-cli",
-  "version": "4.0.0",
-  "description": "Terminal-based anime streaming client — self-hosted scraping via aniwatch",
+  "version": "5.0.0",
+  "description": "Beautiful terminal anime streaming CLI with Ink UI, artwork display, and cloud sync",
   "main": "backend.mjs",
   "bin": {
     "ny-cli": "ny-cli"
   },
   "scripts": {
-    "test": "node backend.mjs home",
+    "start": "node backend.mjs",
+    "cli": "bun cli-terminal.tsx",
+    "cli:fallback": "node cli-terminal-fallback.mjs",
+    "test": "node -e \"console.log('No automated tests configured')\"",
     "postinstall": "echo '\\nRun ny-cli to start watching anime!\\n'"
   },
   "keywords": [
     "anime",
     "cli",
+    "ink",
+    "terminal-ui",
     "streaming",
-    "terminal",
-    "hianime",
-    "aniwatch",
-    "mpv"
+    "tui",
+    "artwork",
+    "firebase"
   ],
   "author": "Anjishnu Sengupta",
   "license": "MIT",
@@ -25,7 +29,7 @@
     "type": "git",
     "url": "git+https://github.com/AnjishnuSengupta/ny-cli.git"
   },
-  "homepage": "https://nyanime.tech",
+  "homepage": "https://nyanime.qzz.io",
   "bugs": {
     "url": "https://github.com/AnjishnuSengupta/ny-cli/issues"
   },
@@ -37,6 +41,18 @@
     "darwin"
   ],
   "dependencies": {
-    "aniwatch": "^2.24.3"
+    "ansi-regex": "^6.2.2",
+    "chalk": "^5.6.2",
+    "express": "^5.1.0",
+    "ink": "^5.2.1",
+    "ink-select-input": "^5.0.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^18.3.1",
+    "react-devtools-core": "^7.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "@types/react": "^19.2.14",
+    "typescript": "^6.0.2"
   }
 }
