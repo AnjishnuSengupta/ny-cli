@@ -386,7 +386,7 @@ async function isOnline(): Promise<boolean> {
   }
 }
 
-async function verifyFirebaseUser(firebaseUid: string): Promise<{ valid: boolean; username?: string }> {
+async function verifyFirebaseUser(firebaseUid: string): Promise<{ valid: boolean; username?: string; photoUrl?: string }> {
   try {
     const response = await fetch(`${FIRESTORE_BASE}/users/${firebaseUid}`, {
       method: 'GET',
@@ -401,7 +401,11 @@ async function verifyFirebaseUser(firebaseUid: string): Promise<{ valid: boolean
                        data.fields.displayName?.stringValue || 
                        data.fields.email?.stringValue?.split('@')[0] ||
                        'User';
-      return { valid: true, username };
+      const photoUrl = data.fields.photoURL?.stringValue ||
+                       data.fields.photoUrl?.stringValue ||
+                       data.fields.avatarUrl?.stringValue ||
+                       data.fields.profilePicture?.stringValue;
+      return { valid: true, username, photoUrl };
     }
     return { valid: false };
   } catch {
@@ -1455,6 +1459,8 @@ function App() {
   const [autoPlayEpisode, setAutoPlayEpisode] = useState<{ episodeId: string; number: number } | null>(null);
   const [showWelcome, setShowWelcome] = useState(!initialQuery);
   const [isExiting, setIsExiting] = useState(false);
+  const [userPhotoUrl, setUserPhotoUrl] = useState<string | null>(null);
+  const [userAvatar, setUserAvatar] = useState<string | null>(null);
 
   // Banner animation
   useEffect(() => {
@@ -1596,7 +1602,15 @@ function App() {
         saveAuth(finalUsername, firebaseUid.trim());
         setLoggedIn(true);
         setUsername(finalUsername);
-        setStatus({ message: `Welcome, ${finalUsername}! 🎉`, type: 'success', loading: false });
+        setStatus({ message: `Welcome, ${finalUsername}!`, type: 'success', loading: false });
+        
+        // Load profile picture if available
+        if (result.photoUrl) {
+          setUserPhotoUrl(result.photoUrl);
+          // Render avatar with chafa in background
+          const avatar = renderArtwork(result.photoUrl, 10, 10);
+          if (avatar) setUserAvatar(avatar);
+        }
         
         // Sync cloud history in background
         setSyncMessage('Syncing with cloud...');
@@ -1630,6 +1644,8 @@ function App() {
     setLoggedIn(false);
     setUsername('');
     setPendingUsername('');
+    setUserPhotoUrl(null);
+    setUserAvatar(null);
     setScreen('main-menu');
     setStatus({ message: 'Logged out. See you soon!', type: 'info', loading: false });
   }, []);
@@ -1765,7 +1781,8 @@ function App() {
       }
 
       const { spawn } = require('node:child_process');
-      const title = `${selectedAnime?.label || 'Anime'} - Episode ${item.number} (${audioType.toUpperCase()})`;
+      const animeTitle = selectedAnime?.label || animeInfo?.title || '';
+      const title = `${animeTitle || 'Anime'} - Episode ${item.number} (${audioType.toUpperCase()})`;
       const animeId = selectedAnime?.id || '';
       const episodeNum = item.number || 1;
       
@@ -1827,12 +1844,12 @@ function App() {
               
               client.on('close', () => {
                 clearInterval(poll);
-                // Save final progress
-                if (lastPosition > 0) {
+                // Save final progress - only if we have valid data
+                if (lastPosition > 0 && animeId && animeTitle) {
                   saveWatchProgress(animeId, episodeNum, lastPosition, duration);
                   saveToHistory({
                     id: animeId,
-                    title: selectedAnime?.label || '',
+                    title: animeTitle,
                     episode: episodeNum,
                     timestamp: Date.now(),
                     category: audioType,
@@ -1884,21 +1901,23 @@ function App() {
 
       setStatus({ message: 'Player launched! Select another episode or press b to go back.', type: 'info', loading: false });
       
-      // Save initial history entry
-      saveToHistory({
-        id: animeId,
-        title: selectedAnime?.label || '',
-        episode: episodeNum,
-        timestamp: Date.now(),
-        category: audioType,
-        totalEpisodes: totalEps,
-      });
-      setHistory(getHistory());
+      // Save initial history entry - only if we have valid data
+      if (animeId && animeTitle) {
+        saveToHistory({
+          id: animeId,
+          title: animeTitle,
+          episode: episodeNum,
+          timestamp: Date.now(),
+          category: audioType,
+          totalEpisodes: totalEps,
+        });
+        setHistory(getHistory());
+      }
       
     } catch (err: any) {
       setStatus({ message: `Stream error: ${err.message}`, type: 'error', loading: false });
     }
-  }, [selectedAnime, audioType, episodes.length]);
+  }, [selectedAnime, animeInfo, audioType, episodes.length]);
 
   // Auto-play effect for 97%+ watched episodes
   useEffect(() => {
@@ -1964,22 +1983,25 @@ function App() {
       label: `Episode ${e.number}${e.title && !e.title.includes('Episode') ? `: ${e.title}` : ''}`,
     }));
 
-  const historyItems: SelectItem[] = history.map((h) => {
-    const progress = getWatchProgress(h.id, h.episode);
-    const percentage = progress ? Math.round(getWatchPercentage(progress.watchTime, progress.duration)) : 0;
-    const almostDone = percentage >= 97;
-    const progressStr = percentage > 0 
-      ? almostDone 
-        ? ' - Almost done!' 
-        : ` • ${percentage}%` 
-      : '';
-    return {
-      id: h.id,
-      label: h.title,
-      badge: `Ep ${h.episode} • ${h.category.toUpperCase()}${progressStr}`,
-      icon: almostDone ? '[*]' : undefined,
-    };
-  });
+  const historyItems: SelectItem[] = history
+    // Filter out corrupted entries with undefined/missing title or id
+    .filter((h) => h.id && h.title && h.id !== 'undefined' && h.title !== 'undefined')
+    .map((h) => {
+      const progress = getWatchProgress(h.id, h.episode);
+      const percentage = progress ? Math.round(getWatchPercentage(progress.watchTime, progress.duration)) : 0;
+      const almostDone = percentage >= 97;
+      const progressStr = percentage > 0 
+        ? almostDone 
+          ? ' - Almost done!' 
+          : ` • ${percentage}%` 
+        : '';
+      return {
+        id: h.id,
+        label: h.title,
+        badge: `Ep ${h.episode} • ${h.category.toUpperCase()}${progressStr}`,
+        icon: almostDone ? '[*]' : undefined,
+      };
+    });
 
   const profileMenuItems: SelectItem[] = [
     { value: 'sync', label: 'Sync History', icon: '[~]' },
@@ -2183,20 +2205,30 @@ function App() {
 
       {/* Profile */}
       {screen === 'profile' && (
-        <Box flexDirection="column" width={55}>
-          <Box borderStyle="round" borderColor={theme.purple} paddingX={2} paddingY={1} flexDirection="column" width={55}>
-            <Text color={theme.purple} bold>[P] {username}</Text>
-            <Text color={theme.dimGray}>{'─'.repeat(45)}</Text>
-            <Text color={theme.lightGray}>UID: <Text color={theme.cyan}>{getToken().substring(0, 12)}...</Text></Text>
-            {syncMessage ? <Text color={theme.cyan}>{syncMessage}</Text> : null}
-          </Box>
-          <Box marginTop={1}>
-            <SelectList
-              items={profileMenuItems}
-              onSelect={handleProfileAction}
-              color={theme.purple}
-              showBorder={true}
-            />
+        <Box flexDirection="row" gap={2}>
+          {/* Avatar */}
+          {userAvatar ? (
+            <Box borderStyle="round" borderColor={theme.purple} width={16} height={12}>
+              <Text>{userAvatar}</Text>
+            </Box>
+          ) : null}
+          
+          {/* Profile Info */}
+          <Box flexDirection="column" width={userAvatar ? 50 : 55}>
+            <Box borderStyle="round" borderColor={theme.purple} paddingX={2} paddingY={1} flexDirection="column">
+              <Text color={theme.purple} bold>[P] {username}</Text>
+              <Text color={theme.dimGray}>{'─'.repeat(userAvatar ? 35 : 45)}</Text>
+              <Text color={theme.lightGray}>UID: <Text color={theme.cyan}>{getToken().substring(0, 12)}...</Text></Text>
+              {syncMessage ? <Text color={theme.cyan}>{syncMessage}</Text> : null}
+            </Box>
+            <Box marginTop={1}>
+              <SelectList
+                items={profileMenuItems}
+                onSelect={handleProfileAction}
+                color={theme.purple}
+                showBorder={true}
+              />
+            </Box>
           </Box>
         </Box>
       )}
