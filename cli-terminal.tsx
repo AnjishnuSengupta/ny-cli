@@ -2,12 +2,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { render, Box, Text, useInput, useApp } from 'ink';
 import TextInput from 'ink-text-input';
+import Image, { TerminalInfoProvider } from 'ink-picture';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
 const API_BASE = process.env.NYCLI_API_BASE || 'http://127.0.0.1:3000';
-const VERSION = '5.1.5';;
+const VERSION = '5.2.1';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
@@ -34,6 +35,8 @@ const theme = {
   success: '#22C55E',
   warning: '#F59E0B',
   error: '#EF4444',
+  green: '#22C55E',
+  red: '#EF4444',
 };
 
 const GRADIENT = [theme.purple, theme.blue, theme.pink];
@@ -228,12 +231,110 @@ const DATA_DIR = process.env.XDG_DATA_HOME
 
 const AUTH_FILE = path.join(CONFIG_DIR, 'auth');
 const HISTORY_FILE = path.join(DATA_DIR, 'history');
+const SETTINGS_FILE = path.join(CONFIG_DIR, 'settings.json');
+const ANIME4K_DIR = path.join(DATA_DIR, 'anime4k');
 
 // Ensure directories exist
 try {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
   fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(ANIME4K_DIR, { recursive: true });
 } catch {}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SETTINGS HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
+interface Settings {
+  anime4k: boolean;
+  anime4kMode: 'A' | 'B' | 'C' | 'A+A' | 'B+B' | 'C+A';
+}
+
+const defaultSettings: Settings = {
+  anime4k: false,
+  anime4kMode: 'A',
+};
+
+function loadSettings(): Settings {
+  try {
+    if (fs.existsSync(SETTINGS_FILE)) {
+      return { ...defaultSettings, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) };
+    }
+  } catch {}
+  return defaultSettings;
+}
+
+function saveSettings(settings: Settings): void {
+  try {
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+  } catch {}
+}
+
+// Check if Anime4K shaders are installed
+function isAnime4kInstalled(): boolean {
+  try {
+    const shaderPath = path.join(ANIME4K_DIR, 'Anime4K_Clamp_Highlights.glsl');
+    return fs.existsSync(shaderPath);
+  } catch {
+    return false;
+  }
+}
+
+// Get Anime4K shader glsl-shaders string based on mode
+function getAnime4kShaders(mode: string): string {
+  const shaders = {
+    'A': [
+      'Anime4K_Clamp_Highlights.glsl',
+      'Anime4K_Restore_CNN_VL.glsl',
+      'Anime4K_Upscale_CNN_x2_VL.glsl',
+      'Anime4K_AutoDownscalePre_x2.glsl',
+      'Anime4K_AutoDownscalePre_x4.glsl',
+      'Anime4K_Upscale_CNN_x2_M.glsl',
+    ],
+    'B': [
+      'Anime4K_Clamp_Highlights.glsl',
+      'Anime4K_Restore_CNN_Soft_VL.glsl',
+      'Anime4K_Upscale_CNN_x2_VL.glsl',
+      'Anime4K_AutoDownscalePre_x2.glsl',
+      'Anime4K_AutoDownscalePre_x4.glsl',
+      'Anime4K_Upscale_CNN_x2_M.glsl',
+    ],
+    'C': [
+      'Anime4K_Clamp_Highlights.glsl',
+      'Anime4K_Upscale_Denoise_CNN_x2_VL.glsl',
+      'Anime4K_AutoDownscalePre_x2.glsl',
+      'Anime4K_AutoDownscalePre_x4.glsl',
+      'Anime4K_Upscale_CNN_x2_M.glsl',
+    ],
+    'A+A': [
+      'Anime4K_Clamp_Highlights.glsl',
+      'Anime4K_Restore_CNN_VL.glsl',
+      'Anime4K_Upscale_CNN_x2_VL.glsl',
+      'Anime4K_Restore_CNN_M.glsl',
+      'Anime4K_AutoDownscalePre_x2.glsl',
+      'Anime4K_AutoDownscalePre_x4.glsl',
+      'Anime4K_Upscale_CNN_x2_M.glsl',
+    ],
+    'B+B': [
+      'Anime4K_Clamp_Highlights.glsl',
+      'Anime4K_Restore_CNN_Soft_VL.glsl',
+      'Anime4K_Upscale_CNN_x2_VL.glsl',
+      'Anime4K_AutoDownscalePre_x2.glsl',
+      'Anime4K_AutoDownscalePre_x4.glsl',
+      'Anime4K_Restore_CNN_Soft_M.glsl',
+      'Anime4K_Upscale_CNN_x2_M.glsl',
+    ],
+    'C+A': [
+      'Anime4K_Clamp_Highlights.glsl',
+      'Anime4K_Upscale_Denoise_CNN_x2_VL.glsl',
+      'Anime4K_AutoDownscalePre_x2.glsl',
+      'Anime4K_AutoDownscalePre_x4.glsl',
+      'Anime4K_Restore_CNN_M.glsl',
+      'Anime4K_Upscale_CNN_x2_M.glsl',
+    ],
+  };
+  const modeShaders = shaders[mode as keyof typeof shaders] || shaders['A'];
+  return modeShaders.map(s => path.join(ANIME4K_DIR, s)).join(':');
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // AUTH HELPERS
@@ -849,21 +950,20 @@ function GoodbyeMessage({ onComplete }: { onComplete?: () => void }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ANIME ARTWORK DISPLAY
+// ANIME ARTWORK DISPLAY (using ink-picture)
 // ═══════════════════════════════════════════════════════════════════════════════
-// Cache for artwork - stores rendered ANSI art directly
-const artworkCache = new Map<string, string>();
+// Image URL cache to avoid re-fetching
 const imageUrlCache = new Map<string, string>();
 
-// Fetch image URL from multiple sources (fast fallback)
-async function fetchAnimeImageUrl(title: string): Promise<string | null> {
+// Get image URL for anime title
+async function getAnimeImageUrl(title: string): Promise<string | null> {
   const cacheKey = title.toLowerCase().trim();
   if (imageUrlCache.has(cacheKey)) {
     return imageUrlCache.get(cacheKey) || null;
   }
   
   try {
-    // Try Jikan API first (MyAnimeList)
+    // Try Jikan API (MyAnimeList)
     const searchQuery = encodeURIComponent(title.split(' ').slice(0, 3).join(' '));
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4000);
@@ -884,116 +984,60 @@ async function fetchAnimeImageUrl(title: string): Promise<string | null> {
       }
     }
   } catch {
-    // Jikan failed, continue
+    // Failed silently
   }
   
   return null;
 }
 
-// Render artwork using chafa - download to temp file first for reliability
-async function renderArtworkWithChafa(imageUrl: string, width: number = 25, height: number = 12): Promise<string> {
-  const { execSync, spawnSync } = require('node:child_process');
-  const tmpFile = `/tmp/ny-cli-art-${Date.now()}.jpg`;
-  
-  try {
-    // Download image to temp file (faster than piping)
-    execSync(`curl -sL --max-time 5 -o "${tmpFile}" "${imageUrl}"`, { timeout: 6000 });
-    
-    // Check if file exists and has content
-    const fs = require('node:fs');
-    if (!fs.existsSync(tmpFile) || fs.statSync(tmpFile).size < 100) {
-      return '';
-    }
-    
-    // Simple chafa - force symbols format to avoid sixels
-    const result = spawnSync('chafa', [
-      `--size=${width}x${height}`,
-      '--format=symbols',
-      tmpFile
-    ], { timeout: 5000, encoding: 'utf8' });
-    
-    // Cleanup temp file
-    try { fs.unlinkSync(tmpFile); } catch {}
-    
-    if (result.status === 0 && result.stdout) {
-      // Simple cleanup - just remove cursor sequences
-      const cleanOutput = result.stdout
-        .replace(/\x1b\[\?25[hl]/g, '')
-        .replace(/\x1b\[0K/g, '');
-      return cleanOutput;
-    }
-    return '';
-  } catch (e) {
-    // Cleanup on error
-    try { require('node:fs').unlinkSync(tmpFile); } catch {}
-    return '';
-  }
-}
-
-// Combined function: fetch URL and render artwork
-async function getAnimeArtwork(title: string, width: number = 30, height: number = 15): Promise<string> {
-  const cacheKey = `${title.toLowerCase().trim()}-${width}x${height}`;
-  
-  // Check art cache first
-  if (artworkCache.has(cacheKey)) {
-    return artworkCache.get(cacheKey) || '';
-  }
-  
-  try {
-    // Fetch image URL
-    const imageUrl = await fetchAnimeImageUrl(title);
-    if (!imageUrl) return '';
-    
-    // Render artwork
-    const art = await renderArtworkWithChafa(imageUrl, width, height);
-    if (art) {
-      artworkCache.set(cacheKey, art);
-    }
-    return art;
-  } catch (e) {
-    // Silently fail - artwork is optional
-    return '';
-  }
-}
-
-// Artwork display component - fetches and renders artwork for an anime title
-function AnimeArtwork({ title, width = 25, height = 12 }: { title: string; width?: number; height?: number }) {
-  const [art, setArt] = useState<string>('');
-  const [loading, setLoading] = useState(true);
-  const [currentTitle, setCurrentTitle] = useState('');
+// Artwork display component using ink-picture
+function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }: { title: string; imageUrl?: string; width?: number; height?: number }) {
+  const [imgSrc, setImgSrc] = useState<string | null>(imageUrl || null);
+  const [loading, setLoading] = useState(!imageUrl);
+  const [error, setError] = useState(false);
+  const prevImgRef = React.useRef<string | null>(null);
   
   useEffect(() => {
-    if (!title) {
-      setArt('');
+    if (imageUrl) {
+      prevImgRef.current = imageUrl;
+      setImgSrc(imageUrl);
       setLoading(false);
-      setCurrentTitle('');
+      setError(false);
       return;
     }
     
-    // Debounce: wait 300ms before fetching to avoid rapid requests
-    const debounceTimer = setTimeout(() => {
-      // Skip if title already loaded
-      if (title === currentTitle && art) {
-        return;
-      }
-      
+    if (!title) {
+      setImgSrc(null);
+      setLoading(false);
+      return;
+    }
+    
+    // Don't show loading if we have a previous image - keep it visible
+    if (!prevImgRef.current) {
       setLoading(true);
-      setCurrentTitle(title);
-      
-      // Use the combined function that handles caching
-      getAnimeArtwork(title, width - 4, height - 2).then((result) => {
-        setArt(result);
+    }
+    
+    // Debounce fetch
+    const timer = setTimeout(() => {
+      getAnimeImageUrl(title).then((url) => {
+        if (url) {
+          prevImgRef.current = url;
+          setImgSrc(url);
+        }
         setLoading(false);
       }).catch(() => {
-        setArt('');
         setLoading(false);
+        setError(true);
       });
     }, 300);
     
-    return () => clearTimeout(debounceTimer);
-  }, [title, width, height]);
+    return () => clearTimeout(timer);
+  }, [title, imageUrl]);
   
-  if (!title) {
+  // Use previous image while loading new one
+  const displaySrc = imgSrc || prevImgRef.current;
+  
+  if (!title && !imageUrl && !displaySrc) {
     return (
       <Box width={width} height={height} borderStyle="round" borderColor={theme.dimGray} justifyContent="center" alignItems="center">
         <Text color={theme.dimGray}>No Art</Text>
@@ -1001,7 +1045,7 @@ function AnimeArtwork({ title, width = 25, height = 12 }: { title: string; width
     );
   }
   
-  if (loading) {
+  if (loading && !displaySrc) {
     return (
       <Box width={width} height={height} borderStyle="round" borderColor={theme.purple} justifyContent="center" alignItems="center" flexDirection="column">
         <BouncingDots color={theme.purple} />
@@ -1010,7 +1054,7 @@ function AnimeArtwork({ title, width = 25, height = 12 }: { title: string; width
     );
   }
   
-  if (!art) {
+  if ((!displaySrc && !loading) || error) {
     return (
       <Box width={width} height={height} borderStyle="round" borderColor={theme.dimGray} justifyContent="center" alignItems="center">
         <Text color={theme.dimGray}>[!] No art</Text>
@@ -1018,13 +1062,14 @@ function AnimeArtwork({ title, width = 25, height = 12 }: { title: string; width
     );
   }
   
-  // Split art into lines and render each line with AnsiLine for proper ANSI handling
-  const artLines = art.split('\n').filter(Boolean).slice(0, height - 2);
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={theme.purple} width={width} overflow="hidden">
-      {artLines.map((line, i) => (
-        <AnsiLine key={i}>{line}</AnsiLine>
-      ))}
+    <Box width={width} height={height} borderStyle="round" borderColor={theme.purple} overflow="hidden">
+      <Image 
+        src={displaySrc!} 
+        width={width - 2} 
+        height={height - 2} 
+        alt={title}
+      />
     </Box>
   );
 }
@@ -1243,6 +1288,7 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
         <Box flexDirection="column" marginRight={2} width={artworkWidth}>
           <AnimeArtwork 
             title={selectedItem?.label || ''} 
+            imageUrl={selectedItem?.imageUrl}
             width={artworkWidth} 
             height={artworkHeight} 
           />
@@ -1420,6 +1466,181 @@ function getPlayerCommand(): string | null {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// SETTINGS SCREEN
+// ═══════════════════════════════════════════════════════════════════════════════
+interface SettingsScreenProps {
+  settings: Settings;
+  onUpdate: (settings: Settings) => void;
+  onBack: () => void;
+}
+
+function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadStatus, setDownloadStatus] = useState('');
+  
+  const anime4kInstalled = isAnime4kInstalled();
+  const modes = ['A', 'B', 'C', 'A+A', 'B+B', 'C+A'] as const;
+  
+  const menuItems = [
+    { key: 'anime4k', label: 'Anime4K Upscaling', type: 'toggle' },
+    { key: 'anime4kMode', label: 'Anime4K Mode', type: 'select' },
+    { key: 'download', label: 'Download Anime4K Shaders', type: 'action' },
+    { key: 'back', label: '← Back', type: 'action' },
+  ];
+  
+  const downloadAnime4k = async () => {
+    setDownloading(true);
+    setDownloadStatus('Downloading Anime4K shaders...');
+    
+    try {
+      const { execSync } = require('node:child_process');
+      const targetDir = ANIME4K_DIR;
+      
+      // Download from GitHub releases
+      const version = 'v4.0.1';
+      const url = `https://github.com/bloc97/Anime4K/releases/download/${version}/Anime4K_v4.0.zip`;
+      const zipPath = path.join(targetDir, 'Anime4K.zip');
+      
+      setDownloadStatus('Downloading shaders...');
+      execSync(`curl -sL "${url}" -o "${zipPath}"`, { stdio: 'pipe' });
+      
+      setDownloadStatus('Extracting shaders...');
+      execSync(`cd "${targetDir}" && unzip -o Anime4K.zip && mv Anime4K_v4.0/* . 2>/dev/null || true`, { stdio: 'pipe' });
+      
+      // Cleanup
+      execSync(`rm -f "${zipPath}" && rm -rf "${targetDir}/Anime4K_v4.0"`, { stdio: 'pipe' });
+      
+      setDownloadStatus('✓ Anime4K shaders installed successfully!');
+      setTimeout(() => setDownloadStatus(''), 3000);
+    } catch (err: any) {
+      setDownloadStatus(`✗ Download failed: ${err.message}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+  
+  useInput((input, key) => {
+    if (key.escape || (input === 'b' && selectedIndex !== 0)) {
+      onBack();
+      return;
+    }
+    if (input === 'q') {
+      process.exit(0);
+    }
+    
+    if (key.upArrow || input === 'k') {
+      setSelectedIndex(i => Math.max(0, i - 1));
+    } else if (key.downArrow || input === 'j') {
+      setSelectedIndex(i => Math.min(menuItems.length - 1, i + 1));
+    } else if (key.return) {
+      const item = menuItems[selectedIndex];
+      
+      if (item.key === 'anime4k') {
+        if (anime4kInstalled) {
+          onUpdate({ ...settings, anime4k: !settings.anime4k });
+        }
+      } else if (item.key === 'anime4kMode') {
+        const currentIdx = modes.indexOf(settings.anime4kMode);
+        const nextIdx = (currentIdx + 1) % modes.length;
+        onUpdate({ ...settings, anime4kMode: modes[nextIdx] });
+      } else if (item.key === 'download') {
+        if (!downloading) {
+          downloadAnime4k();
+        }
+      } else if (item.key === 'back') {
+        onBack();
+      }
+    } else if (key.leftArrow && menuItems[selectedIndex].key === 'anime4kMode') {
+      const currentIdx = modes.indexOf(settings.anime4kMode);
+      const prevIdx = currentIdx > 0 ? currentIdx - 1 : modes.length - 1;
+      onUpdate({ ...settings, anime4kMode: modes[prevIdx] });
+    } else if (key.rightArrow && menuItems[selectedIndex].key === 'anime4kMode') {
+      const currentIdx = modes.indexOf(settings.anime4kMode);
+      const nextIdx = (currentIdx + 1) % modes.length;
+      onUpdate({ ...settings, anime4kMode: modes[nextIdx] });
+    }
+  });
+  
+  return (
+    <Box flexDirection="column" width={60}>
+      <Box borderStyle="round" borderColor={theme.cyan} paddingX={2} paddingY={1} flexDirection="column">
+        <Text color={theme.cyan} bold>[⚙] Settings</Text>
+        <Text color={theme.dimGray}>{'─'.repeat(50)}</Text>
+        <Text> </Text>
+        
+        {/* Anime4K Toggle */}
+        <Box>
+          <Text color={selectedIndex === 0 ? theme.cyan : theme.lightGray}>
+            {selectedIndex === 0 ? '▸ ' : '  '}
+            Anime4K Upscaling:{' '}
+          </Text>
+          {anime4kInstalled ? (
+            <Text color={settings.anime4k ? theme.green : theme.red}>
+              {settings.anime4k ? '[ON]' : '[OFF]'}
+            </Text>
+          ) : (
+            <Text color={theme.dimGray}>[Not Installed]</Text>
+          )}
+        </Box>
+        
+        {/* Anime4K Mode */}
+        <Box>
+          <Text color={selectedIndex === 1 ? theme.cyan : theme.lightGray}>
+            {selectedIndex === 1 ? '▸ ' : '  '}
+            Anime4K Mode:{' '}
+          </Text>
+          <Text color={selectedIndex === 1 ? theme.cyan : theme.lightGray}>
+            {'◀ '}{settings.anime4kMode}{' ▶'}
+          </Text>
+        </Box>
+        
+        <Text> </Text>
+        
+        {/* Download Action */}
+        <Box>
+          <Text color={selectedIndex === 2 ? theme.cyan : theme.lightGray}>
+            {selectedIndex === 2 ? '▸ ' : '  '}
+            {anime4kInstalled ? '↻ Re-download' : '↓ Download'} Anime4K Shaders
+          </Text>
+        </Box>
+        
+        {/* Back */}
+        <Box>
+          <Text color={selectedIndex === 3 ? theme.cyan : theme.lightGray}>
+            {selectedIndex === 3 ? '▸ ' : '  '}
+            ← Back
+          </Text>
+        </Box>
+        
+        {downloadStatus && (
+          <>
+            <Text> </Text>
+            <Text color={downloadStatus.startsWith('✓') ? theme.green : downloadStatus.startsWith('✗') ? theme.red : theme.cyan}>
+              {downloadStatus}
+            </Text>
+          </>
+        )}
+      </Box>
+      
+      <Box marginTop={1}>
+        <Text color={theme.dimGray}>
+          {anime4kInstalled 
+            ? 'Anime4K shaders enhance video quality for older anime' 
+            : 'Download shaders first to enable upscaling'}
+        </Text>
+      </Box>
+      
+      <Box marginTop={1}>
+        <Text color={theme.dimGray}>
+          Mode A: Best for 1080p | Mode B: Soft edges | Mode C: Denoise
+        </Text>
+      </Box>
+    </Box>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════════
 type Screen = 
@@ -1428,11 +1649,11 @@ type Screen =
   | 'anime-select'
   | 'audio-select'
   | 'episode-select'
-  | 'trending'
   | 'continue'
   | 'profile'
   | 'login'
   | 'login-token'
+  | 'settings'
   | 'help';
 
 const initialQuery = process.argv.slice(2).join(' ').trim();
@@ -1445,6 +1666,7 @@ function App() {
   const [animeInfo, setAnimeInfo] = useState<any>(null);
   const [audioType, setAudioType] = useState<'sub' | 'dub'>('sub');
   const [episodes, setEpisodes] = useState<any[]>([]);
+  const [appSettings, setAppSettings] = useState<Settings>(loadSettings());
   const [history, setHistory] = useState<HistoryEntry[]>(getHistory());
   const [status, setStatus] = useState<StatusProps>({
     message: 'Welcome to NY-CLI!',
@@ -1460,7 +1682,6 @@ function App() {
   const [showWelcome, setShowWelcome] = useState(!initialQuery);
   const [isExiting, setIsExiting] = useState(false);
   const [userPhotoUrl, setUserPhotoUrl] = useState<string | null>(null);
-  const [userAvatar, setUserAvatar] = useState<string | null>(null);
 
   // Banner animation
   useEffect(() => {
@@ -1479,19 +1700,17 @@ function App() {
 
   // Load user avatar when viewing profile (for already logged in users)
   useEffect(() => {
-    if (screen === 'profile' && loggedIn && !userAvatar) {
+    if (screen === 'profile' && loggedIn && !userPhotoUrl) {
       const token = getToken();
       if (token) {
         verifyFirebaseUser(token).then(result => {
           if (result.photoUrl) {
             setUserPhotoUrl(result.photoUrl);
-            const avatar = renderArtwork(result.photoUrl, 10, 10);
-            if (avatar) setUserAvatar(avatar);
           }
         }).catch(() => {});
       }
     }
-  }, [screen, loggedIn, userAvatar]);
+  }, [screen, loggedIn, userPhotoUrl]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // MENU ITEMS
@@ -1500,14 +1719,16 @@ function App() {
     { value: 'profile', label: 'Profile', icon: '[P]' },
     { value: 'continue', label: 'Continue Watching', icon: '[>]' },
     { value: 'search', label: 'Search', icon: '[S]' },
-    { value: 'trending', label: 'Trending', icon: '[T]' },
+    { value: 'random', label: 'Random Anime', icon: '[🎲]' },
+    { value: 'settings', label: 'Settings', icon: '[⚙]' },
     { value: 'help', label: 'Help', icon: '[?]' },
     { value: 'exit', label: 'Exit', icon: '[X]' },
   ];
 
   const loggedOutMenuItems: SelectItem[] = [
     { value: 'search', label: 'Search', icon: '[S]' },
-    { value: 'trending', label: 'Trending', icon: '[T]' },
+    { value: 'random', label: 'Random Anime', icon: '[🎲]' },
+    { value: 'settings', label: 'Settings', icon: '[⚙]' },
     { value: 'login', label: 'Login', icon: '[L]' },
     { value: 'help', label: 'Help', icon: '[?]' },
     { value: 'exit', label: 'Exit', icon: '[X]' },
@@ -1527,8 +1748,8 @@ function App() {
     } else if (action === 'search') {
       setScreen('search');
       setStatus({ message: 'Enter anime name to search', type: 'info', loading: false });
-    } else if (action === 'trending') {
-      handleTrending();
+    } else if (action === 'random') {
+      handleRandomAnime();
     } else if (action === 'continue') {
       handleContinue();
     } else if (action === 'login') {
@@ -1536,6 +1757,8 @@ function App() {
       setStatus({ message: 'Enter your NyAnime username', type: 'info', loading: false });
     } else if (action === 'profile') {
       setScreen('profile');
+    } else if (action === 'settings') {
+      setScreen('settings');
     } else if (action === 'help') {
       setScreen('help');
     }
@@ -1561,21 +1784,45 @@ function App() {
     }
   }, []);
 
-  const handleTrending = useCallback(async () => {
-    setStatus({ message: 'Loading trending...', type: 'info', loading: true });
+  const handleRandomAnime = useCallback(async () => {
+    setStatus({ message: 'Finding random anime...', type: 'info', loading: true });
 
     try {
-      const data = await getJson('/api/aniwatch?action=home');
-      const trending = data?.trendingAnimes || data?.spotlightAnimes || [];
+      const data = await getJson('/api/aniwatch?action=random');
+      const randomAnime = data?.randomAnime;
 
-      if (!trending.length) {
-        setStatus({ message: 'Could not fetch trending', type: 'warning', loading: false });
+      if (!randomAnime) {
+        setStatus({ message: 'Could not find random anime', type: 'warning', loading: false });
         return;
       }
 
-      setAnimes(trending);
-      setScreen('trending');
-      setStatus({ message: `${trending.length} trending anime`, type: 'success', loading: false });
+      // Get anime info and play first episode
+      setStatus({ message: `Playing ${randomAnime.name}...`, type: 'info', loading: true });
+      
+      const info = await getJson(`/api/aniwatch?action=info&id=${encodeURIComponent(randomAnime.id)}`);
+      const eps = info?.episodes?.sub || info?.episodes?.dub || [];
+      
+      if (eps.length === 0) {
+        setStatus({ message: 'No episodes found', type: 'warning', loading: false });
+        return;
+      }
+
+      // Set state and play first episode
+      setSelectedAnime({ 
+        id: randomAnime.id, 
+        value: randomAnime.id, 
+        label: randomAnime.name, 
+        poster: randomAnime.poster 
+      });
+      setAnimeInfo(info);
+      setAudioType(info?.episodes?.sub?.length ? 'sub' : 'dub');
+      setEpisodes(eps);
+      
+      // Play first episode
+      const firstEp = eps[0];
+      setAutoPlayEpisode({ episodeId: firstEp.episodeId, number: 1 });
+      setScreen('episode-select');
+      setStatus({ message: `Starting ${randomAnime.name} Episode 1...`, type: 'success', loading: true });
     } catch (err: any) {
       setStatus({ message: `Failed: ${err.message}`, type: 'error', loading: false });
     }
@@ -1623,9 +1870,6 @@ function App() {
         // Load profile picture if available
         if (result.photoUrl) {
           setUserPhotoUrl(result.photoUrl);
-          // Render avatar with chafa in background
-          const avatar = renderArtwork(result.photoUrl, 10, 10);
-          if (avatar) setUserAvatar(avatar);
         }
         
         // Sync cloud history in background
@@ -1661,7 +1905,6 @@ function App() {
     setUsername('');
     setPendingUsername('');
     setUserPhotoUrl(null);
-    setUserAvatar(null);
     setScreen('main-menu');
     setStatus({ message: 'Logged out. See you soon!', type: 'info', loading: false });
   }, []);
@@ -1677,7 +1920,7 @@ function App() {
       setScreen('login');
       setPendingUsername('');
       setStatus({ message: 'Enter your NyAnime username', type: 'info', loading: false });
-    } else if (['anime-select', 'trending', 'continue', 'search', 'profile', 'login', 'help'].includes(screen)) {
+    } else if (['anime-select', 'continue', 'search', 'profile', 'login', 'settings', 'help'].includes(screen)) {
       setScreen('main-menu');
       setStatus({ message: 'Welcome to NY-CLI!', type: 'info', loading: false });
     }
@@ -1787,8 +2030,13 @@ function App() {
       const resumeTime = startPosition || prevProgress?.watchTime || 0;
       const totalEps = episodes.length;
 
-      const headers = Buffer.from(JSON.stringify(sourcesData?.headers || {})).toString('base64');
-      const streamUrl = `${API_BASE}/api/stream?url=${encodeURIComponent(source.url)}&h=${encodeURIComponent(headers)}`;
+      // Use direct URL with headers passed to player
+      const streamHeaders = sourcesData?.headers || {};
+      const directUrl = source.url;
+      
+      // Fallback to proxy URL if direct fails
+      const proxyHeaders = Buffer.from(JSON.stringify(streamHeaders)).toString('base64');
+      const proxyUrl = `${API_BASE}/api/stream?url=${encodeURIComponent(directUrl)}&h=${encodeURIComponent(proxyHeaders)}`;
 
       const player = getPlayerCommand();
       if (!player) {
@@ -1812,6 +2060,21 @@ function App() {
           `--force-media-title=${title}`,
           `--input-ipc-server=${ipcPath}`,
         ];
+        
+        // Add HTTP headers for direct playback - use megaup.nl as default (not megacloud.blog)
+        const referer = streamHeaders.Referer || streamHeaders.referer || 'https://megaup.nl/';
+        const origin = streamHeaders.Origin || streamHeaders.origin || 'https://megaup.nl';
+        args.push(`--http-header-fields=Referer: ${referer},Origin: ${origin}`);
+        args.push('--referrer=' + referer);
+        
+        // Add Anime4K shaders if enabled
+        const settings = loadSettings();
+        if (settings.anime4k && isAnime4kInstalled()) {
+          const shaderPath = getAnime4kShaders(settings.anime4kMode);
+          args.push(`--glsl-shaders=${shaderPath}`);
+          args.push('--profile=gpu-hq');
+        }
+        
         // Resume from last position if available
         if (resumeTime > 5) {
           args.push(`--start=${Math.floor(resumeTime)}`);
@@ -1819,16 +2082,19 @@ function App() {
         } else {
           setStatus({ message: `Opening ${player}...`, type: 'success', loading: false });
         }
-        args.push(streamUrl);
+        // Use direct URL with headers
+        args.push(directUrl);
       } else if (player === 'vlc') {
         args = ['--meta-title', title, '--play-and-exit'];
+        // VLC http options - use megaup.nl as default
+        args.push('--http-referrer=' + (streamHeaders.Referer || 'https://megaup.nl/'));
         if (resumeTime > 5) {
           args.push(`--start-time=${Math.floor(resumeTime)}`);
         }
-        args.push(streamUrl);
+        args.push(directUrl);
         setStatus({ message: `Opening ${player}...`, type: 'success', loading: false });
       } else {
-        args = [streamUrl];
+        args = [proxyUrl]; // Use proxy for other players
         setStatus({ message: `Opening ${player}...`, type: 'success', loading: false });
       }
 
@@ -2001,7 +2267,12 @@ function App() {
 
   const historyItems: SelectItem[] = history
     // Filter out corrupted entries with undefined/missing title or id
-    .filter((h) => h.id && h.title && h.id !== 'undefined' && h.title !== 'undefined')
+    .filter((h) => {
+      if (!h || !h.id || !h.title) return false;
+      if (String(h.id).includes('undefined') || String(h.title).includes('undefined')) return false;
+      if (h.title.trim() === '' || h.id.trim() === '') return false;
+      return true;
+    })
     .map((h) => {
       const progress = getWatchProgress(h.id, h.episode);
       const percentage = progress ? Math.round(getWatchPercentage(progress.watchTime, progress.duration)) : 0;
@@ -2114,18 +2385,6 @@ function App() {
         />
       )}
 
-      {/* Trending */}
-      {screen === 'trending' && (
-        <SelectList
-          items={animeItems}
-          onSelect={handleAnimeSelect}
-          onBack={goBack}
-          title="[T] Trending Anime"
-          color={theme.pink}
-          showArtwork={true}
-        />
-      )}
-
       {/* Continue Watching */}
       {screen === 'continue' && (
         <SelectList
@@ -2134,7 +2393,7 @@ function App() {
           onBack={goBack}
           title="[>] Continue Watching"
           color={theme.success}
-          showArtwork={false}
+          showArtwork={true}
         />
       )}
 
@@ -2222,18 +2481,22 @@ function App() {
       {/* Profile */}
       {screen === 'profile' && (
         <Box flexDirection="row" gap={2}>
-          {/* Avatar */}
-          {userAvatar ? (
-            <Box borderStyle="round" borderColor={theme.purple} width={16} height={12}>
-              <Text>{userAvatar}</Text>
+          {/* Avatar - Use ink-picture component */}
+          {userPhotoUrl ? (
+            <Box width={18} height={14}>
+              <AnimeArtwork title="" imageUrl={userPhotoUrl} width={18} height={14} />
             </Box>
-          ) : null}
+          ) : (
+            <Box borderStyle="round" borderColor={theme.purple} width={16} height={12} justifyContent="center" alignItems="center">
+              <Text color={theme.dimGray}>[No Photo]</Text>
+            </Box>
+          )}
           
           {/* Profile Info */}
-          <Box flexDirection="column" width={userAvatar ? 50 : 55}>
+          <Box flexDirection="column" width={50}>
             <Box borderStyle="round" borderColor={theme.purple} paddingX={2} paddingY={1} flexDirection="column">
               <Text color={theme.purple} bold>[P] {username}</Text>
-              <Text color={theme.dimGray}>{'─'.repeat(userAvatar ? 35 : 45)}</Text>
+              <Text color={theme.dimGray}>{'─'.repeat(35)}</Text>
               <Text color={theme.lightGray}>UID: <Text color={theme.cyan}>{getToken().substring(0, 12)}...</Text></Text>
               {syncMessage ? <Text color={theme.cyan}>{syncMessage}</Text> : null}
             </Box>
@@ -2247,6 +2510,18 @@ function App() {
             </Box>
           </Box>
         </Box>
+      )}
+
+      {/* Settings */}
+      {screen === 'settings' && (
+        <SettingsScreen 
+          settings={appSettings} 
+          onUpdate={(newSettings) => {
+            setAppSettings(newSettings);
+            saveSettings(newSettings);
+          }}
+          onBack={goBack}
+        />
       )}
 
       {/* Help */}
@@ -2308,7 +2583,11 @@ function HelpBackHandler({ onBack }: { onBack: () => void }) {
 // Clear screen on startup
 process.stdout.write('\x1bc');
 
-const instance = render(<App />);
+const instance = render(
+  <TerminalInfoProvider>
+    <App />
+  </TerminalInfoProvider>
+);
 
 process.on('exit', () => {
   instance.clear();
