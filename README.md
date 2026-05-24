@@ -6,7 +6,7 @@
 
 <br/>
 
-[![Version](https://img.shields.io/badge/v5.1.0-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
+[![Version](https://img.shields.io/badge/v5.2.2-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
 [![npm](https://img.shields.io/npm/v/@anjishnusengupta/ny-cli?style=flat-square&color=22c55e&label=npm)](https://www.npmjs.com/package/@anjishnusengupta/ny-cli)
 [![License](https://img.shields.io/badge/MIT-3b82f6?style=flat-square&label=license)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/AnjishnuSengupta/ny-cli?style=flat-square&color=fbbf24)](https://github.com/AnjishnuSengupta/ny-cli/stargazers)
@@ -26,9 +26,19 @@
 
 <br/>
 
-## 🎯 What's New in v5.1.0
+## 🎯 What's New in v5.2.2
 
 <table>
+<tr>
+<td>🔐</td>
+<td><b>Automated Browser Login</b></td>
+<td>No more copy-pasting user IDs! Simply type <code>ny-cli login</code> and authenticate securely in your browser.</td>
+</tr>
+<tr>
+<td>🌊</td>
+<td><b>Hybrid Streaming Engine</b></td>
+<td>Primary streaming via Anipy API with a seamless native WebTorrent fallback for high-availability.</td>
+</tr>
 <tr>
 <td>🎨</td>
 <td><b>Anime Artwork Display</b></td>
@@ -45,19 +55,9 @@
 <td>Watched 97%+ of an episode? Next episode loads automatically from Continue Watching</td>
 </tr>
 <tr>
-<td>🌊</td>
-<td><b>Beautiful Ink UI</b></td>
-<td>React-based terminal UI with animated gradients, ripple effects, and centered layout</td>
-</tr>
-<tr>
 <td>☁️</td>
 <td><b>Enhanced Cloud Sync</b></td>
 <td>Watch time syncs to nyanime.qzz.io — continue from any device</td>
-</tr>
-<tr>
-<td>🔧</td>
-<td><b>Fixed UI Alignment</b></td>
-<td>ASCII icons for consistent box borders, centered menus like the banner</td>
 </tr>
 </table>
 
@@ -114,7 +114,7 @@
 
 | Feature | Description |
 |:--------|:------------|
-| **🔐 Browser Auth** | Login via nyanime.qzz.io — just paste your User ID |
+| **🔐 Browser Auth** | Fully automated OAuth-style login via nyanime.qzz.io — secure and seamless! |
 | **📜 Watch History** | Track all watched episodes with timestamps and progress |
 | **☁️ Cloud Sync** | Seamless sync with watch time to nyanime.qzz.io |
 | **📍 Continue Watching** | Resume exactly where you left off |
@@ -343,9 +343,9 @@ ny-cli -h
 |:-----:|:-------------|
 | **CLI** | ![React](https://img.shields.io/badge/React-61dafb?style=flat-square&logo=react&logoColor=black) ![Ink](https://img.shields.io/badge/Ink_5-333333?style=flat-square) ![TypeScript](https://img.shields.io/badge/TSX-3178c6?style=flat-square&logo=typescript&logoColor=white) |
 | **Backend** | ![Node.js](https://img.shields.io/badge/Node.js_18+-339933?style=flat-square&logo=nodedotjs&logoColor=white) ![Express](https://img.shields.io/badge/Express-000000?style=flat-square&logo=express&logoColor=white) |
-| **APIs** | ![AllAnime](https://img.shields.io/badge/AllAnime-06b6d4?style=flat-square) ![Jikan](https://img.shields.io/badge/Jikan_API-25A2E2?style=flat-square) |
+| **APIs** | ![AllAnime](https://img.shields.io/badge/AllAnime-06b6d4?style=flat-square) ![Jikan](https://img.shields.io/badge/Jikan_API-25A2E2?style=flat-square) ![Anipy](https://img.shields.io/badge/Anipy-ff69b4?style=flat-square) |
 | **Sync** | ![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=flat-square&logo=firebase&logoColor=black) ![NyAnime](https://img.shields.io/badge/nyanime.qzz.io-a855f7?style=flat-square) |
-| **Media** | ![mpv](https://img.shields.io/badge/mpv-690D76?style=flat-square&logo=mpv&logoColor=white) ![chafa](https://img.shields.io/badge/chafa-333333?style=flat-square) |
+| **Media** | ![mpv](https://img.shields.io/badge/mpv-690D76?style=flat-square&logo=mpv&logoColor=white) ![chafa](https://img.shields.io/badge/chafa-333333?style=flat-square) ![webtorrent](https://img.shields.io/badge/WebTorrent-f04b36?style=flat-square) |
 
 </div>
 

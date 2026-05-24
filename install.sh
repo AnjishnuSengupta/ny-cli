@@ -182,6 +182,11 @@ check_prerequisites() {
         missing_optional="$missing_optional chafa"
     else
         printf "${GREEN}✓ chafa installed${RESET}\n"
+    # Check webtorrent-cli
+    if ! command -v webtorrent >/dev/null 2>&1; then
+        missing_optional="$missing_optional webtorrent-cli"
+    else
+        printf "${GREEN}✓ webtorrent-cli installed${RESET}\n"
     fi
     
     # Check bun (optional, for best experience)
@@ -305,7 +310,6 @@ main() {
     download "$REPO_URL/ny-cli" "$INSTALL_DIR/ny-cli"
     download "$REPO_URL/backend.mjs" "$INSTALL_DIR/backend.mjs"
     download "$REPO_URL/cli-terminal.tsx" "$INSTALL_DIR/cli-terminal.tsx"
-    download "$REPO_URL/cli-terminal-fallback.mjs" "$INSTALL_DIR/cli-terminal-fallback.mjs"
     download "$REPO_URL/package.json" "$INSTALL_DIR/package.json"
     
     chmod +x "$INSTALL_DIR/ny-cli"

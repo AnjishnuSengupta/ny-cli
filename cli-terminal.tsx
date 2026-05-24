@@ -2,19 +2,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { render, Box, Text, useInput, useApp } from 'ink';
 import TextInput from 'ink-text-input';
-import Image, { TerminalInfoProvider } from 'ink-picture';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
 const API_BASE = process.env.NYCLI_API_BASE || 'http://127.0.0.1:3000';
-const VERSION = '5.2.1';
+const VERSION = '5.2.2';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
 // ═══════════════════════════════════════════════════════════════════════════════
-const FIREBASE_PROJECT_ID = 'nyanime-tech';
+import { getFirebaseConfig } from './firebase-config';
+const fbConfig = getFirebaseConfig();
+const FIREBASE_PROJECT_ID = fbConfig.projectId;
 const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+const FIREBASE_API_KEY = fbConfig.apiKey;
 const NYANIME_BASE = 'https://www.nyanime.qzz.io';
 
 // Clear screen on startup
@@ -489,7 +492,7 @@ async function isOnline(): Promise<boolean> {
 
 async function verifyFirebaseUser(firebaseUid: string): Promise<{ valid: boolean; username?: string; photoUrl?: string }> {
   try {
-    const response = await fetch(`${FIRESTORE_BASE}/users/${firebaseUid}`, {
+    const response = await fetch(`${FIRESTORE_BASE}/users/${firebaseUid}?key=${FIREBASE_API_KEY}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -990,54 +993,109 @@ async function getAnimeImageUrl(title: string): Promise<string | null> {
   return null;
 }
 
-// Artwork display component using ink-picture
+// Artwork display component using Chafa
 function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }: { title: string; imageUrl?: string; width?: number; height?: number }) {
-  const [imgSrc, setImgSrc] = useState<string | null>(imageUrl || null);
+  const [asciiArt, setAsciiArt] = useState<string | null>(null);
   const [loading, setLoading] = useState(!imageUrl);
   const [error, setError] = useState(false);
   const prevImgRef = React.useRef<string | null>(null);
   
   useEffect(() => {
+    let active = true;
+
+    async function loadArtwork(url: string) {
+      try {
+        setLoading(true);
+        // Download image to temp file
+        const tmpDir = os.tmpdir();
+        const tmpFile = path.join(tmpDir, `ny-cli-art-${Date.now()}.jpg`);
+        
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Fetch failed');
+        const buffer = await res.arrayBuffer();
+        fs.writeFileSync(tmpFile, Buffer.from(buffer));
+        
+        // Run chafa asynchronously
+        const chafaProcess = spawn('chafa', [
+          '-s', `${width}x${height}`,
+          '--colors=full',
+          '--clear',
+          tmpFile
+        ]);
+        
+        let stdoutData = '';
+        chafaProcess.stdout.on('data', (data) => {
+          stdoutData += data.toString();
+        });
+        
+        chafaProcess.on('close', (code) => {
+          try { fs.unlinkSync(tmpFile); } catch (e) {}
+          
+          if (active && code === 0 && stdoutData) {
+            setAsciiArt(stdoutData);
+            setError(false);
+          } else if (active) {
+            setError(true);
+          }
+          if (active) setLoading(false);
+        });
+        
+        chafaProcess.on('error', () => {
+          try { fs.unlinkSync(tmpFile); } catch (e) {}
+          if (active) {
+            setError(true);
+            setLoading(false);
+          }
+        });
+        
+      } catch (err) {
+        if (active) {
+          setError(true);
+          setLoading(false);
+        }
+      }
+    }
+
     if (imageUrl) {
       prevImgRef.current = imageUrl;
-      setImgSrc(imageUrl);
-      setLoading(false);
-      setError(false);
-      return;
+      loadArtwork(imageUrl);
+      return () => { active = false; };
     }
     
     if (!title) {
-      setImgSrc(null);
+      setAsciiArt(null);
       setLoading(false);
       return;
     }
     
-    // Don't show loading if we have a previous image - keep it visible
     if (!prevImgRef.current) {
       setLoading(true);
     }
     
-    // Debounce fetch
     const timer = setTimeout(() => {
       getAnimeImageUrl(title).then((url) => {
-        if (url) {
+        if (url && active) {
           prevImgRef.current = url;
-          setImgSrc(url);
+          loadArtwork(url);
+        } else if (active) {
+          setLoading(false);
+          setError(true);
         }
-        setLoading(false);
       }).catch(() => {
-        setLoading(false);
-        setError(true);
+        if (active) {
+          setLoading(false);
+          setError(true);
+        }
       });
     }, 300);
     
-    return () => clearTimeout(timer);
-  }, [title, imageUrl]);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [title, imageUrl, width, height]);
   
-  // Use previous image while loading new one
-  const displaySrc = imgSrc || prevImgRef.current;
-  
-  if (!title && !imageUrl && !displaySrc) {
+  if (!title && !imageUrl && !asciiArt) {
     return (
       <Box width={width} height={height} borderStyle="round" borderColor={theme.dimGray} justifyContent="center" alignItems="center">
         <Text color={theme.dimGray}>No Art</Text>
@@ -1045,7 +1103,7 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }: { title: str
     );
   }
   
-  if (loading && !displaySrc) {
+  if (loading && !asciiArt) {
     return (
       <Box width={width} height={height} borderStyle="round" borderColor={theme.purple} justifyContent="center" alignItems="center" flexDirection="column">
         <BouncingDots color={theme.purple} />
@@ -1054,7 +1112,7 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }: { title: str
     );
   }
   
-  if ((!displaySrc && !loading) || error) {
+  if ((!asciiArt && !loading) || error) {
     return (
       <Box width={width} height={height} borderStyle="round" borderColor={theme.dimGray} justifyContent="center" alignItems="center">
         <Text color={theme.dimGray}>[!] No art</Text>
@@ -1064,12 +1122,7 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }: { title: str
   
   return (
     <Box width={width} height={height} borderStyle="round" borderColor={theme.purple} overflow="hidden">
-      <Image 
-        src={displaySrc!} 
-        width={width - 2} 
-        height={height - 2} 
-        alt={title}
-      />
+      <Text>{asciiArt}</Text>
     </Box>
   );
 }
@@ -1653,6 +1706,7 @@ type Screen =
   | 'profile'
   | 'login'
   | 'login-token'
+  | 'login-waiting'
   | 'settings'
   | 'help';
 
@@ -1753,10 +1807,11 @@ function App() {
     } else if (action === 'continue') {
       handleContinue();
     } else if (action === 'login') {
-      setScreen('login');
-      setStatus({ message: 'Enter your NyAnime username', type: 'info', loading: false });
+      handleStartLogin();
     } else if (action === 'profile') {
-      setScreen('profile');
+      setScreen('login-token');
+    } else if (screen === 'login-token' || screen === 'login-waiting') {
+      setScreen('main-menu');
     } else if (action === 'settings') {
       setScreen('settings');
     } else if (action === 'help') {
@@ -1839,17 +1894,70 @@ function App() {
     setStatus({ message: `${hist.length} anime in history`, type: 'success', loading: false });
   }, []);
 
-  const handleLoginUsername = useCallback((inputUsername: string) => {
-    if (!inputUsername.trim()) {
-      setStatus({ message: 'Username cannot be empty', type: 'error', loading: false });
-      return;
-    }
-    setPendingUsername(inputUsername.trim());
-    setScreen('login-token');
-    setStatus({ message: 'Now enter your User ID from nyanime.tech', type: 'info', loading: false });
+  const handleStartLogin = useCallback(() => {
+    setStatus({ message: 'Opening browser for login...', type: 'info', loading: true });
+    setScreen('login-waiting');
+    
+    // Start local server
+    const server = require('http').createServer((req: any, res: any) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, POST');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      if (req.method === 'POST' && req.url === '/callback') {
+        let body = '';
+        req.on('data', (chunk: any) => body += chunk.toString());
+        req.on('end', () => {
+          try {
+            const data = JSON.parse(body);
+            if (data.token && data.username) {
+              setPendingUsername(data.username);
+              handleLoginToken(data.token, data.username);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true }));
+            } else {
+              res.writeHead(400);
+              res.end();
+            }
+          } catch (e) {
+            res.writeHead(400);
+            res.end();
+          } finally {
+            server.close();
+            // Go back to profile or home if logged in, handleLoginToken will do it but let's wait a bit
+          }
+        });
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+
+    server.listen(4000, () => {
+      import('open').then((open) => {
+        open.default(`${NYANIME_BASE}/cli-login?port=4000`).catch(() => {});
+      }).catch(err => {
+        setStatus({ message: 'Failed to open browser: ' + err.message, type: 'error', loading: false });
+      });
+    });
+    
+    // Auto-close after 5 minutes
+    setTimeout(() => {
+      server.close();
+      if (!isLoggedIn()) {
+        setStatus({ message: 'Login timed out', type: 'error', loading: false });
+        setScreen('main-menu');
+      }
+    }, 5 * 60 * 1000);
   }, []);
 
-  const handleLoginToken = useCallback(async (firebaseUid: string) => {
+  const handleLoginToken = useCallback(async (firebaseUid: string, providedUsername?: string) => {
     if (!firebaseUid.trim()) {
       setStatus({ message: 'User ID cannot be empty', type: 'error', loading: false });
       return;
@@ -1861,7 +1969,7 @@ function App() {
       const result = await verifyFirebaseUser(firebaseUid.trim());
       
       if (result.valid) {
-        const finalUsername = result.username || pendingUsername;
+        const finalUsername = result.username || providedUsername || pendingUsername;
         saveAuth(finalUsername, firebaseUid.trim());
         setLoggedIn(true);
         setUsername(finalUsername);
@@ -1883,17 +1991,19 @@ function App() {
         setScreen('main-menu');
       } else {
         // Still allow login but warn about verification
-        saveAuth(pendingUsername, firebaseUid.trim());
+        const fallbackUser = providedUsername || pendingUsername;
+        saveAuth(fallbackUser, firebaseUid.trim());
         setLoggedIn(true);
-        setUsername(pendingUsername);
+        setUsername(fallbackUser);
         setScreen('main-menu');
-        setStatus({ message: `Logged in as ${pendingUsername} (unverified)`, type: 'warning', loading: false });
+        setStatus({ message: `Logged in as ${fallbackUser} (unverified)`, type: 'warning', loading: false });
       }
     } catch (err) {
       // Network error - login anyway with local storage
-      saveAuth(pendingUsername, firebaseUid.trim());
+      const fallbackUser = providedUsername || pendingUsername;
+      saveAuth(fallbackUser, firebaseUid.trim());
       setLoggedIn(true);
-      setUsername(pendingUsername);
+      setUsername(fallbackUser);
       setScreen('main-menu');
       setStatus({ message: 'Logged in (offline mode)', type: 'warning', loading: false });
     }
@@ -2016,7 +2126,7 @@ function App() {
 
     try {
       const sourcesData = await getJson(
-        `/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId!)}&category=${audioType}`
+        `/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId!)}&category=${audioType}&title=${encodeURIComponent(selectedAnime?.title || '')}&episodeNo=${item.number || 1}`
       );
       const source = pickPlayableSource(sourcesData?.sources);
 
@@ -2433,47 +2543,17 @@ function App() {
         </Box>
       )}
 
-      {/* Login - Username Step */}
-      {screen === 'login' && (
+      {/* Login - Waiting Step */}
+      {screen === 'login-waiting' && (
         <Box flexDirection="column" width={55}>
           <Box borderStyle="round" borderColor={theme.purple} paddingX={2} paddingY={1} flexDirection="column">
             <Text color={theme.purple} bold>[L] Login to NyAnime</Text>
             <Text color={theme.dimGray}>{'─'.repeat(45)}</Text>
-            <Text color={theme.lightGray}>1. Sign up at nyanime.tech</Text>
-            <Text color={theme.lightGray}>2. Go to your Profile page</Text>
-            <Text color={theme.lightGray}>3. Copy your User ID</Text>
-          </Box>
-          <Box marginTop={1}>
-            <InputBox
-              label=""
-              onSubmit={handleLoginUsername}
-              onCancel={goBack}
-              placeholder="Your username..."
-              color={theme.purple}
-            />
-          </Box>
-        </Box>
-      )}
-
-      {/* Login - User ID/Token Step */}
-      {screen === 'login-token' && (
-        <Box flexDirection="column" width={55}>
-          <Box borderStyle="round" borderColor={theme.purple} paddingX={2} paddingY={1} flexDirection="column">
-            <Text color={theme.purple} bold>[L] Enter User ID</Text>
+            <Text color={theme.lightGray}>1. Check your browser</Text>
+            <Text color={theme.lightGray}>2. Sign in or Authorize ny-cli</Text>
+            <Text color={theme.lightGray}>3. Return to terminal when done</Text>
             <Text color={theme.dimGray}>{'─'.repeat(45)}</Text>
-            <Text color={theme.lightGray}>Username: <Text color={theme.cyan}>{pendingUsername}</Text></Text>
-            <Text color={theme.dimGray}> </Text>
-            <Text color={theme.lightGray}>Paste your User ID from</Text>
-            <Text color={theme.cyan}>nyanime.tech/profile</Text>
-          </Box>
-          <Box marginTop={1}>
-            <InputBox
-              label=""
-              onSubmit={handleLoginToken}
-              onCancel={goBack}
-              placeholder="Paste User ID here..."
-              color={theme.purple}
-            />
+            <Text color={theme.cyan}>Waiting for authorization...</Text>
           </Box>
         </Box>
       )}

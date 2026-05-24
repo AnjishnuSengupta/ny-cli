@@ -48,8 +48,11 @@
     "ink-picture": "^1.3.5",
     "ink-select-input": "^5.0.0",
     "ink-text-input": "^6.0.0",
+    "open": "^11.0.0",
     "react": "^18.3.1",
-    "react-devtools-core": "^7.0.1"
+    "react-devtools-core": "^7.0.1",
+    "webtorrent": "^3.0.0",
+    "webtorrent-cli": "^6.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.2",
