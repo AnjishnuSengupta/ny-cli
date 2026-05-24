@@ -1941,7 +1941,7 @@ function App() {
 
     server.listen(4000, () => {
       import('open').then((open) => {
-        open.default(`${NYANIME_BASE}/cli-login?port=4000`).catch(() => {});
+        open.default(`${API_BASE}/api/auth/login?port=4000`).catch(() => {});
       }).catch(err => {
         setStatus({ message: 'Failed to open browser: ' + err.message, type: 'error', loading: false });
       });
@@ -2664,9 +2664,7 @@ function HelpBackHandler({ onBack }: { onBack: () => void }) {
 process.stdout.write('\x1bc');
 
 const instance = render(
-  <TerminalInfoProvider>
-    <App />
-  </TerminalInfoProvider>
+  <App />
 );
 
 process.on('exit', () => {

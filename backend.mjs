@@ -2,8 +2,28 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import https from 'node:https';
 import dns from 'node:dns';
 import WebTorrent from 'webtorrent';
+
+dns.setDefaultResultOrder('ipv4first');
+
+function ipv4Fetch(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { family: 4 }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, json: async () => json });
+        } catch(e) {
+          reject(e);
+        }
+      });
+    }).on('error', reject);
+  });
+}
 
 dns.setDefaultResultOrder('ipv4first');
 
@@ -73,7 +93,7 @@ app.get('/api/aniwatch', async (req, res) => {
 
   try {
     if (action === 'home' || action === 'random') {
-      const r = await fetch('https://api.jikan.moe/v4/random/anime');
+      const r = await ipv4Fetch('https://api.jikan.moe/v4/random/anime');
       const data = await r.json();
       if (data?.data) {
         const item = data.data;
@@ -92,7 +112,7 @@ app.get('/api/aniwatch', async (req, res) => {
     if (action === 'search') {
       const query = String(req.query.q || '').trim();
       if (!query) return fail(res, 400, 'Missing q');
-      const r = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=20`);
+      const r = await ipv4Fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=20`);
       const data = await r.json();
       if (data?.data) {
         const animes = data.data.map(item => ({
@@ -110,7 +130,7 @@ app.get('/api/aniwatch', async (req, res) => {
     if (action === 'suggestions') {
       const query = String(req.query.q || '').trim();
       if (!query) return fail(res, 400, 'Missing q');
-      const r = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=10`);
+      const r = await ipv4Fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=10`);
       const data = await r.json();
       if (data?.data) {
         const suggestions = data.data.map(item => ({
@@ -129,68 +149,43 @@ app.get('/api/aniwatch', async (req, res) => {
       const malId = String(req.query.id || '').trim();
       if (!malId) return fail(res, 400, 'Missing id');
 
-      const r = await fetch(`https://api.jikan.moe/v4/anime/${malId}`);
+      const r = await ipv4Fetch(`https://api.jikan.moe/v4/anime/${malId}`);
       const data = await r.json();
       if (!data?.data) return fail(res, 404, 'Anime not found');
 
       const info = data.data;
-      const anilistId = await getAnilistId(malId);
-      
-      let episodesSub = [];
-      let episodesDub = [];
-      
-      if (anilistId) {
-        try {
-          const epRes = await fetch(`https://aniflix.n1yshi.dev/episodes/${anilistId}`);
-          if (epRes.ok) {
-            const epData = await epRes.json();
-            if (epData.providers) {
-              for (const prov of Object.values(epData.providers)) {
-                if (prov?.episodes?.sub?.length > 0) { episodesSub = prov.episodes.sub; break; }
-              }
-              for (const prov of Object.values(epData.providers)) {
-                if (prov?.episodes?.dub?.length > 0) { episodesDub = prov.episodes.dub; break; }
-              }
-            } else if (epData.provider && Array.isArray(epData.episodes)) {
-               episodesSub = epData.episodes.map(ep => ({
-                 ...ep,
-                 id: `watch/${epData.provider}/${anilistId}/sub/${ep.id || ep.token || ep.slug}`
-               }));
-               episodesDub = epData.episodes.map(ep => ({
-                 ...ep,
-                 id: `watch/${epData.provider}/${anilistId}/dub/${ep.id || ep.token || ep.slug}`
-               }));
-            }
-          }
-        } catch (e) {
-          console.error('[Aniflix] Failed to fetch episodes', e.message);
+      let jikanEps = [];
+      try {
+        const epRes = await ipv4Fetch(`https://api.jikan.moe/v4/anime/${malId}/episodes`);
+        const epData = await epRes.json();
+        if (epData?.data) {
+          jikanEps = epData.data;
         }
+      } catch(e) {
+        console.error('[Jikan] Failed to fetch episodes', e.message);
       }
 
-      const formatEps = (epsList, audio) => {
+      const formatEps = (epsList) => {
         return epsList.map((ep, idx) => {
-          let epId = ep.id;
-          if (epId && !epId.startsWith('watch/')) {
-             epId = `watch/miruro/${anilistId}/${audio}/${epId}`;
-          }
           return {
-            number: Number(ep.number) || (idx + 1),
-            title: ep.title || ep.japaneseTitle || `Episode ${ep.number || idx + 1}`,
-            episodeId: epId,
-            isFiller: false,
-            hasSub: audio === 'sub',
-            hasDub: audio === 'dub'
+            number: Number(ep.mal_id) || (idx + 1),
+            title: ep.title || ep.title_japanese || `Episode ${ep.mal_id || idx + 1}`,
+            episodeId: String(ep.mal_id || idx + 1), // Using mal_id or index as the identifier
+            isFiller: ep.filler || false,
+            hasSub: true,
+            hasDub: false // we don't know for sure from Jikan, default to false or handle later
           };
         });
       };
       
-      const subFormatted = formatEps(episodesSub, 'sub');
-      const dubFormatted = formatEps(episodesDub, 'dub');
+      // Jikan doesn't distinguish sub/dub episodes by default this way, just return a single list as "sub"
+      const subFormatted = formatEps(jikanEps);
+      const dubFormatted = []; // Could be inferred later if needed, leaving empty for now to match the "Jikan-only" constraint
 
       if (action === 'episodes') {
          return ok(res, {
             totalEpisodes: subFormatted.length || info.episodes || 0,
-            episodes: [...subFormatted, ...dubFormatted],
+            episodes: [...subFormatted],
             provider: PROVIDER
          }, 300);
       }
@@ -204,7 +199,7 @@ app.get('/api/aniwatch', async (req, res) => {
         stats: {
           type: info.type || 'TV',
           status: info.status || 'Unknown',
-          episodes: { sub: subFormatted.length || info.episodes || 0, dub: dubFormatted.length || 0 },
+          episodes: { sub: subFormatted.length || info.episodes || 0, dub: 0 },
         },
         genres: info.genres?.map(g => g.name) || [],
         episodes: {
@@ -226,9 +221,6 @@ app.get('/api/aniwatch', async (req, res) => {
       // Anipy (Primary)
       servers.push({ serverId: 10, serverName: 'Anipy (Primary)', linkId: `anipy-${rawEpisodeId}` });
       
-      // Aniflix (Secondary)
-      servers.push({ serverId: 1, serverName: 'Aniflix', linkId: rawEpisodeId });
-      
       return ok(res, {
         episodeId: rawEpisodeId,
         episodeNo: episodeNo,
@@ -247,6 +239,8 @@ app.get('/api/aniwatch', async (req, res) => {
       let mappedSources = [];
       let subtitles = [];
       
+      let sourceData = {};
+      
       if (linkId.startsWith('anipy-')) {
         // Fetch from Anipy
         if (title) {
@@ -263,26 +257,10 @@ app.get('/api/aniwatch', async (req, res) => {
                  subtitles = anipyData.subtitles || [];
                }
              }
-          } catch(e) {}
+          } catch(e) {
+            console.error('[Anipy sources error]', e.message);
+          }
         }
-      } else {
-        // Fetch from Aniflix
-        let watchUrl = linkId.startsWith('watch/') ? `https://aniflix.n1yshi.dev/${linkId}` : `https://aniflix.n1yshi.dev/watch/${linkId}`;
-        try {
-          const sRes = await fetch(watchUrl);
-          const sourceData = await sRes.json();
-          
-          let streams = sourceData.streams || sourceData.sources || [];
-          subtitles = sourceData.subtitleTracks || sourceData.subtitles || [];
-          
-          mappedSources = streams
-            .filter(s => s.url && s.type !== 'embed')
-            .map(s => ({
-               url: s.url,
-               quality: s.quality || 'auto',
-               isM3U8: s.type === 'hls' || s.url.includes('.m3u8')
-            }));
-        } catch(e) {}
       }
         
       // Add torrent source if available
@@ -299,26 +277,24 @@ app.get('/api/aniwatch', async (req, res) => {
               });
             }
           }
-        } catch(e) {}
+        } catch(e) {
+          console.error('[Torrent search error]', e.message);
+        }
       }
 
-        return ok(res, {
-          headers: {
-            Referer: 'https://megacloud.blog/',
-            Origin: 'https://megacloud.blog/',
-            'User-Agent': 'Mozilla/5.0',
-          },
-          sources: mappedSources,
-          tracks: subtitles,
-          subtitles: subtitles.filter(t => t.kind === 'captions'),
-          intro: sourceData.intro || null,
-          outro: sourceData.outro || null,
-          provider: PROVIDER,
-        }, 0);
-      } catch (e) {
-        console.error('[Aniflix sources error]', e.message);
-        return fail(res, 502, 'Failed to fetch sources');
-      }
+      return ok(res, {
+        headers: {
+          Referer: 'https://megacloud.blog/',
+          Origin: 'https://megacloud.blog/',
+          'User-Agent': 'Mozilla/5.0',
+        },
+        sources: mappedSources,
+        tracks: subtitles,
+        subtitles: subtitles.filter(t => t.kind === 'captions'),
+        intro: sourceData.intro || null,
+        outro: sourceData.outro || null,
+        provider: PROVIDER,
+      }, 0);
     }
 
     return fail(res, 400, `Unknown action: ${action}`);
@@ -474,6 +450,122 @@ function handleTorrentStream(torrent, req, res) {
     stream.destroy();
   });
 }
+
+app.get('/api/auth/login', (req, res) => {
+  const cliPort = req.query.port || 4000;
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>NyAnime CLI Login</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/ui/6.1.0/firebase-ui-auth.js"></script>
+  <link type="text/css" rel="stylesheet" href="https://www.gstatic.com/firebasejs/ui/6.1.0/firebase-ui-auth.css" />
+  <style>
+    body {
+      background-color: #1a1b26;
+      color: #a9b1d6;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .container {
+      background-color: #24283b;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+      text-align: center;
+      max-width: 400px;
+      width: 100%;
+    }
+    h1 { color: #bb9af7; margin-top: 0; }
+    p { margin-bottom: 2rem; line-height: 1.5; }
+    .success-msg { display: none; color: #9ece6a; font-weight: bold; margin-top: 1rem; }
+    #firebaseui-auth-container { margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>NyAnime CLI</h1>
+    <p>Sign in to sync your watch history and preferences across devices.</p>
+    <div id="firebaseui-auth-container"></div>
+    <div id="loader">Loading...</div>
+    <div id="success" class="success-msg">Successfully authenticated! You can close this window and return to your terminal.</div>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyAfwO_c-_BbkiI0NcipTvGIya_R1EYyyTI",
+      authDomain: "nyanime-tech.firebaseapp.com",
+      projectId: "nyanime-tech",
+      storageBucket: "nyanime-tech.firebasestorage.app",
+      messagingSenderId: "677407184955",
+      appId: "1:677407184955:web:b3cc5095e838c9017e241e",
+      measurementId: "G-EGFFFWT8DK"
+    };
+    
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    
+    // Check if returning from redirect
+    auth.onAuthStateChanged(function(user) {
+      if (user) {
+        document.getElementById('firebaseui-auth-container').style.display = 'none';
+        document.getElementById('loader').style.display = 'none';
+        document.getElementById('success').style.display = 'block';
+        
+        const username = user.displayName || user.email || 'AnimeFan';
+        
+        // Send token to CLI
+        fetch('http://localhost:${cliPort}/callback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: user.uid, username: username })
+        }).catch(err => console.error('Failed to notify CLI:', err));
+        
+      } else {
+        document.getElementById('loader').style.display = 'none';
+        // Initialize the FirebaseUI Widget using Firebase.
+        var ui = new firebaseui.auth.AuthUI(auth);
+        var uiConfig = {
+          callbacks: {
+            signInSuccessWithAuthResult: function(authResult, redirectUrl) {
+              const user = authResult.user;
+              const username = user.displayName || user.email || 'AnimeFan';
+              
+              document.getElementById('firebaseui-auth-container').style.display = 'none';
+              document.getElementById('success').style.display = 'block';
+              
+              fetch('http://localhost:${cliPort}/callback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: user.uid, username: username })
+              }).catch(err => console.error('Failed to notify CLI:', err));
+              
+              return false; // Do not redirect
+            }
+          },
+          signInFlow: 'popup',
+          signInOptions: [
+            firebase.auth.EmailAuthProvider.PROVIDER_ID,
+            firebase.auth.GoogleAuthProvider.PROVIDER_ID
+          ]
+        };
+        ui.start('#firebaseui-auth-container', uiConfig);
+      }
+    });
+  </script>
+</body>
+</html>
+  `;
+  res.send(html);
+});
 
 app.listen(PORT, HOST, () => {
   console.log(`[ny-cli] backend running on http://${HOST}:${PORT}`);
