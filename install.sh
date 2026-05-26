@@ -1,5 +1,5 @@
 #!/bin/sh
-# NY-CLI v5.5.8 Installation Script
+# NY-CLI v5.5.9 Installation Script
 # Universal installer for Linux (Arch, Fedora, Ubuntu/Debian) and macOS
 # Usage: curl -fsSL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.sh | sh
 
@@ -31,10 +31,10 @@ printf "  ╚═╝  ╚═══╝   ╚═╝          ╚═════╝�
 printf "${RESET}\n"
 printf "${DIM}${CYAN}       ⟨ Your Gateway to Anime Streaming ⟩${RESET}\n"
 printf "${DIM}       ─────────────────────────────────────${RESET}\n"
-printf "${DIM}            v5.5.8 • nyanime.qzz.io${RESET}\n"
+printf "${DIM}            v5.5.9 • nyanime.qzz.io${RESET}\n"
 printf "\n"
 
-VERSION="5.5.8"
+VERSION="5.5.9"
 REPO_URL="https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main"
 GITHUB_REPO="https://github.com/AnjishnuSengupta/ny-cli"
 
@@ -305,6 +305,7 @@ main() {
     download "$REPO_URL/ny-cli" "$INSTALL_DIR/ny-cli"
     download "$REPO_URL/backend.mjs" "$INSTALL_DIR/backend.mjs"
     download "$REPO_URL/cli-terminal.tsx" "$INSTALL_DIR/cli-terminal.tsx"
+    download "$REPO_URL/cli-terminal-fallback.mjs" "$INSTALL_DIR/cli-terminal-fallback.mjs"
     download "$REPO_URL/package.json" "$INSTALL_DIR/package.json"
     
     chmod +x "$INSTALL_DIR/ny-cli"
