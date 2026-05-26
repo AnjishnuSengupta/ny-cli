@@ -2,13 +2,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { render, Box, Text, useInput, useApp } from 'ink';
 import TextInput from 'ink-text-input';
+import Picture, { TerminalInfoProvider } from 'ink-picture';
 import { spawn, spawnSync, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
 const API_BASE = process.env.NYCLI_API_BASE || 'http://127.0.0.1:3000';
-const VERSION = '5.2.2';
+const VERSION = '5.5.5';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
@@ -995,9 +996,9 @@ async function getAnimeImageUrl(title: string): Promise<string | null> {
 
 // Artwork display component using Chafa
 function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }: { title: string; imageUrl?: string; width?: number; height?: number }) {
-  const [asciiArt, setAsciiArt] = useState<string | null>(null);
   const [loading, setLoading] = useState(!imageUrl);
   const [error, setError] = useState(false);
+  const [imgPath, setImgPath] = useState<string | null>(null);
   const prevImgRef = React.useRef<string | null>(null);
   
   useEffect(() => {
@@ -1015,41 +1016,11 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }: { title: str
         const buffer = await res.arrayBuffer();
         fs.writeFileSync(tmpFile, Buffer.from(buffer));
         
-        // Run chafa asynchronously
-        const chafaProcess = spawn('chafa', [
-          '-f', 'symbols',
-          '--symbols=ascii',
-          '-s', `${width}x${height}`,
-          '--colors=none',
-          '--clear',
-          tmpFile
-        ]);
-        
-        let stdoutData = '';
-        chafaProcess.stdout.on('data', (data) => {
-          stdoutData += data.toString();
-        });
-        
-        chafaProcess.on('close', (code) => {
-          try { fs.unlinkSync(tmpFile); } catch (e) {}
-          
-          if (active && code === 0 && stdoutData) {
-            setAsciiArt(stdoutData);
-            setError(false);
-          } else if (active) {
-            setError(true);
-          }
-          if (active) setLoading(false);
-        });
-        
-        chafaProcess.on('error', () => {
-          try { fs.unlinkSync(tmpFile); } catch (e) {}
-          if (active) {
-            setError(true);
-            setLoading(false);
-          }
-        });
-        
+        if (active) {
+          setImgPath(tmpFile);
+          setError(false);
+        }
+        if (active) setLoading(false);
       } catch (err) {
         if (active) {
           setError(true);
@@ -1065,7 +1036,7 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }: { title: str
     }
     
     if (!title) {
-      setAsciiArt(null);
+      setImgPath(null);
       setLoading(false);
       return;
     }
@@ -1095,9 +1066,9 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }: { title: str
       active = false;
       clearTimeout(timer);
     };
-  }, [title, imageUrl, width, height]);
+  }, [title, imageUrl]);
   
-  if (!title && !imageUrl && !asciiArt) {
+  if (!title && !imageUrl && !imgPath) {
     return (
       <Box width={width} height={height} borderStyle="round" borderColor={theme.dimGray} justifyContent="center" alignItems="center">
         <Text color={theme.dimGray}>No Art</Text>
@@ -1105,7 +1076,7 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }: { title: str
     );
   }
   
-  if (loading && !asciiArt) {
+  if (loading && !imgPath) {
     return (
       <Box width={width} height={height} borderStyle="round" borderColor={theme.purple} justifyContent="center" alignItems="center" flexDirection="column">
         <BouncingDots color={theme.purple} />
@@ -1114,7 +1085,7 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }: { title: str
     );
   }
   
-  if ((!asciiArt && !loading) || error) {
+  if ((!imgPath && !loading) || error) {
     return (
       <Box width={width} height={height} borderStyle="round" borderColor={theme.dimGray} justifyContent="center" alignItems="center">
         <Text color={theme.dimGray}>[!] No art</Text>
@@ -1123,8 +1094,10 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }: { title: str
   }
   
   return (
-    <Box width={width} height={height} borderStyle="round" borderColor={theme.purple} overflow="hidden">
-      <Text>{asciiArt}</Text>
+    <Box width={width} height={height} borderStyle="round" borderColor={theme.purple}>
+      <Box width={Math.max(1, width - 2)} height={Math.max(1, height - 2)} overflow="hidden">
+        <Picture src={imgPath!} width="100%" height="100%" />
+      </Box>
     </Box>
   );
 }
@@ -2677,7 +2650,9 @@ function HelpBackHandler({ onBack }: { onBack: () => void }) {
 process.stdout.write('\x1bc');
 
 const instance = render(
-  <App />
+  <TerminalInfoProvider>
+    <App />
+  </TerminalInfoProvider>
 );
 
 process.on('exit', () => {

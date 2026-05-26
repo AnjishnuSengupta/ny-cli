@@ -42,7 +42,7 @@
 <tr>
 <td>🎨</td>
 <td><b>Anime Artwork Display</b></td>
-<td>See anime cover art in your terminal as you browse — powered by Jikan API + chafa</td>
+<td>See anime cover art in your terminal as you browse — powered by Jikan API + ink-picture</td>
 </tr>
 <tr>
 <td>⏱️</td>
@@ -99,7 +99,7 @@
 | Feature | Description |
 |:--------|:------------|
 | **🎙️ Sub/Dub Selection** | Choose sub or dub per anime — preference saved and synced to cloud |
-| **🖼️ Anime Artwork** | Cover art displayed in terminal via chafa while browsing |
+| **🖼️ Anime Artwork** | Cover art displayed in terminal via ink-picture while browsing |
 | **⏱️ Watch Progress** | mpv IPC tracks your position to the second |
 | **✨ 97% Auto-Advance** | Episode 97%+ watched? Next episode auto-loads |
 | **🔄 Multi-Server** | Races HD-1, HD-2, StreamTape sources in parallel |
@@ -194,7 +194,7 @@
 | **Node.js** | ✅ | Version 18+ |
 | **npm** | ✅ | Comes with Node.js |
 | **mpv** | ✅ | Video player (or VLC) |
-| **chafa** | ⬜ | Terminal image renderer (for artwork) |
+| **ink-picture** | ⬜ | Terminal image renderer (for artwork) |
 | **bun** | ⬜ | For best UI experience |
 
 <br/>
@@ -224,22 +224,22 @@ Then install system dependencies manually:
 
 **🐧 Ubuntu / Debian**
 ```bash
-sudo apt install mpv chafa
+sudo apt install mpv ink-picture
 ```
 
 **🎩 Fedora / RHEL**
 ```bash
-sudo dnf install mpv chafa
+sudo dnf install mpv ink-picture
 ```
 
 **🔷 Arch Linux**
 ```bash
-sudo pacman -S mpv chafa
+sudo pacman -S mpv ink-picture
 ```
 
 **🍎 macOS**
 ```bash
-brew install mpv chafa
+brew install mpv ink-picture
 ```
 
 **Optional: Install Bun for best UI**
@@ -345,7 +345,7 @@ ny-cli -h
 | **Backend** | ![Node.js](https://img.shields.io/badge/Node.js_18+-339933?style=flat-square&logo=nodedotjs&logoColor=white) ![Express](https://img.shields.io/badge/Express-000000?style=flat-square&logo=express&logoColor=white) |
 | **APIs** | ![AllAnime](https://img.shields.io/badge/AllAnime-06b6d4?style=flat-square) ![Jikan](https://img.shields.io/badge/Jikan_API-25A2E2?style=flat-square) ![Anipy](https://img.shields.io/badge/Anipy-ff69b4?style=flat-square) |
 | **Sync** | ![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=flat-square&logo=firebase&logoColor=black) ![NyAnime](https://img.shields.io/badge/nyanime.qzz.io-a855f7?style=flat-square) |
-| **Media** | ![mpv](https://img.shields.io/badge/mpv-690D76?style=flat-square&logo=mpv&logoColor=white) ![chafa](https://img.shields.io/badge/chafa-333333?style=flat-square) ![webtorrent](https://img.shields.io/badge/WebTorrent-f04b36?style=flat-square) |
+| **Media** | ![mpv](https://img.shields.io/badge/mpv-690D76?style=flat-square&logo=mpv&logoColor=white) ![ink-picture](https://img.shields.io/badge/ink-picture-333333?style=flat-square) ![webtorrent](https://img.shields.io/badge/WebTorrent-f04b36?style=flat-square) |
 
 </div>
 
