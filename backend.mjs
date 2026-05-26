@@ -126,33 +126,50 @@ app.get('/api/aniwatch', async (req, res) => {
       if (!data?.data) return fail(res, 404, 'Anime not found');
 
       const info = data.data;
-      let jikanEps = [];
+      let anipyEps = [];
       try {
-        const epRes = await ipv4Fetch(`https://api.jikan.moe/v4/anime/${malId}/episodes`);
+        const title = info.title_english || info.title || '';
+        const titleRo = info.title || '';
+        const epRes = await ipv4Fetch(`https://anipy-ziq7.onrender.com/episodes?title=${encodeURIComponent(title)}&title_ro=${encodeURIComponent(titleRo)}&audio=sub`);
         const epData = await epRes.json();
-        if (epData?.data) {
-          jikanEps = epData.data;
+        if (epData?.episodes && epData.episodes.length > 0) {
+          anipyEps = epData.episodes;
         }
       } catch(e) {
-        console.error('[Jikan] Failed to fetch episodes', e.message);
+        console.error('[Anipy] Failed to fetch episodes', e.message);
+      }
+
+      // Fallback to Jikan if Anipy fails or returns empty
+      if (anipyEps.length === 0) {
+        try {
+          const jikanEpRes = await ipv4Fetch(`https://api.jikan.moe/v4/anime/${malId}/episodes`);
+          const jikanEpData = await jikanEpRes.json();
+          if (jikanEpData?.data) {
+            anipyEps = jikanEpData.data.map(ep => ({
+              number: ep.mal_id,
+              title: ep.title || ep.title_japanese || `Episode ${ep.mal_id}`
+            }));
+          }
+        } catch(e) {
+          console.error('[Jikan] Failed to fetch episodes fallback', e.message);
+        }
       }
 
       const formatEps = (epsList) => {
         return epsList.map((ep, idx) => {
           return {
-            number: Number(ep.mal_id) || (idx + 1),
-            title: ep.title || ep.title_japanese || `Episode ${ep.mal_id || idx + 1}`,
-            episodeId: String(ep.mal_id || idx + 1), // Using mal_id or index as the identifier
-            isFiller: ep.filler || false,
+            number: Number(ep.number) || (idx + 1),
+            title: ep.title || `Episode ${ep.number || idx + 1}`,
+            episodeId: String(ep.number || idx + 1), // Using number as identifier
+            isFiller: false,
             hasSub: true,
             hasDub: true // Default to true since our source resolver can often find dubs
           };
         });
       };
       
-      // Jikan doesn't distinguish sub/dub episodes by default this way, just return a single list as "sub"
-      const subFormatted = formatEps(jikanEps);
-      const dubFormatted = formatEps(jikanEps); // Use the same episodes list for dubs as Anipy handles the stream type
+      const subFormatted = formatEps(anipyEps);
+      const dubFormatted = formatEps(anipyEps); // Use the same episodes list for dubs as Anipy handles the stream type
 
       if (action === 'episodes') {
          return ok(res, {
@@ -205,7 +222,6 @@ app.get('/api/aniwatch', async (req, res) => {
     if (action === 'sources') {
       const linkId = String(req.query.server || req.query.episodeId || '').trim();
       let title = String(req.query.title || '').trim();
-      if (title.toLowerCase() === 'one piece') title = '1P';
       const titleRo = String(req.query.title_ro || '').trim();
       const episodeNo = req.query.episodeNo || '1';
       const audio = String(req.query.category || req.query.audio || 'sub').trim();
