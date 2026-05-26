@@ -204,7 +204,8 @@ app.get('/api/aniwatch', async (req, res) => {
 
     if (action === 'sources') {
       const linkId = String(req.query.server || req.query.episodeId || '').trim();
-      const title = String(req.query.title || '').trim();
+      let title = String(req.query.title || '').trim();
+      if (title.toLowerCase() === 'one piece') title = '1P';
       const titleRo = String(req.query.title_ro || '').trim();
       const episodeNo = req.query.episodeNo || '1';
       const audio = String(req.query.category || req.query.audio || 'sub').trim();
