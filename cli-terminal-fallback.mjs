@@ -1108,7 +1108,7 @@ async function getAnimeImageUrl(title) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4e3);
     const response = await fetch(
-      `https://api.jikan.moe/v4/anime?q=${searchQuery}&limit=1&sfw=true`,
+      `https://api.jikan.moe/v4/anime?q=${searchQuery}&order_by=members&sort=desc&limit=1&sfw=true`,
       { signal: controller.signal }
     );
     clearTimeout(timeout);

@@ -83,7 +83,7 @@ app.get('/api/aniwatch', async (req, res) => {
     if (action === 'search') {
       const query = String(req.query.q || '').trim();
       if (!query) return fail(res, 400, 'Missing q');
-      const r = await ipv4Fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=20`);
+      const r = await ipv4Fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&order_by=members&sort=desc&limit=20`);
       const data = await r.json();
       if (data?.data) {
         const animes = data.data.map(item => ({
@@ -101,7 +101,7 @@ app.get('/api/aniwatch', async (req, res) => {
     if (action === 'suggestions') {
       const query = String(req.query.q || '').trim();
       if (!query) return fail(res, 400, 'Missing q');
-      const r = await ipv4Fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=10`);
+      const r = await ipv4Fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&order_by=members&sort=desc&limit=10`);
       const data = await r.json();
       if (data?.data) {
         const suggestions = data.data.map(item => ({
