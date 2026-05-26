@@ -7,9 +7,10 @@ import { spawn, spawnSync, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import http from 'node:http';
 
 const API_BASE = process.env.NYCLI_API_BASE || 'http://127.0.0.1:3000';
-const VERSION = '5.5.9';
+const VERSION = '5.5.10';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
@@ -1872,7 +1873,7 @@ function App() {
     setScreen('login-waiting');
     
     // Start local server
-    const server = require('http').createServer((req: any, res: any) => {
+    const server = http.createServer((req: any, res: any) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, POST');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type');

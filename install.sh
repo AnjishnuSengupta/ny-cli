@@ -31,10 +31,10 @@ printf "  ╚═╝  ╚═══╝   ╚═╝          ╚═════╝�
 printf "${RESET}\n"
 printf "${DIM}${CYAN}       ⟨ Your Gateway to Anime Streaming ⟩${RESET}\n"
 printf "${DIM}       ─────────────────────────────────────${RESET}\n"
-printf "${DIM}            v5.5.9 • nyanime.qzz.io${RESET}\n"
+printf "${DIM}            v5.5.10 • nyanime.qzz.io${RESET}\n"
 printf "\n"
 
-VERSION="5.5.9"
+VERSION="5.5.10"
 REPO_URL="https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main"
 GITHUB_REPO="https://github.com/AnjishnuSengupta/ny-cli"
 

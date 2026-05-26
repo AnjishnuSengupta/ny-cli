@@ -15,6 +15,7 @@ import { spawn, spawnSync, execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import http from "node:http";
 
 // firebase-config.ts
 var getFirebaseConfig = () => {
@@ -31,7 +32,7 @@ var getFirebaseConfig = () => {
 
 // cli-terminal.tsx
 var API_BASE = process.env.NYCLI_API_BASE || "http://127.0.0.1:3000";
-var VERSION = "5.5.9";
+var VERSION = "5.5.10";
 var fbConfig = getFirebaseConfig();
 var FIREBASE_PROJECT_ID = fbConfig.projectId;
 var FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -1014,7 +1015,7 @@ function App() {
   const handleStartLogin = useCallback(() => {
     setStatus({ message: "Opening browser for login...", type: "info", loading: true });
     setScreen("login-waiting");
-    const server = __require("http").createServer((req, res) => {
+    const server = http.createServer((req, res) => {
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Methods", "OPTIONS, POST");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type");
