@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { render, Box, Text, useInput, useApp } from 'ink';
 import TextInput from 'ink-text-input';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -1017,8 +1017,10 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }: { title: str
         
         // Run chafa asynchronously
         const chafaProcess = spawn('chafa', [
+          '-f', 'symbols',
+          '--symbols=ascii',
           '-s', `${width}x${height}`,
-          '--colors=full',
+          '--colors=none',
           '--clear',
           tmpFile
         ]);
@@ -1505,7 +1507,6 @@ function pickPlayableSource(sources: any[]) {
 }
 
 function getPlayerCommand(): string | null {
-  const { spawnSync } = require('node:child_process');
   const candidates = ['mpv', 'vlc', 'iina'];
   for (const cmd of candidates) {
     try {
@@ -1547,7 +1548,6 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
     setDownloadStatus('Downloading Anime4K shaders...');
     
     try {
-      const { execSync } = require('node:child_process');
       const targetDir = ANIME4K_DIR;
       
       // Download from GitHub releases
@@ -1911,12 +1911,14 @@ function App() {
       }
 
       if (req.method === 'POST' && req.url === '/callback') {
+        setStatus({ message: 'Received callback connection...', type: 'info', loading: true });
         let body = '';
         req.on('data', (chunk: any) => body += chunk.toString());
         req.on('end', () => {
           try {
             const data = JSON.parse(body);
             if (data.token && data.username) {
+              setStatus({ message: 'Callback verified, logging in...', type: 'info', loading: true });
               setPendingUsername(data.username);
               handleLoginToken(data.token, data.username);
               res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -2125,8 +2127,12 @@ function App() {
     setStatus({ message: `Getting stream for Episode ${item.number}...`, type: 'info', loading: true });
 
     try {
+      // Use .label (from SelectItem) or animeInfo.name — NOT .title which doesn't exist on SelectItem
+      const animeTitle = selectedAnime?.label || animeInfo?.name || '';
+      const animeJName = animeInfo?.jname || '';
+      const totalEps = episodes.length || 0;
       const sourcesData = await getJson(
-        `/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId!)}&category=${audioType}&title=${encodeURIComponent(selectedAnime?.title || '')}&episodeNo=${item.number || 1}`
+        `/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId!)}&category=${audioType}&audio=${audioType}&title=${encodeURIComponent(animeTitle)}&title_ro=${encodeURIComponent(animeJName)}&episodeNo=${item.number || 1}&totalEpisodes=${totalEps}`
       );
       const source = pickPlayableSource(sourcesData?.sources);
 
@@ -2138,7 +2144,7 @@ function App() {
       // Get previous watch progress if not starting from a specific position
       const prevProgress = !startPosition ? getWatchProgress(selectedAnime?.id || '', item.number || 1) : null;
       const resumeTime = startPosition || prevProgress?.watchTime || 0;
-      const totalEps = episodes.length;
+      // totalEps is already declared above when fetching sources
 
       // Use direct URL with headers passed to player
       const streamHeaders = sourcesData?.headers || {};
@@ -2154,11 +2160,20 @@ function App() {
         return;
       }
 
-      const { spawn } = require('node:child_process');
-      const animeTitle = selectedAnime?.label || animeInfo?.title || '';
-      const title = `${animeTitle || 'Anime'} - Episode ${item.number} (${audioType.toUpperCase()})`;
+      const epAnimeTitle = selectedAnime?.label || animeInfo?.name || animeInfo?.title || '';
+      const title = `${epAnimeTitle || 'Anime'} - Episode ${item.number} (${audioType.toUpperCase()})`;
       const animeId = selectedAnime?.id || '';
       const episodeNum = item.number || 1;
+
+      // Use per-source Referer from anipy (allanime.day) — critical for stream access
+      const sourceReferer = (source as any).headers?.Referer
+        || streamHeaders.Referer
+        || streamHeaders.referer
+        || 'https://allanime.day';
+      const sourceOrigin = (source as any).headers?.Origin
+        || streamHeaders.Origin
+        || streamHeaders.origin
+        || new URL(sourceReferer).origin;
       
       // Create IPC socket for mpv to track progress
       const ipcPath = `/tmp/nycli-mpv-${process.pid}.sock`;
@@ -2170,12 +2185,10 @@ function App() {
           `--force-media-title=${title}`,
           `--input-ipc-server=${ipcPath}`,
         ];
-        
-        // Add HTTP headers for direct playback - use megaup.nl as default (not megacloud.blog)
-        const referer = streamHeaders.Referer || streamHeaders.referer || 'https://megaup.nl/';
-        const origin = streamHeaders.Origin || streamHeaders.origin || 'https://megaup.nl';
-        args.push(`--http-header-fields=Referer: ${referer},Origin: ${origin}`);
-        args.push('--referrer=' + referer);
+
+        // Critical: pass the correct per-source Referer so CDN does not 403
+        args.push(`--http-header-fields=Referer: ${sourceReferer},Origin: ${sourceOrigin}`);
+        args.push(`--referrer=${sourceReferer}`);
         
         // Add Anime4K shaders if enabled
         const settings = loadSettings();
@@ -2192,12 +2205,12 @@ function App() {
         } else {
           setStatus({ message: `Opening ${player}...`, type: 'success', loading: false });
         }
-        // Use direct URL with headers
+        // Stream directly using per-source correct URL
         args.push(directUrl);
       } else if (player === 'vlc') {
         args = ['--meta-title', title, '--play-and-exit'];
-        // VLC http options - use megaup.nl as default
-        args.push('--http-referrer=' + (streamHeaders.Referer || 'https://megaup.nl/'));
+        // VLC: use the correct per-source Referer
+        args.push(`--http-referrer=${sourceReferer}`);
         if (resumeTime > 5) {
           args.push(`--start-time=${Math.floor(resumeTime)}`);
         }
@@ -2237,11 +2250,11 @@ function App() {
               client.on('close', () => {
                 clearInterval(poll);
                 // Save final progress - only if we have valid data
-                if (lastPosition > 0 && animeId && animeTitle) {
+                if (lastPosition > 0 && animeId && epAnimeTitle) {
                   saveWatchProgress(animeId, episodeNum, lastPosition, duration);
                   saveToHistory({
                     id: animeId,
-                    title: animeTitle,
+                    title: epAnimeTitle,
                     episode: episodeNum,
                     timestamp: Date.now(),
                     category: audioType,

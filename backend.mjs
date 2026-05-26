@@ -35,7 +35,7 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 const torrentClient = new WebTorrent();
 
-const PROVIDER = 'aniflix';
+const PROVIDER = 'anipy';
 
 app.use(express.json({ limit: '256kb' }));
 app.use((req, res, next) => {
@@ -53,35 +53,6 @@ function ok(res, data, cacheSecs = 60) {
 
 function fail(res, status, error) {
   return res.status(status).json({ success: false, error });
-}
-
-const aniflixCache = new Map();
-
-async function getAnilistId(malId) {
-  const mappingKey = `mal_to_anilist:${malId}`;
-  if (aniflixCache.has(mappingKey)) {
-    return aniflixCache.get(mappingKey);
-  }
-  try {
-    const r = await fetch('https://graphql.anilist.co', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query: 'query($id: Int) { Media(idMal: $id, type: ANIME) { id } }',
-        variables: { id: parseInt(malId, 10) }
-      }),
-      signal: AbortSignal.timeout(5000)
-    });
-    const d = await r.json();
-    if (d?.data?.Media?.id) {
-      const anilistId = d.data.Media.id.toString();
-      aniflixCache.set(mappingKey, anilistId);
-      return anilistId;
-    }
-  } catch(e) {
-    console.error('[AniList] Failed to map MAL ID', e.message);
-  }
-  return null;
 }
 
 app.get('/', (req, res) => {
@@ -174,14 +145,14 @@ app.get('/api/aniwatch', async (req, res) => {
             episodeId: String(ep.mal_id || idx + 1), // Using mal_id or index as the identifier
             isFiller: ep.filler || false,
             hasSub: true,
-            hasDub: false // we don't know for sure from Jikan, default to false or handle later
+            hasDub: true // Default to true since our source resolver can often find dubs
           };
         });
       };
       
       // Jikan doesn't distinguish sub/dub episodes by default this way, just return a single list as "sub"
       const subFormatted = formatEps(jikanEps);
-      const dubFormatted = []; // Could be inferred later if needed, leaving empty for now to match the "Jikan-only" constraint
+      const dubFormatted = formatEps(jikanEps); // Use the same episodes list for dubs as Anipy handles the stream type
 
       if (action === 'episodes') {
          return ok(res, {
@@ -200,7 +171,7 @@ app.get('/api/aniwatch', async (req, res) => {
         stats: {
           type: info.type || 'TV',
           status: info.status || 'Unknown',
-          episodes: { sub: subFormatted.length || info.episodes || 0, dub: 0 },
+          episodes: { sub: subFormatted.length || info.episodes || 0, dub: dubFormatted.length || info.episodes || 0 },
         },
         genres: info.genres?.map(g => g.name) || [],
         episodes: {
@@ -226,55 +197,92 @@ app.get('/api/aniwatch', async (req, res) => {
         episodeId: rawEpisodeId,
         episodeNo: episodeNo,
         sub: servers,
-        dub: [],
+        dub: servers,
         raw: [],
       }, 60);
     }
 
     if (action === 'sources') {
       const linkId = String(req.query.server || req.query.episodeId || '').trim();
-      const title = req.query.title || '';
+      const title = String(req.query.title || '').trim();
+      const titleRo = String(req.query.title_ro || '').trim();
       const episodeNo = req.query.episodeNo || '1';
+      const audio = String(req.query.category || req.query.audio || 'sub').trim();
+      const totalEpisodes = req.query.totalEpisodes ? parseInt(req.query.totalEpisodes, 10) : null;
       if (!linkId) return fail(res, 400, 'Missing server linkId');
 
       let mappedSources = [];
       let subtitles = [];
-      
-      let sourceData = {};
-      
-      if (linkId.startsWith('anipy-')) {
-        // Fetch from Anipy
-        if (title) {
-          try {
-             const anipyRes = await fetch(`https://anipy-yhba.onrender.com/sources?title=${encodeURIComponent(title)}&episode=${episodeNo}`);
-             if (anipyRes.ok) {
-               const anipyData = await anipyRes.json();
-               if (anipyData && anipyData.sources) {
-                 mappedSources = anipyData.sources.map(s => ({
-                   url: s.url,
-                   quality: s.quality || 'auto',
-                   isM3U8: s.url.includes('.m3u8')
-                 }));
-                 subtitles = anipyData.subtitles || [];
-               }
-             }
-          } catch(e) {
-            console.error('[Anipy sources error]', e.message);
-          }
-        }
-      }
-        
-      // Add torrent source if available
+
+      // Helper: call anipy /sources with a given title
+      const fetchAnipySources = async (queryTitle) => {
+        let anipyUrl = `https://anipy-ziq7.onrender.com/sources?title=${encodeURIComponent(queryTitle)}&episode=${episodeNo}&audio=${encodeURIComponent(audio)}`;
+        if (titleRo) anipyUrl += `&title_ro=${encodeURIComponent(titleRo)}`;
+        console.log(`[Anipy] Fetching: ${anipyUrl}`);
+        const anipyRes = await ipv4Fetch(anipyUrl);
+        if (!anipyRes.ok) return null;
+        return anipyRes.json();
+      };
+
       if (title) {
         try {
-          const tRes = await fetch(`https://nyanime.qzz.io/api/torrent-search?title=${encodeURIComponent(title)}&episode=${episodeNo}`);
+          // Primary attempt
+          let anipyData = await fetchAnipySources(title);
+          console.log(`[Anipy] Got ${anipyData?.sources?.length || 0} sources for "${title}" ep ${episodeNo} (${audio}), matched="${anipyData?.matched_title || '?'}"`);
+
+          // Smart disambiguation: if we got 0 sources AND totalEpisodes hint shows this
+          // is a long series (>12), anipy likely matched the wrong short series (OVA/special).
+          // Use /episodes with total_episodes to get the correct matched_title, then retry.
+          if ((!anipyData?.sources?.length) && totalEpisodes && totalEpisodes > 12) {
+            console.log(`[Anipy] Zero sources and totalEpisodes=${totalEpisodes} — trying disambiguation via /episodes...`);
+            try {
+              const epUrl = `https://anipy-ziq7.onrender.com/episodes?title=${encodeURIComponent(title)}&audio=${encodeURIComponent(audio)}&total_episodes=${totalEpisodes}`;
+              const epRes = await ipv4Fetch(epUrl);
+              if (epRes.ok) {
+                const epData = await epRes.json();
+                const matchedTitle = epData?.matched_title;
+                if (matchedTitle && matchedTitle !== title) {
+                  console.log(`[Anipy] Disambiguation: matched title "${matchedTitle}" — retrying sources...`);
+                  const retryData = await fetchAnipySources(matchedTitle);
+                  if (retryData?.sources?.length) {
+                    anipyData = retryData;
+                    console.log(`[Anipy] Retry success: ${retryData.sources.length} sources with title "${matchedTitle}"`);
+                  }
+                }
+              }
+            } catch(e) {
+              console.error('[Anipy disambiguation error]', e.message);
+            }
+          }
+
+          if (anipyData && anipyData.sources && anipyData.sources.length > 0) {
+            mappedSources = anipyData.sources.map(s => ({
+              url: s.url,
+              quality: s.quality || 'auto',
+              isM3U8: !!(s.url.includes('.m3u8') || s.isM3U8),
+              headers: s.headers || { Referer: 'https://allanime.day' },
+            }));
+            subtitles = anipyData.subtitles || [];
+          }
+        } catch(e) {
+          console.error('[Anipy sources error]', e.message);
+        }
+      } else {
+        console.warn('[Sources] No title provided — cannot fetch from anipy!');
+      }
+
+      // Torrent fallback (only when anipy found nothing)
+      if (title && mappedSources.length === 0) {
+        try {
+          const tRes = await ipv4Fetch(`https://nyanime.qzz.io/api/torrent-search?title=${encodeURIComponent(title)}&episode=${episodeNo}`);
           if (tRes.ok) {
             const tData = await tRes.json();
             if (tData && tData.magnet) {
               mappedSources.push({
                 url: `http://localhost:${PORT}/api/torrent-stream?magnet=${encodeURIComponent(tData.magnet)}`,
                 quality: '1080p (Torrent)',
-                isM3U8: false
+                isM3U8: false,
+                headers: {},
               });
             }
           }
@@ -283,20 +291,25 @@ app.get('/api/aniwatch', async (req, res) => {
         }
       }
 
+      // Use the referer from the first source, or fall back to allanime.day
+      const primaryReferer = mappedSources[0]?.headers?.Referer || 'https://allanime.day';
+
       return ok(res, {
         headers: {
-          Referer: 'https://megacloud.blog/',
-          Origin: 'https://megacloud.blog/',
-          'User-Agent': 'Mozilla/5.0',
+          Referer: primaryReferer,
+          Origin: new URL(primaryReferer).origin,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         },
         sources: mappedSources,
         tracks: subtitles,
         subtitles: subtitles.filter(t => t.kind === 'captions'),
-        intro: sourceData.intro || null,
-        outro: sourceData.outro || null,
+        intro: null,
+        outro: null,
         provider: PROVIDER,
       }, 0);
     }
+
+
 
     return fail(res, 400, `Unknown action: ${action}`);
   } catch (error) {
@@ -345,9 +358,11 @@ app.get('/api/stream', async (req, res) => {
       method: 'GET',
       redirect: 'follow',
       headers: requestHeaders,
+      signal: AbortSignal.timeout(10000)
     });
 
     if (!upstream.ok && upstream.status !== 206) {
+      console.error(`[Proxy Error] Upstream returned ${upstream.status} for ${targetUrl.toString()}`);
       return fail(res, upstream.status, `Upstream error: ${upstream.statusText || 'unknown'}`);
     }
 
@@ -386,6 +401,7 @@ app.get('/api/stream', async (req, res) => {
     for await (const chunk of upstream.body) { res.write(Buffer.from(chunk)); }
     return res.end();
   } catch (error) {
+    console.error(`[Proxy Failed] for ${targetUrl.toString()}: ${error.message}`);
     return fail(res, 502, error instanceof Error ? error.message : 'Stream proxy failed');
   }
 });

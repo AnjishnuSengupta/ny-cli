@@ -7,13 +7,602 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
 });
 
 // cli-terminal.tsx
-import React, { useState, useEffect, useCallback } from "react";
-import { render, Box, Text, useInput, useApp } from "ink";
-import TextInput from "ink-text-input";
-import { spawn } from "node:child_process";
+import React2, { useState as useState2, useEffect as useEffect2, useCallback } from "react";
+import { render, Box, Text as Text2, useInput as useInput2, useApp } from "ink";
+
+// node_modules/ink-text-input/build/index.js
+import React, { useState, useEffect } from "react";
+import { Text, useInput } from "ink";
+
+// node_modules/chalk/source/vendor/ansi-styles/index.js
+var ANSI_BACKGROUND_OFFSET = 10;
+var wrapAnsi16 = (offset = 0) => (code) => `\x1B[${code + offset}m`;
+var wrapAnsi256 = (offset = 0) => (code) => `\x1B[${38 + offset};5;${code}m`;
+var wrapAnsi16m = (offset = 0) => (red, green, blue) => `\x1B[${38 + offset};2;${red};${green};${blue}m`;
+var styles = {
+  modifier: {
+    reset: [0, 0],
+    // 21 isn't widely supported and 22 does the same thing
+    bold: [1, 22],
+    dim: [2, 22],
+    italic: [3, 23],
+    underline: [4, 24],
+    overline: [53, 55],
+    inverse: [7, 27],
+    hidden: [8, 28],
+    strikethrough: [9, 29]
+  },
+  color: {
+    black: [30, 39],
+    red: [31, 39],
+    green: [32, 39],
+    yellow: [33, 39],
+    blue: [34, 39],
+    magenta: [35, 39],
+    cyan: [36, 39],
+    white: [37, 39],
+    // Bright color
+    blackBright: [90, 39],
+    gray: [90, 39],
+    // Alias of `blackBright`
+    grey: [90, 39],
+    // Alias of `blackBright`
+    redBright: [91, 39],
+    greenBright: [92, 39],
+    yellowBright: [93, 39],
+    blueBright: [94, 39],
+    magentaBright: [95, 39],
+    cyanBright: [96, 39],
+    whiteBright: [97, 39]
+  },
+  bgColor: {
+    bgBlack: [40, 49],
+    bgRed: [41, 49],
+    bgGreen: [42, 49],
+    bgYellow: [43, 49],
+    bgBlue: [44, 49],
+    bgMagenta: [45, 49],
+    bgCyan: [46, 49],
+    bgWhite: [47, 49],
+    // Bright color
+    bgBlackBright: [100, 49],
+    bgGray: [100, 49],
+    // Alias of `bgBlackBright`
+    bgGrey: [100, 49],
+    // Alias of `bgBlackBright`
+    bgRedBright: [101, 49],
+    bgGreenBright: [102, 49],
+    bgYellowBright: [103, 49],
+    bgBlueBright: [104, 49],
+    bgMagentaBright: [105, 49],
+    bgCyanBright: [106, 49],
+    bgWhiteBright: [107, 49]
+  }
+};
+var modifierNames = Object.keys(styles.modifier);
+var foregroundColorNames = Object.keys(styles.color);
+var backgroundColorNames = Object.keys(styles.bgColor);
+var colorNames = [...foregroundColorNames, ...backgroundColorNames];
+function assembleStyles() {
+  const codes = /* @__PURE__ */ new Map();
+  for (const [groupName, group] of Object.entries(styles)) {
+    for (const [styleName, style] of Object.entries(group)) {
+      styles[styleName] = {
+        open: `\x1B[${style[0]}m`,
+        close: `\x1B[${style[1]}m`
+      };
+      group[styleName] = styles[styleName];
+      codes.set(style[0], style[1]);
+    }
+    Object.defineProperty(styles, groupName, {
+      value: group,
+      enumerable: false
+    });
+  }
+  Object.defineProperty(styles, "codes", {
+    value: codes,
+    enumerable: false
+  });
+  styles.color.close = "\x1B[39m";
+  styles.bgColor.close = "\x1B[49m";
+  styles.color.ansi = wrapAnsi16();
+  styles.color.ansi256 = wrapAnsi256();
+  styles.color.ansi16m = wrapAnsi16m();
+  styles.bgColor.ansi = wrapAnsi16(ANSI_BACKGROUND_OFFSET);
+  styles.bgColor.ansi256 = wrapAnsi256(ANSI_BACKGROUND_OFFSET);
+  styles.bgColor.ansi16m = wrapAnsi16m(ANSI_BACKGROUND_OFFSET);
+  Object.defineProperties(styles, {
+    rgbToAnsi256: {
+      value(red, green, blue) {
+        if (red === green && green === blue) {
+          if (red < 8) {
+            return 16;
+          }
+          if (red > 248) {
+            return 231;
+          }
+          return Math.round((red - 8) / 247 * 24) + 232;
+        }
+        return 16 + 36 * Math.round(red / 255 * 5) + 6 * Math.round(green / 255 * 5) + Math.round(blue / 255 * 5);
+      },
+      enumerable: false
+    },
+    hexToRgb: {
+      value(hex) {
+        const matches = /[a-f\d]{6}|[a-f\d]{3}/i.exec(hex.toString(16));
+        if (!matches) {
+          return [0, 0, 0];
+        }
+        let [colorString] = matches;
+        if (colorString.length === 3) {
+          colorString = [...colorString].map((character) => character + character).join("");
+        }
+        const integer = Number.parseInt(colorString, 16);
+        return [
+          /* eslint-disable no-bitwise */
+          integer >> 16 & 255,
+          integer >> 8 & 255,
+          integer & 255
+          /* eslint-enable no-bitwise */
+        ];
+      },
+      enumerable: false
+    },
+    hexToAnsi256: {
+      value: (hex) => styles.rgbToAnsi256(...styles.hexToRgb(hex)),
+      enumerable: false
+    },
+    ansi256ToAnsi: {
+      value(code) {
+        if (code < 8) {
+          return 30 + code;
+        }
+        if (code < 16) {
+          return 90 + (code - 8);
+        }
+        let red;
+        let green;
+        let blue;
+        if (code >= 232) {
+          red = ((code - 232) * 10 + 8) / 255;
+          green = red;
+          blue = red;
+        } else {
+          code -= 16;
+          const remainder = code % 36;
+          red = Math.floor(code / 36) / 5;
+          green = Math.floor(remainder / 6) / 5;
+          blue = remainder % 6 / 5;
+        }
+        const value = Math.max(red, green, blue) * 2;
+        if (value === 0) {
+          return 30;
+        }
+        let result = 30 + (Math.round(blue) << 2 | Math.round(green) << 1 | Math.round(red));
+        if (value === 2) {
+          result += 60;
+        }
+        return result;
+      },
+      enumerable: false
+    },
+    rgbToAnsi: {
+      value: (red, green, blue) => styles.ansi256ToAnsi(styles.rgbToAnsi256(red, green, blue)),
+      enumerable: false
+    },
+    hexToAnsi: {
+      value: (hex) => styles.ansi256ToAnsi(styles.hexToAnsi256(hex)),
+      enumerable: false
+    }
+  });
+  return styles;
+}
+var ansiStyles = assembleStyles();
+var ansi_styles_default = ansiStyles;
+
+// node_modules/chalk/source/vendor/supports-color/index.js
+import process2 from "node:process";
+import os from "node:os";
+import tty from "node:tty";
+function hasFlag(flag, argv = globalThis.Deno ? globalThis.Deno.args : process2.argv) {
+  const prefix = flag.startsWith("-") ? "" : flag.length === 1 ? "-" : "--";
+  const position = argv.indexOf(prefix + flag);
+  const terminatorPosition = argv.indexOf("--");
+  return position !== -1 && (terminatorPosition === -1 || position < terminatorPosition);
+}
+var { env } = process2;
+var flagForceColor;
+if (hasFlag("no-color") || hasFlag("no-colors") || hasFlag("color=false") || hasFlag("color=never")) {
+  flagForceColor = 0;
+} else if (hasFlag("color") || hasFlag("colors") || hasFlag("color=true") || hasFlag("color=always")) {
+  flagForceColor = 1;
+}
+function envForceColor() {
+  if ("FORCE_COLOR" in env) {
+    if (env.FORCE_COLOR === "true") {
+      return 1;
+    }
+    if (env.FORCE_COLOR === "false") {
+      return 0;
+    }
+    return env.FORCE_COLOR.length === 0 ? 1 : Math.min(Number.parseInt(env.FORCE_COLOR, 10), 3);
+  }
+}
+function translateLevel(level) {
+  if (level === 0) {
+    return false;
+  }
+  return {
+    level,
+    hasBasic: true,
+    has256: level >= 2,
+    has16m: level >= 3
+  };
+}
+function _supportsColor(haveStream, { streamIsTTY, sniffFlags = true } = {}) {
+  const noFlagForceColor = envForceColor();
+  if (noFlagForceColor !== void 0) {
+    flagForceColor = noFlagForceColor;
+  }
+  const forceColor = sniffFlags ? flagForceColor : noFlagForceColor;
+  if (forceColor === 0) {
+    return 0;
+  }
+  if (sniffFlags) {
+    if (hasFlag("color=16m") || hasFlag("color=full") || hasFlag("color=truecolor")) {
+      return 3;
+    }
+    if (hasFlag("color=256")) {
+      return 2;
+    }
+  }
+  if ("TF_BUILD" in env && "AGENT_NAME" in env) {
+    return 1;
+  }
+  if (haveStream && !streamIsTTY && forceColor === void 0) {
+    return 0;
+  }
+  const min = forceColor || 0;
+  if (env.TERM === "dumb") {
+    return min;
+  }
+  if (process2.platform === "win32") {
+    const osRelease = os.release().split(".");
+    if (Number(osRelease[0]) >= 10 && Number(osRelease[2]) >= 10586) {
+      return Number(osRelease[2]) >= 14931 ? 3 : 2;
+    }
+    return 1;
+  }
+  if ("CI" in env) {
+    if (["GITHUB_ACTIONS", "GITEA_ACTIONS", "CIRCLECI"].some((key) => key in env)) {
+      return 3;
+    }
+    if (["TRAVIS", "APPVEYOR", "GITLAB_CI", "BUILDKITE", "DRONE"].some((sign) => sign in env) || env.CI_NAME === "codeship") {
+      return 1;
+    }
+    return min;
+  }
+  if ("TEAMCITY_VERSION" in env) {
+    return /^(9\.(0*[1-9]\d*)\.|\d{2,}\.)/.test(env.TEAMCITY_VERSION) ? 1 : 0;
+  }
+  if (env.COLORTERM === "truecolor") {
+    return 3;
+  }
+  if (env.TERM === "xterm-kitty") {
+    return 3;
+  }
+  if (env.TERM === "xterm-ghostty") {
+    return 3;
+  }
+  if (env.TERM === "wezterm") {
+    return 3;
+  }
+  if ("TERM_PROGRAM" in env) {
+    const version = Number.parseInt((env.TERM_PROGRAM_VERSION || "").split(".")[0], 10);
+    switch (env.TERM_PROGRAM) {
+      case "iTerm.app": {
+        return version >= 3 ? 3 : 2;
+      }
+      case "Apple_Terminal": {
+        return 2;
+      }
+    }
+  }
+  if (/-256(color)?$/i.test(env.TERM)) {
+    return 2;
+  }
+  if (/^screen|^xterm|^vt100|^vt220|^rxvt|color|ansi|cygwin|linux/i.test(env.TERM)) {
+    return 1;
+  }
+  if ("COLORTERM" in env) {
+    return 1;
+  }
+  return min;
+}
+function createSupportsColor(stream, options = {}) {
+  const level = _supportsColor(stream, {
+    streamIsTTY: stream && stream.isTTY,
+    ...options
+  });
+  return translateLevel(level);
+}
+var supportsColor = {
+  stdout: createSupportsColor({ isTTY: tty.isatty(1) }),
+  stderr: createSupportsColor({ isTTY: tty.isatty(2) })
+};
+var supports_color_default = supportsColor;
+
+// node_modules/chalk/source/utilities.js
+function stringReplaceAll(string, substring, replacer) {
+  let index = string.indexOf(substring);
+  if (index === -1) {
+    return string;
+  }
+  const substringLength = substring.length;
+  let endIndex = 0;
+  let returnValue = "";
+  do {
+    returnValue += string.slice(endIndex, index) + substring + replacer;
+    endIndex = index + substringLength;
+    index = string.indexOf(substring, endIndex);
+  } while (index !== -1);
+  returnValue += string.slice(endIndex);
+  return returnValue;
+}
+function stringEncaseCRLFWithFirstIndex(string, prefix, postfix, index) {
+  let endIndex = 0;
+  let returnValue = "";
+  do {
+    const gotCR = string[index - 1] === "\r";
+    returnValue += string.slice(endIndex, gotCR ? index - 1 : index) + prefix + (gotCR ? "\r\n" : "\n") + postfix;
+    endIndex = index + 1;
+    index = string.indexOf("\n", endIndex);
+  } while (index !== -1);
+  returnValue += string.slice(endIndex);
+  return returnValue;
+}
+
+// node_modules/chalk/source/index.js
+var { stdout: stdoutColor, stderr: stderrColor } = supports_color_default;
+var GENERATOR = /* @__PURE__ */ Symbol("GENERATOR");
+var STYLER = /* @__PURE__ */ Symbol("STYLER");
+var IS_EMPTY = /* @__PURE__ */ Symbol("IS_EMPTY");
+var levelMapping = [
+  "ansi",
+  "ansi",
+  "ansi256",
+  "ansi16m"
+];
+var styles2 = /* @__PURE__ */ Object.create(null);
+var applyOptions = (object, options = {}) => {
+  if (options.level && !(Number.isInteger(options.level) && options.level >= 0 && options.level <= 3)) {
+    throw new Error("The `level` option should be an integer from 0 to 3");
+  }
+  const colorLevel = stdoutColor ? stdoutColor.level : 0;
+  object.level = options.level === void 0 ? colorLevel : options.level;
+};
+var chalkFactory = (options) => {
+  const chalk2 = (...strings) => strings.join(" ");
+  applyOptions(chalk2, options);
+  Object.setPrototypeOf(chalk2, createChalk.prototype);
+  return chalk2;
+};
+function createChalk(options) {
+  return chalkFactory(options);
+}
+Object.setPrototypeOf(createChalk.prototype, Function.prototype);
+for (const [styleName, style] of Object.entries(ansi_styles_default)) {
+  styles2[styleName] = {
+    get() {
+      const builder = createBuilder(this, createStyler(style.open, style.close, this[STYLER]), this[IS_EMPTY]);
+      Object.defineProperty(this, styleName, { value: builder });
+      return builder;
+    }
+  };
+}
+styles2.visible = {
+  get() {
+    const builder = createBuilder(this, this[STYLER], true);
+    Object.defineProperty(this, "visible", { value: builder });
+    return builder;
+  }
+};
+var getModelAnsi = (model, level, type, ...arguments_) => {
+  if (model === "rgb") {
+    if (level === "ansi16m") {
+      return ansi_styles_default[type].ansi16m(...arguments_);
+    }
+    if (level === "ansi256") {
+      return ansi_styles_default[type].ansi256(ansi_styles_default.rgbToAnsi256(...arguments_));
+    }
+    return ansi_styles_default[type].ansi(ansi_styles_default.rgbToAnsi(...arguments_));
+  }
+  if (model === "hex") {
+    return getModelAnsi("rgb", level, type, ...ansi_styles_default.hexToRgb(...arguments_));
+  }
+  return ansi_styles_default[type][model](...arguments_);
+};
+var usedModels = ["rgb", "hex", "ansi256"];
+for (const model of usedModels) {
+  styles2[model] = {
+    get() {
+      const { level } = this;
+      return function(...arguments_) {
+        const styler = createStyler(getModelAnsi(model, levelMapping[level], "color", ...arguments_), ansi_styles_default.color.close, this[STYLER]);
+        return createBuilder(this, styler, this[IS_EMPTY]);
+      };
+    }
+  };
+  const bgModel = "bg" + model[0].toUpperCase() + model.slice(1);
+  styles2[bgModel] = {
+    get() {
+      const { level } = this;
+      return function(...arguments_) {
+        const styler = createStyler(getModelAnsi(model, levelMapping[level], "bgColor", ...arguments_), ansi_styles_default.bgColor.close, this[STYLER]);
+        return createBuilder(this, styler, this[IS_EMPTY]);
+      };
+    }
+  };
+}
+var proto = Object.defineProperties(() => {
+}, {
+  ...styles2,
+  level: {
+    enumerable: true,
+    get() {
+      return this[GENERATOR].level;
+    },
+    set(level) {
+      this[GENERATOR].level = level;
+    }
+  }
+});
+var createStyler = (open, close, parent) => {
+  let openAll;
+  let closeAll;
+  if (parent === void 0) {
+    openAll = open;
+    closeAll = close;
+  } else {
+    openAll = parent.openAll + open;
+    closeAll = close + parent.closeAll;
+  }
+  return {
+    open,
+    close,
+    openAll,
+    closeAll,
+    parent
+  };
+};
+var createBuilder = (self, _styler, _isEmpty) => {
+  const builder = (...arguments_) => applyStyle(builder, arguments_.length === 1 ? "" + arguments_[0] : arguments_.join(" "));
+  Object.setPrototypeOf(builder, proto);
+  builder[GENERATOR] = self;
+  builder[STYLER] = _styler;
+  builder[IS_EMPTY] = _isEmpty;
+  return builder;
+};
+var applyStyle = (self, string) => {
+  if (self.level <= 0 || !string) {
+    return self[IS_EMPTY] ? "" : string;
+  }
+  let styler = self[STYLER];
+  if (styler === void 0) {
+    return string;
+  }
+  const { openAll, closeAll } = styler;
+  if (string.includes("\x1B")) {
+    while (styler !== void 0) {
+      string = stringReplaceAll(string, styler.close, styler.open);
+      styler = styler.parent;
+    }
+  }
+  const lfIndex = string.indexOf("\n");
+  if (lfIndex !== -1) {
+    string = stringEncaseCRLFWithFirstIndex(string, closeAll, openAll, lfIndex);
+  }
+  return openAll + string + closeAll;
+};
+Object.defineProperties(createChalk.prototype, styles2);
+var chalk = createChalk();
+var chalkStderr = createChalk({ level: stderrColor ? stderrColor.level : 0 });
+var source_default = chalk;
+
+// node_modules/ink-text-input/build/index.js
+function TextInput({ value: originalValue, placeholder = "", focus = true, mask, highlightPastedText = false, showCursor = true, onChange, onSubmit }) {
+  const [state, setState] = useState({
+    cursorOffset: (originalValue || "").length,
+    cursorWidth: 0
+  });
+  const { cursorOffset, cursorWidth } = state;
+  useEffect(() => {
+    setState((previousState) => {
+      if (!focus || !showCursor) {
+        return previousState;
+      }
+      const newValue = originalValue || "";
+      if (previousState.cursorOffset > newValue.length - 1) {
+        return {
+          cursorOffset: newValue.length,
+          cursorWidth: 0
+        };
+      }
+      return previousState;
+    });
+  }, [originalValue, focus, showCursor]);
+  const cursorActualWidth = highlightPastedText ? cursorWidth : 0;
+  const value = mask ? mask.repeat(originalValue.length) : originalValue;
+  let renderedValue = value;
+  let renderedPlaceholder = placeholder ? source_default.grey(placeholder) : void 0;
+  if (showCursor && focus) {
+    renderedPlaceholder = placeholder.length > 0 ? source_default.inverse(placeholder[0]) + source_default.grey(placeholder.slice(1)) : source_default.inverse(" ");
+    renderedValue = value.length > 0 ? "" : source_default.inverse(" ");
+    let i = 0;
+    for (const char of value) {
+      renderedValue += i >= cursorOffset - cursorActualWidth && i <= cursorOffset ? source_default.inverse(char) : char;
+      i++;
+    }
+    if (value.length > 0 && cursorOffset === value.length) {
+      renderedValue += source_default.inverse(" ");
+    }
+  }
+  useInput((input, key) => {
+    if (key.upArrow || key.downArrow || key.ctrl && input === "c" || key.tab || key.shift && key.tab) {
+      return;
+    }
+    if (key.return) {
+      if (onSubmit) {
+        onSubmit(originalValue);
+      }
+      return;
+    }
+    let nextCursorOffset = cursorOffset;
+    let nextValue = originalValue;
+    let nextCursorWidth = 0;
+    if (key.leftArrow) {
+      if (showCursor) {
+        nextCursorOffset--;
+      }
+    } else if (key.rightArrow) {
+      if (showCursor) {
+        nextCursorOffset++;
+      }
+    } else if (key.backspace || key.delete) {
+      if (cursorOffset > 0) {
+        nextValue = originalValue.slice(0, cursorOffset - 1) + originalValue.slice(cursorOffset, originalValue.length);
+        nextCursorOffset--;
+      }
+    } else {
+      nextValue = originalValue.slice(0, cursorOffset) + input + originalValue.slice(cursorOffset, originalValue.length);
+      nextCursorOffset += input.length;
+      if (input.length > 1) {
+        nextCursorWidth = input.length;
+      }
+    }
+    if (cursorOffset < 0) {
+      nextCursorOffset = 0;
+    }
+    if (cursorOffset > originalValue.length) {
+      nextCursorOffset = originalValue.length;
+    }
+    setState({
+      cursorOffset: nextCursorOffset,
+      cursorWidth: nextCursorWidth
+    });
+    if (nextValue !== originalValue) {
+      onChange(nextValue);
+    }
+  }, { isActive: focus });
+  return React.createElement(Text, null, placeholder ? value.length > 0 ? renderedValue : renderedPlaceholder : renderedValue);
+}
+var build_default = TextInput;
+
+// cli-terminal.tsx
+import { spawn, spawnSync, execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
+import os2 from "node:os";
 
 // firebase-config.ts
 var getFirebaseConfig = () => {
@@ -54,8 +643,8 @@ var theme = {
   red: "#EF4444"
 };
 var GRADIENT = [theme.purple, theme.blue, theme.pink];
-var CONFIG_DIR = process.env.XDG_CONFIG_HOME ? path.join(process.env.XDG_CONFIG_HOME, "ny-cli") : path.join(os.homedir(), ".config", "ny-cli");
-var DATA_DIR = process.env.XDG_DATA_HOME ? path.join(process.env.XDG_DATA_HOME, "ny-cli") : path.join(os.homedir(), ".local", "share", "ny-cli");
+var CONFIG_DIR = process.env.XDG_CONFIG_HOME ? path.join(process.env.XDG_CONFIG_HOME, "ny-cli") : path.join(os2.homedir(), ".config", "ny-cli");
+var DATA_DIR = process.env.XDG_DATA_HOME ? path.join(process.env.XDG_DATA_HOME, "ny-cli") : path.join(os2.homedir(), ".local", "share", "ny-cli");
 var AUTH_FILE = path.join(CONFIG_DIR, "auth");
 var HISTORY_FILE = path.join(DATA_DIR, "history");
 var SETTINGS_FILE = path.join(CONFIG_DIR, "settings.json");
@@ -401,9 +990,9 @@ var BANNER = [
 ];
 function Banner({ phase }) {
   return /* @__PURE__ */ jsxs(Box, { flexDirection: "column", alignItems: "center", marginBottom: 1, children: [
-    BANNER.map((line, i) => /* @__PURE__ */ jsx(Text, { color: gradientColor((i * 8 + phase) % 45, 45), bold: true, children: line }, i)),
-    /* @__PURE__ */ jsx(Text, { color: theme.dimGray, dimColor: true, children: "\u27E8 Your Gateway to Anime Streaming \u27E9" }),
-    /* @__PURE__ */ jsxs(Text, { color: theme.dimGray, dimColor: true, children: [
+    BANNER.map((line, i) => /* @__PURE__ */ jsx(Text2, { color: gradientColor((i * 8 + phase) % 45, 45), bold: true, children: line }, i)),
+    /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, dimColor: true, children: "\u27E8 Your Gateway to Anime Streaming \u27E9" }),
+    /* @__PURE__ */ jsxs(Text2, { color: theme.dimGray, dimColor: true, children: [
       "v",
       VERSION,
       " \u2022 nyanime.tech"
@@ -412,37 +1001,37 @@ function Banner({ phase }) {
 }
 var SPINNER_FRAMES = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827", "\u2807", "\u280F"];
 function Spinner({ color = theme.purple, text = "" }) {
-  const [frame, setFrame] = useState(0);
-  useEffect(() => {
+  const [frame, setFrame] = useState2(0);
+  useEffect2(() => {
     const timer = setInterval(() => {
       setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
     }, 80);
     return () => clearInterval(timer);
   }, []);
-  return /* @__PURE__ */ jsxs(Text, { children: [
-    /* @__PURE__ */ jsx(Text, { color, bold: true, children: SPINNER_FRAMES[frame] }),
-    text && /* @__PURE__ */ jsxs(Text, { color: theme.lightGray, children: [
+  return /* @__PURE__ */ jsxs(Text2, { children: [
+    /* @__PURE__ */ jsx(Text2, { color, bold: true, children: SPINNER_FRAMES[frame] }),
+    text && /* @__PURE__ */ jsxs(Text2, { color: theme.lightGray, children: [
       " ",
       text
     ] })
   ] });
 }
 function ShimmerText({ text, speed = 100 }) {
-  const [offset, setOffset] = useState(0);
-  useEffect(() => {
+  const [offset, setOffset] = useState2(0);
+  useEffect2(() => {
     const timer = setInterval(() => setOffset((o) => (o + 1) % text.length), speed);
     return () => clearInterval(timer);
   }, [text.length, speed]);
-  return /* @__PURE__ */ jsx(Text, { children: text.split("").map((char, i) => /* @__PURE__ */ jsx(Text, { color: gradientColor((i + offset) % text.length, text.length), children: char }, i)) });
+  return /* @__PURE__ */ jsx(Text2, { children: text.split("").map((char, i) => /* @__PURE__ */ jsx(Text2, { color: gradientColor((i + offset) % text.length, text.length), children: char }, i)) });
 }
 function BouncingDots({ color = theme.purple }) {
-  const [phase, setPhase] = useState(0);
+  const [phase, setPhase] = useState2(0);
   const dots = ["\u2801", "\u2802", "\u2804", "\u2840", "\u2880", "\u2820", "\u2810", "\u2808"];
-  useEffect(() => {
+  useEffect2(() => {
     const timer = setInterval(() => setPhase((p) => (p + 1) % dots.length), 100);
     return () => clearInterval(timer);
   }, []);
-  return /* @__PURE__ */ jsxs(Text, { color, bold: true, children: [
+  return /* @__PURE__ */ jsxs(Text2, { color, bold: true, children: [
     dots[phase],
     " ",
     dots[(phase + 2) % dots.length],
@@ -451,24 +1040,24 @@ function BouncingDots({ color = theme.purple }) {
   ] });
 }
 function WaveText({ text, colors = GRADIENT, speed = 100 }) {
-  const [phase, setPhase] = useState(0);
-  useEffect(() => {
+  const [phase, setPhase] = useState2(0);
+  useEffect2(() => {
     const timer = setInterval(() => setPhase((p) => (p + 1) % 100), speed);
     return () => clearInterval(timer);
   }, [speed]);
   const chars = text.split("");
-  return /* @__PURE__ */ jsx(Text, { children: chars.map((char, i) => {
+  return /* @__PURE__ */ jsx(Text2, { children: chars.map((char, i) => {
     const colorIdx = (i + phase) % colors.length;
-    return /* @__PURE__ */ jsx(Text, { color: colors[colorIdx], bold: true, children: char }, i);
+    return /* @__PURE__ */ jsx(Text2, { color: colors[colorIdx], bold: true, children: char }, i);
   }) });
 }
 function ScrollingWelcome({ text, onComplete }) {
   const termWidth = process.stdout.columns || 80;
-  const [position, setPosition] = useState(0);
-  const [done, setDone] = useState(false);
+  const [position, setPosition] = useState2(0);
+  const [done, setDone] = useState2(false);
   const centerPos = Math.floor((termWidth - text.length) / 2);
   const maxPos = centerPos + 30;
-  useEffect(() => {
+  useEffect2(() => {
     const timer = setInterval(() => {
       setPosition((p) => {
         const newPos = p + 1;
@@ -482,7 +1071,7 @@ function ScrollingWelcome({ text, onComplete }) {
     }, 60);
     return () => clearInterval(timer);
   }, [maxPos]);
-  useEffect(() => {
+  useEffect2(() => {
     if (done && onComplete) {
       const timeout = setTimeout(onComplete, 100);
       return () => clearTimeout(timeout);
@@ -492,10 +1081,10 @@ function ScrollingWelcome({ text, onComplete }) {
   const padding = Math.max(0, position);
   const isFading = position > centerPos;
   return /* @__PURE__ */ jsxs(Box, { children: [
-    /* @__PURE__ */ jsx(Text, { children: " ".repeat(padding) }),
-    /* @__PURE__ */ jsx(Text, { dimColor: isFading, children: text.split("").map((char, i) => {
+    /* @__PURE__ */ jsx(Text2, { children: " ".repeat(padding) }),
+    /* @__PURE__ */ jsx(Text2, { dimColor: isFading, children: text.split("").map((char, i) => {
       const colorIdx = (i + Math.floor(position / 3)) % GRADIENT.length;
-      return /* @__PURE__ */ jsx(Text, { color: GRADIENT[colorIdx], bold: true, children: char }, i);
+      return /* @__PURE__ */ jsx(Text2, { color: GRADIENT[colorIdx], bold: true, children: char }, i);
     }) })
   ] });
 }
@@ -537,25 +1126,28 @@ async function getAnimeImageUrl(title) {
   return null;
 }
 function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }) {
-  const [asciiArt, setAsciiArt] = useState(null);
-  const [loading, setLoading] = useState(!imageUrl);
-  const [error, setError] = useState(false);
-  const prevImgRef = React.useRef(null);
-  useEffect(() => {
+  const [asciiArt, setAsciiArt] = useState2(null);
+  const [loading, setLoading] = useState2(!imageUrl);
+  const [error, setError] = useState2(false);
+  const prevImgRef = React2.useRef(null);
+  useEffect2(() => {
     let active = true;
     async function loadArtwork(url) {
       try {
         setLoading(true);
-        const tmpDir = os.tmpdir();
+        const tmpDir = os2.tmpdir();
         const tmpFile = path.join(tmpDir, `ny-cli-art-${Date.now()}.jpg`);
         const res = await fetch(url);
         if (!res.ok) throw new Error("Fetch failed");
         const buffer = await res.arrayBuffer();
         fs.writeFileSync(tmpFile, Buffer.from(buffer));
         const chafaProcess = spawn("chafa", [
+          "-f",
+          "symbols",
+          "--symbols=ascii",
           "-s",
           `${width}x${height}`,
-          "--colors=full",
+          "--colors=none",
           "--clear",
           tmpFile
         ]);
@@ -630,25 +1222,25 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }) {
     };
   }, [title, imageUrl, width, height]);
   if (!title && !imageUrl && !asciiArt) {
-    return /* @__PURE__ */ jsx(Box, { width, height, borderStyle: "round", borderColor: theme.dimGray, justifyContent: "center", alignItems: "center", children: /* @__PURE__ */ jsx(Text, { color: theme.dimGray, children: "No Art" }) });
+    return /* @__PURE__ */ jsx(Box, { width, height, borderStyle: "round", borderColor: theme.dimGray, justifyContent: "center", alignItems: "center", children: /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, children: "No Art" }) });
   }
   if (loading && !asciiArt) {
     return /* @__PURE__ */ jsxs(Box, { width, height, borderStyle: "round", borderColor: theme.purple, justifyContent: "center", alignItems: "center", flexDirection: "column", children: [
       /* @__PURE__ */ jsx(BouncingDots, { color: theme.purple }),
-      /* @__PURE__ */ jsx(Text, { color: theme.dimGray, dimColor: true, children: "Loading..." })
+      /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, dimColor: true, children: "Loading..." })
     ] });
   }
   if (!asciiArt && !loading || error) {
-    return /* @__PURE__ */ jsx(Box, { width, height, borderStyle: "round", borderColor: theme.dimGray, justifyContent: "center", alignItems: "center", children: /* @__PURE__ */ jsx(Text, { color: theme.dimGray, children: "[!] No art" }) });
+    return /* @__PURE__ */ jsx(Box, { width, height, borderStyle: "round", borderColor: theme.dimGray, justifyContent: "center", alignItems: "center", children: /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, children: "[!] No art" }) });
   }
-  return /* @__PURE__ */ jsx(Box, { width, height, borderStyle: "round", borderColor: theme.purple, overflow: "hidden", children: /* @__PURE__ */ jsx(Text, { children: asciiArt }) });
+  return /* @__PURE__ */ jsx(Box, { width, height, borderStyle: "round", borderColor: theme.purple, overflow: "hidden", children: /* @__PURE__ */ jsx(Text2, { children: asciiArt }) });
 }
 function SelectList({ items, onSelect, onBack, title, color = theme.purple, showBorder = true, showArtwork = false, showNumbers = true, enableSearch = false }) {
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [rippleIndex, setRippleIndex] = useState(-1);
-  const [ripplePhase, setRipplePhase] = useState(0);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState2(0);
+  const [rippleIndex, setRippleIndex] = useState2(-1);
+  const [ripplePhase, setRipplePhase] = useState2(0);
+  const [searchQuery, setSearchQuery] = useState2("");
+  const [isSearching, setIsSearching] = useState2(false);
   const filteredItems = enableSearch && searchQuery ? items.filter((item) => {
     const num = item.number?.toString() || "";
     const label = item.label.toLowerCase();
@@ -659,10 +1251,10 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
   const startIdx = Math.max(0, Math.min(selectedIndex - Math.floor(maxVisible / 2), filteredItems.length - maxVisible));
   const visibleItems = filteredItems.slice(startIdx, startIdx + maxVisible);
   const selectedItem = filteredItems[selectedIndex];
-  useEffect(() => {
+  useEffect2(() => {
     setSelectedIndex(0);
   }, [searchQuery]);
-  useEffect(() => {
+  useEffect2(() => {
     if (rippleIndex >= 0) {
       const timer = setInterval(() => {
         setRipplePhase((p) => {
@@ -677,7 +1269,7 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
       return () => clearInterval(timer);
     }
   }, [rippleIndex]);
-  useInput((input, key) => {
+  useInput2((input, key) => {
     if (enableSearch && input === "/" && !isSearching) {
       setIsSearching(true);
       return;
@@ -734,16 +1326,16 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
   const termWidth = process.stdout.columns || 80;
   const maxLabelLen = Math.max(30, termWidth - 25);
   const content = /* @__PURE__ */ jsxs(Box, { flexDirection: "column", children: [
-    title && /* @__PURE__ */ jsx(Text, { color, bold: true, children: title }),
-    title && /* @__PURE__ */ jsxs(Text, { color: theme.dimGray, dimColor: true, children: [
+    title && /* @__PURE__ */ jsx(Text2, { color, bold: true, children: title }),
+    title && /* @__PURE__ */ jsxs(Text2, { color: theme.dimGray, dimColor: true, children: [
       "\u2191\u2193: navigate \u2502 Enter: select \u2502 b: back",
       enableSearch ? " \u2502 Type number to jump" : "",
       " \u2502 q: quit"
     ] }),
     enableSearch && /* @__PURE__ */ jsxs(Box, { marginTop: 1, children: [
-      /* @__PURE__ */ jsx(Text, { color: theme.cyan, children: "[S] " }),
-      /* @__PURE__ */ jsx(Text, { color: searchQuery ? theme.white : theme.dimGray, children: searchQuery || "Type episode number..." }),
-      searchQuery && /* @__PURE__ */ jsxs(Text, { color: theme.dimGray, children: [
+      /* @__PURE__ */ jsx(Text2, { color: theme.cyan, children: "[S] " }),
+      /* @__PURE__ */ jsx(Text2, { color: searchQuery ? theme.white : theme.dimGray, children: searchQuery || "Type episode number..." }),
+      searchQuery && /* @__PURE__ */ jsxs(Text2, { color: theme.dimGray, children: [
         " (",
         filteredItems.length,
         " matches)"
@@ -762,13 +1354,13 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
       const labelText = fullText.length > maxLabelLen ? fullText.slice(0, maxLabelLen - 3) + "..." : fullText;
       const numPrefix = showNumbers ? `${String(displayNum).padStart(2, " ")}) ` : "";
       return /* @__PURE__ */ jsxs(Box, { children: [
-        /* @__PURE__ */ jsx(Text, { color: isRippling ? rippleColor : isSelected ? color : theme.dimGray, children: indicator }),
-        showNumbers && /* @__PURE__ */ jsx(Text, { color: theme.dimGray, children: numPrefix }),
-        !showNumbers && /* @__PURE__ */ jsx(Text, { children: " " }),
-        /* @__PURE__ */ jsx(Text, { color: isSelected ? theme.white : theme.lightGray, bold: isSelected, children: labelText })
+        /* @__PURE__ */ jsx(Text2, { color: isRippling ? rippleColor : isSelected ? color : theme.dimGray, children: indicator }),
+        showNumbers && /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, children: numPrefix }),
+        !showNumbers && /* @__PURE__ */ jsx(Text2, { children: " " }),
+        /* @__PURE__ */ jsx(Text2, { color: isSelected ? theme.white : theme.lightGray, bold: isSelected, children: labelText })
       ] }, actualIdx);
     }) }),
-    items.length > maxVisible && /* @__PURE__ */ jsx(Box, { marginTop: 1, children: /* @__PURE__ */ jsxs(Text, { color: theme.dimGray, dimColor: true, children: [
+    items.length > maxVisible && /* @__PURE__ */ jsx(Box, { marginTop: 1, children: /* @__PURE__ */ jsxs(Text2, { color: theme.dimGray, dimColor: true, children: [
       "\u2500\u2500\u2500\u2500 ",
       selectedIndex + 1,
       "/",
@@ -790,7 +1382,7 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
             height: artworkHeight
           }
         ),
-        selectedItem && /* @__PURE__ */ jsx(Box, { marginTop: 1, children: /* @__PURE__ */ jsx(Text, { color: theme.cyan, wrap: "truncate-end", children: selectedItem.label.slice(0, artworkWidth - 2) }) })
+        selectedItem && /* @__PURE__ */ jsx(Box, { marginTop: 1, children: /* @__PURE__ */ jsx(Text2, { color: theme.cyan, wrap: "truncate-end", children: selectedItem.label.slice(0, artworkWidth - 2) }) })
       ] }),
       showBorder ? /* @__PURE__ */ jsx(Box, { flexDirection: "column", borderStyle: "round", borderColor: color, paddingX: 1, paddingY: 1, flexGrow: 1, children: content }) : /* @__PURE__ */ jsx(Box, { flexDirection: "column", flexGrow: 1, children: content })
     ] });
@@ -801,18 +1393,18 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
   return content;
 }
 function InputBox({ label, onSubmit, onCancel, placeholder = "", color = theme.purple }) {
-  const [value, setValue] = useState("");
-  useInput((input, key) => {
+  const [value, setValue] = useState2("");
+  useInput2((input, key) => {
     if (key.escape && onCancel) {
       onCancel();
     }
   });
   return /* @__PURE__ */ jsxs(Box, { flexDirection: "column", children: [
-    label && /* @__PURE__ */ jsx(Text, { color: theme.pink, bold: true, children: label }),
+    label && /* @__PURE__ */ jsx(Text2, { color: theme.pink, bold: true, children: label }),
     /* @__PURE__ */ jsxs(Box, { marginTop: 1, borderStyle: "round", borderColor: color, paddingX: 1, children: [
-      /* @__PURE__ */ jsx(Text, { color, children: "\u276F " }),
+      /* @__PURE__ */ jsx(Text2, { color, children: "\u276F " }),
       /* @__PURE__ */ jsx(
-        TextInput,
+        build_default,
         {
           value,
           onChange: setValue,
@@ -821,12 +1413,12 @@ function InputBox({ label, onSubmit, onCancel, placeholder = "", color = theme.p
         }
       )
     ] }),
-    /* @__PURE__ */ jsx(Text, { color: theme.dimGray, dimColor: true, children: "Enter: confirm \u2502 Escape: cancel" })
+    /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, dimColor: true, children: "Enter: confirm \u2502 Escape: cancel" })
   ] });
 }
 function StatusBar({ message, type = "info", loading = false }) {
-  const [pulsePhase, setPulsePhase] = useState(0);
-  useEffect(() => {
+  const [pulsePhase, setPulsePhase] = useState2(0);
+  useEffect2(() => {
     const timer = setInterval(() => setPulsePhase((p) => (p + 1) % 20), 150);
     return () => clearInterval(timer);
   }, []);
@@ -845,9 +1437,9 @@ function StatusBar({ message, type = "info", loading = false }) {
   const baseBorderColor = type === "success" ? theme.success : type === "error" ? theme.error : type === "warning" ? theme.warning : theme.dimGray;
   const brightness = Math.sin(pulsePhase * 0.3) * 0.2 + 0.8;
   const borderColor = blendHex(baseBorderColor, theme.dimGray, 1 - brightness);
-  return /* @__PURE__ */ jsx(Box, { borderStyle: "single", borderColor, paddingX: 1, children: loading ? /* @__PURE__ */ jsx(Spinner, { color: colors[type], text: message }) : /* @__PURE__ */ jsxs(Text, { children: [
-    /* @__PURE__ */ jsx(Text, { color: colors[type], bold: true, children: icons[type] }),
-    /* @__PURE__ */ jsxs(Text, { color: theme.lightGray, children: [
+  return /* @__PURE__ */ jsx(Box, { borderStyle: "single", borderColor, paddingX: 1, children: loading ? /* @__PURE__ */ jsx(Spinner, { color: colors[type], text: message }) : /* @__PURE__ */ jsxs(Text2, { children: [
+    /* @__PURE__ */ jsx(Text2, { color: colors[type], bold: true, children: icons[type] }),
+    /* @__PURE__ */ jsxs(Text2, { color: theme.lightGray, children: [
       " ",
       message
     ] })
@@ -877,11 +1469,10 @@ function pickPlayableSource(sources) {
   return ranked.length ? ranked[0].item : list.find((s) => String(s?.url).startsWith("http")) || null;
 }
 function getPlayerCommand() {
-  const { spawnSync: spawnSync2 } = __require("node:child_process");
   const candidates = ["mpv", "vlc", "iina"];
   for (const cmd of candidates) {
     try {
-      const result = spawnSync2("which", [cmd], { encoding: "utf8" });
+      const result = spawnSync("which", [cmd], { encoding: "utf8" });
       if (result.status === 0 && result.stdout.trim()) {
         return cmd;
       }
@@ -891,9 +1482,9 @@ function getPlayerCommand() {
   return null;
 }
 function SettingsScreen({ settings, onUpdate, onBack }) {
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [downloading, setDownloading] = useState(false);
-  const [downloadStatus, setDownloadStatus] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState2(0);
+  const [downloading, setDownloading] = useState2(false);
+  const [downloadStatus, setDownloadStatus] = useState2("");
   const anime4kInstalled = isAnime4kInstalled();
   const modes = ["A", "B", "C", "A+A", "B+B", "C+A"];
   const menuItems = [
@@ -906,7 +1497,6 @@ function SettingsScreen({ settings, onUpdate, onBack }) {
     setDownloading(true);
     setDownloadStatus("Downloading Anime4K shaders...");
     try {
-      const { execSync } = __require("node:child_process");
       const targetDir = ANIME4K_DIR;
       const version = "v4.0.1";
       const url = `https://github.com/bloc97/Anime4K/releases/download/${version}/Anime4K_v4.0.zip`;
@@ -924,7 +1514,7 @@ function SettingsScreen({ settings, onUpdate, onBack }) {
       setDownloading(false);
     }
   };
-  useInput((input, key) => {
+  useInput2((input, key) => {
     if (key.escape || input === "b" && selectedIndex !== 0) {
       onBack();
       return;
@@ -965,85 +1555,85 @@ function SettingsScreen({ settings, onUpdate, onBack }) {
   });
   return /* @__PURE__ */ jsxs(Box, { flexDirection: "column", width: 60, children: [
     /* @__PURE__ */ jsxs(Box, { borderStyle: "round", borderColor: theme.cyan, paddingX: 2, paddingY: 1, flexDirection: "column", children: [
-      /* @__PURE__ */ jsx(Text, { color: theme.cyan, bold: true, children: "[\u2699] Settings" }),
-      /* @__PURE__ */ jsx(Text, { color: theme.dimGray, children: "\u2500".repeat(50) }),
-      /* @__PURE__ */ jsx(Text, { children: " " }),
+      /* @__PURE__ */ jsx(Text2, { color: theme.cyan, bold: true, children: "[\u2699] Settings" }),
+      /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, children: "\u2500".repeat(50) }),
+      /* @__PURE__ */ jsx(Text2, { children: " " }),
       /* @__PURE__ */ jsxs(Box, { children: [
-        /* @__PURE__ */ jsxs(Text, { color: selectedIndex === 0 ? theme.cyan : theme.lightGray, children: [
+        /* @__PURE__ */ jsxs(Text2, { color: selectedIndex === 0 ? theme.cyan : theme.lightGray, children: [
           selectedIndex === 0 ? "\u25B8 " : "  ",
           "Anime4K Upscaling:",
           " "
         ] }),
-        anime4kInstalled ? /* @__PURE__ */ jsx(Text, { color: settings.anime4k ? theme.green : theme.red, children: settings.anime4k ? "[ON]" : "[OFF]" }) : /* @__PURE__ */ jsx(Text, { color: theme.dimGray, children: "[Not Installed]" })
+        anime4kInstalled ? /* @__PURE__ */ jsx(Text2, { color: settings.anime4k ? theme.green : theme.red, children: settings.anime4k ? "[ON]" : "[OFF]" }) : /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, children: "[Not Installed]" })
       ] }),
       /* @__PURE__ */ jsxs(Box, { children: [
-        /* @__PURE__ */ jsxs(Text, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray, children: [
+        /* @__PURE__ */ jsxs(Text2, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray, children: [
           selectedIndex === 1 ? "\u25B8 " : "  ",
           "Anime4K Mode:",
           " "
         ] }),
-        /* @__PURE__ */ jsxs(Text, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray, children: [
+        /* @__PURE__ */ jsxs(Text2, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray, children: [
           "\u25C0 ",
           settings.anime4kMode,
           " \u25B6"
         ] })
       ] }),
-      /* @__PURE__ */ jsx(Text, { children: " " }),
-      /* @__PURE__ */ jsx(Box, { children: /* @__PURE__ */ jsxs(Text, { color: selectedIndex === 2 ? theme.cyan : theme.lightGray, children: [
+      /* @__PURE__ */ jsx(Text2, { children: " " }),
+      /* @__PURE__ */ jsx(Box, { children: /* @__PURE__ */ jsxs(Text2, { color: selectedIndex === 2 ? theme.cyan : theme.lightGray, children: [
         selectedIndex === 2 ? "\u25B8 " : "  ",
         anime4kInstalled ? "\u21BB Re-download" : "\u2193 Download",
         " Anime4K Shaders"
       ] }) }),
-      /* @__PURE__ */ jsx(Box, { children: /* @__PURE__ */ jsxs(Text, { color: selectedIndex === 3 ? theme.cyan : theme.lightGray, children: [
+      /* @__PURE__ */ jsx(Box, { children: /* @__PURE__ */ jsxs(Text2, { color: selectedIndex === 3 ? theme.cyan : theme.lightGray, children: [
         selectedIndex === 3 ? "\u25B8 " : "  ",
         "\u2190 Back"
       ] }) }),
       downloadStatus && /* @__PURE__ */ jsxs(Fragment, { children: [
-        /* @__PURE__ */ jsx(Text, { children: " " }),
-        /* @__PURE__ */ jsx(Text, { color: downloadStatus.startsWith("\u2713") ? theme.green : downloadStatus.startsWith("\u2717") ? theme.red : theme.cyan, children: downloadStatus })
+        /* @__PURE__ */ jsx(Text2, { children: " " }),
+        /* @__PURE__ */ jsx(Text2, { color: downloadStatus.startsWith("\u2713") ? theme.green : downloadStatus.startsWith("\u2717") ? theme.red : theme.cyan, children: downloadStatus })
       ] })
     ] }),
-    /* @__PURE__ */ jsx(Box, { marginTop: 1, children: /* @__PURE__ */ jsx(Text, { color: theme.dimGray, children: anime4kInstalled ? "Anime4K shaders enhance video quality for older anime" : "Download shaders first to enable upscaling" }) }),
-    /* @__PURE__ */ jsx(Box, { marginTop: 1, children: /* @__PURE__ */ jsx(Text, { color: theme.dimGray, children: "Mode A: Best for 1080p | Mode B: Soft edges | Mode C: Denoise" }) })
+    /* @__PURE__ */ jsx(Box, { marginTop: 1, children: /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, children: anime4kInstalled ? "Anime4K shaders enhance video quality for older anime" : "Download shaders first to enable upscaling" }) }),
+    /* @__PURE__ */ jsx(Box, { marginTop: 1, children: /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, children: "Mode A: Best for 1080p | Mode B: Soft edges | Mode C: Denoise" }) })
   ] });
 }
 var initialQuery = process.argv.slice(2).join(" ").trim();
 function App() {
   const { exit } = useApp();
-  const [screen, setScreen] = useState(initialQuery ? "search" : "main-menu");
-  const [animes, setAnimes] = useState([]);
-  const [selectedAnime, setSelectedAnime] = useState(null);
-  const [animeInfo, setAnimeInfo] = useState(null);
-  const [audioType, setAudioType] = useState("sub");
-  const [episodes, setEpisodes] = useState([]);
-  const [appSettings, setAppSettings] = useState(loadSettings());
-  const [history, setHistory] = useState(getHistory());
-  const [status, setStatus] = useState({
+  const [screen, setScreen] = useState2(initialQuery ? "search" : "main-menu");
+  const [animes, setAnimes] = useState2([]);
+  const [selectedAnime, setSelectedAnime] = useState2(null);
+  const [animeInfo, setAnimeInfo] = useState2(null);
+  const [audioType, setAudioType] = useState2("sub");
+  const [episodes, setEpisodes] = useState2([]);
+  const [appSettings, setAppSettings] = useState2(loadSettings());
+  const [history, setHistory] = useState2(getHistory());
+  const [status, setStatus] = useState2({
     message: "Welcome to NY-CLI!",
     type: "info",
     loading: false
   });
-  const [bannerPhase, setBannerPhase] = useState(0);
-  const [loggedIn, setLoggedIn] = useState(isLoggedIn());
-  const [username, setUsername] = useState(getUsername());
-  const [pendingUsername, setPendingUsername] = useState("");
-  const [syncMessage, setSyncMessage] = useState("");
-  const [autoPlayEpisode, setAutoPlayEpisode] = useState(null);
-  const [showWelcome, setShowWelcome] = useState(!initialQuery);
-  const [isExiting, setIsExiting] = useState(false);
-  const [userPhotoUrl, setUserPhotoUrl] = useState(null);
-  useEffect(() => {
+  const [bannerPhase, setBannerPhase] = useState2(0);
+  const [loggedIn, setLoggedIn] = useState2(isLoggedIn());
+  const [username, setUsername] = useState2(getUsername());
+  const [pendingUsername, setPendingUsername] = useState2("");
+  const [syncMessage, setSyncMessage] = useState2("");
+  const [autoPlayEpisode, setAutoPlayEpisode] = useState2(null);
+  const [showWelcome, setShowWelcome] = useState2(!initialQuery);
+  const [isExiting, setIsExiting] = useState2(false);
+  const [userPhotoUrl, setUserPhotoUrl] = useState2(null);
+  useEffect2(() => {
     const timer = setInterval(() => {
       setBannerPhase((p) => (p + 1) % 50);
     }, 120);
     return () => clearInterval(timer);
   }, []);
-  useEffect(() => {
+  useEffect2(() => {
     if (initialQuery) {
       handleSearch(initialQuery);
     }
   }, []);
-  useEffect(() => {
+  useEffect2(() => {
     if (screen === "profile" && loggedIn && !userPhotoUrl) {
       const token = getToken();
       if (token) {
@@ -1171,12 +1761,14 @@ function App() {
         return;
       }
       if (req.method === "POST" && req.url === "/callback") {
+        setStatus({ message: "Received callback connection...", type: "info", loading: true });
         let body = "";
         req.on("data", (chunk) => body += chunk.toString());
         req.on("end", () => {
           try {
             const data = JSON.parse(body);
             if (data.token && data.username) {
+              setStatus({ message: "Callback verified, logging in...", type: "info", loading: true });
               setPendingUsername(data.username);
               handleLoginToken(data.token, data.username);
               res.writeHead(200, { "Content-Type": "application/json" });
@@ -1346,8 +1938,11 @@ function App() {
   const handleEpisodeSelect = useCallback(async (item, startPosition) => {
     setStatus({ message: `Getting stream for Episode ${item.number}...`, type: "info", loading: true });
     try {
+      const animeTitle = selectedAnime?.label || animeInfo?.name || "";
+      const animeJName = animeInfo?.jname || "";
+      const totalEps = episodes.length || 0;
       const sourcesData = await getJson(
-        `/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId)}&category=${audioType}&title=${encodeURIComponent(selectedAnime?.title || "")}&episodeNo=${item.number || 1}`
+        `/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId)}&category=${audioType}&audio=${audioType}&title=${encodeURIComponent(animeTitle)}&title_ro=${encodeURIComponent(animeJName)}&episodeNo=${item.number || 1}&totalEpisodes=${totalEps}`
       );
       const source = pickPlayableSource(sourcesData?.sources);
       if (!source?.url) {
@@ -1356,7 +1951,6 @@ function App() {
       }
       const prevProgress = !startPosition ? getWatchProgress(selectedAnime?.id || "", item.number || 1) : null;
       const resumeTime = startPosition || prevProgress?.watchTime || 0;
-      const totalEps = episodes.length;
       const streamHeaders = sourcesData?.headers || {};
       const directUrl = source.url;
       const proxyHeaders = Buffer.from(JSON.stringify(streamHeaders)).toString("base64");
@@ -1366,11 +1960,12 @@ function App() {
         setStatus({ message: "No player found. Install mpv or vlc.", type: "warning", loading: false });
         return;
       }
-      const { spawn: spawn2 } = __require("node:child_process");
-      const animeTitle = selectedAnime?.label || animeInfo?.title || "";
-      const title = `${animeTitle || "Anime"} - Episode ${item.number} (${audioType.toUpperCase()})`;
+      const epAnimeTitle = selectedAnime?.label || animeInfo?.name || animeInfo?.title || "";
+      const title = `${epAnimeTitle || "Anime"} - Episode ${item.number} (${audioType.toUpperCase()})`;
       const animeId = selectedAnime?.id || "";
       const episodeNum = item.number || 1;
+      const sourceReferer = source.headers?.Referer || streamHeaders.Referer || streamHeaders.referer || "https://allanime.day";
+      const sourceOrigin = source.headers?.Origin || streamHeaders.Origin || streamHeaders.origin || new URL(sourceReferer).origin;
       const ipcPath = `/tmp/nycli-mpv-${process.pid}.sock`;
       let args = [];
       if (player === "mpv") {
@@ -1379,10 +1974,8 @@ function App() {
           `--force-media-title=${title}`,
           `--input-ipc-server=${ipcPath}`
         ];
-        const referer = streamHeaders.Referer || streamHeaders.referer || "https://megaup.nl/";
-        const origin = streamHeaders.Origin || streamHeaders.origin || "https://megaup.nl";
-        args.push(`--http-header-fields=Referer: ${referer},Origin: ${origin}`);
-        args.push("--referrer=" + referer);
+        args.push(`--http-header-fields=Referer: ${sourceReferer},Origin: ${sourceOrigin}`);
+        args.push(`--referrer=${sourceReferer}`);
         const settings = loadSettings();
         if (settings.anime4k && isAnime4kInstalled()) {
           const shaderPath = getAnime4kShaders(settings.anime4kMode);
@@ -1398,7 +1991,7 @@ function App() {
         args.push(directUrl);
       } else if (player === "vlc") {
         args = ["--meta-title", title, "--play-and-exit"];
-        args.push("--http-referrer=" + (streamHeaders.Referer || "https://megaup.nl/"));
+        args.push(`--http-referrer=${sourceReferer}`);
         if (resumeTime > 5) {
           args.push(`--start-time=${Math.floor(resumeTime)}`);
         }
@@ -1408,7 +2001,7 @@ function App() {
         args = [proxyUrl];
         setStatus({ message: `Opening ${player}...`, type: "success", loading: false });
       }
-      const child = spawn2(player, args, { stdio: "ignore", detached: false });
+      const child = spawn(player, args, { stdio: "ignore", detached: false });
       if (player === "mpv") {
         let lastPosition = 0;
         let duration = 0;
@@ -1428,11 +2021,11 @@ function App() {
               }, 5e3);
               client.on("close", () => {
                 clearInterval(poll);
-                if (lastPosition > 0 && animeId && animeTitle) {
+                if (lastPosition > 0 && animeId && epAnimeTitle) {
                   saveWatchProgress(animeId, episodeNum, lastPosition, duration);
                   saveToHistory({
                     id: animeId,
-                    title: animeTitle,
+                    title: epAnimeTitle,
                     episode: episodeNum,
                     timestamp: Date.now(),
                     category: audioType,
@@ -1496,7 +2089,7 @@ function App() {
       setStatus({ message: `Stream error: ${err.message}`, type: "error", loading: false });
     }
   }, [selectedAnime, animeInfo, audioType, episodes.length]);
-  useEffect(() => {
+  useEffect2(() => {
     if (autoPlayEpisode && screen === "episode-select") {
       const timer = setTimeout(() => {
         handleEpisodeSelect({
@@ -1593,9 +2186,9 @@ function App() {
     ) }),
     screen === "main-menu" && !showWelcome && /* @__PURE__ */ jsxs(Box, { flexDirection: "column", width: 55, alignItems: "center", children: [
       loggedIn ? /* @__PURE__ */ jsxs(Box, { marginBottom: 1, borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 0, width: 55, children: [
-        /* @__PURE__ */ jsx(Text, { color: theme.cyan, children: "Okaeri, " }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.cyan, children: "Okaeri, " }),
         /* @__PURE__ */ jsx(ShimmerText, { text: username, speed: 150 }),
-        /* @__PURE__ */ jsx(Text, { color: theme.cyan, children: "!" })
+        /* @__PURE__ */ jsx(Text2, { color: theme.cyan, children: "!" })
       ] }) : /* @__PURE__ */ jsx(Box, { marginBottom: 1, borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 0, width: 55, children: /* @__PURE__ */ jsx(WaveText, { text: "Irasshaimase! Sign in for all features", colors: [theme.purple, theme.blue, theme.pink, theme.cyan], speed: 150 }) }),
       /* @__PURE__ */ jsx(
         SelectList,
@@ -1640,7 +2233,7 @@ function App() {
       }
     ),
     screen === "audio-select" && /* @__PURE__ */ jsxs(Box, { flexDirection: "column", children: [
-      /* @__PURE__ */ jsxs(Text, { color: theme.pink, bold: true, children: [
+      /* @__PURE__ */ jsxs(Text2, { color: theme.pink, bold: true, children: [
         "\u{1F4FA} ",
         selectedAnime?.label || "Anime"
       ] }),
@@ -1656,11 +2249,11 @@ function App() {
       ) })
     ] }),
     screen === "episode-select" && /* @__PURE__ */ jsxs(Box, { flexDirection: "column", children: [
-      /* @__PURE__ */ jsxs(Text, { color: theme.pink, bold: true, children: [
+      /* @__PURE__ */ jsxs(Text2, { color: theme.pink, bold: true, children: [
         "\u{1F4FA} ",
         selectedAnime?.label || "Anime",
         " ",
-        /* @__PURE__ */ jsxs(Text, { color: theme.cyan, children: [
+        /* @__PURE__ */ jsxs(Text2, { color: theme.cyan, children: [
           "(",
           audioType.toUpperCase(),
           ")"
@@ -1680,31 +2273,31 @@ function App() {
       ) })
     ] }),
     screen === "login-waiting" && /* @__PURE__ */ jsx(Box, { flexDirection: "column", width: 55, children: /* @__PURE__ */ jsxs(Box, { borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 1, flexDirection: "column", children: [
-      /* @__PURE__ */ jsx(Text, { color: theme.purple, bold: true, children: "[L] Login to NyAnime" }),
-      /* @__PURE__ */ jsx(Text, { color: theme.dimGray, children: "\u2500".repeat(45) }),
-      /* @__PURE__ */ jsx(Text, { color: theme.lightGray, children: "1. Check your browser" }),
-      /* @__PURE__ */ jsx(Text, { color: theme.lightGray, children: "2. Sign in or Authorize ny-cli" }),
-      /* @__PURE__ */ jsx(Text, { color: theme.lightGray, children: "3. Return to terminal when done" }),
-      /* @__PURE__ */ jsx(Text, { color: theme.dimGray, children: "\u2500".repeat(45) }),
-      /* @__PURE__ */ jsx(Text, { color: theme.cyan, children: "Waiting for authorization..." })
+      /* @__PURE__ */ jsx(Text2, { color: theme.purple, bold: true, children: "[L] Login to NyAnime" }),
+      /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, children: "\u2500".repeat(45) }),
+      /* @__PURE__ */ jsx(Text2, { color: theme.lightGray, children: "1. Check your browser" }),
+      /* @__PURE__ */ jsx(Text2, { color: theme.lightGray, children: "2. Sign in or Authorize ny-cli" }),
+      /* @__PURE__ */ jsx(Text2, { color: theme.lightGray, children: "3. Return to terminal when done" }),
+      /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, children: "\u2500".repeat(45) }),
+      /* @__PURE__ */ jsx(Text2, { color: theme.cyan, children: "Waiting for authorization..." })
     ] }) }),
     screen === "profile" && /* @__PURE__ */ jsxs(Box, { flexDirection: "row", gap: 2, children: [
-      userPhotoUrl ? /* @__PURE__ */ jsx(Box, { width: 18, height: 14, children: /* @__PURE__ */ jsx(AnimeArtwork, { title: "", imageUrl: userPhotoUrl, width: 18, height: 14 }) }) : /* @__PURE__ */ jsx(Box, { borderStyle: "round", borderColor: theme.purple, width: 16, height: 12, justifyContent: "center", alignItems: "center", children: /* @__PURE__ */ jsx(Text, { color: theme.dimGray, children: "[No Photo]" }) }),
+      userPhotoUrl ? /* @__PURE__ */ jsx(Box, { width: 18, height: 14, children: /* @__PURE__ */ jsx(AnimeArtwork, { title: "", imageUrl: userPhotoUrl, width: 18, height: 14 }) }) : /* @__PURE__ */ jsx(Box, { borderStyle: "round", borderColor: theme.purple, width: 16, height: 12, justifyContent: "center", alignItems: "center", children: /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, children: "[No Photo]" }) }),
       /* @__PURE__ */ jsxs(Box, { flexDirection: "column", width: 50, children: [
         /* @__PURE__ */ jsxs(Box, { borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 1, flexDirection: "column", children: [
-          /* @__PURE__ */ jsxs(Text, { color: theme.purple, bold: true, children: [
+          /* @__PURE__ */ jsxs(Text2, { color: theme.purple, bold: true, children: [
             "[P] ",
             username
           ] }),
-          /* @__PURE__ */ jsx(Text, { color: theme.dimGray, children: "\u2500".repeat(35) }),
-          /* @__PURE__ */ jsxs(Text, { color: theme.lightGray, children: [
+          /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, children: "\u2500".repeat(35) }),
+          /* @__PURE__ */ jsxs(Text2, { color: theme.lightGray, children: [
             "UID: ",
-            /* @__PURE__ */ jsxs(Text, { color: theme.cyan, children: [
+            /* @__PURE__ */ jsxs(Text2, { color: theme.cyan, children: [
               getToken().substring(0, 12),
               "..."
             ] })
           ] }),
-          syncMessage ? /* @__PURE__ */ jsx(Text, { color: theme.cyan, children: syncMessage }) : null
+          syncMessage ? /* @__PURE__ */ jsx(Text2, { color: theme.cyan, children: syncMessage }) : null
         ] }),
         /* @__PURE__ */ jsx(Box, { marginTop: 1, children: /* @__PURE__ */ jsx(
           SelectList,
@@ -1730,36 +2323,36 @@ function App() {
     ),
     screen === "help" && /* @__PURE__ */ jsxs(Box, { flexDirection: "column", width: 55, children: [
       /* @__PURE__ */ jsxs(Box, { borderStyle: "round", borderColor: theme.blue, paddingX: 2, paddingY: 1, flexDirection: "column", children: [
-        /* @__PURE__ */ jsx(Text, { color: theme.blue, bold: true, children: "[?] NY-CLI Help" }),
-        /* @__PURE__ */ jsx(Text, { color: theme.dimGray, children: "\u2500".repeat(45) }),
-        /* @__PURE__ */ jsx(Text, { children: " " }),
-        /* @__PURE__ */ jsx(Text, { color: theme.cyan, children: "USAGE:" }),
-        /* @__PURE__ */ jsx(Text, { color: theme.lightGray, children: "  ny-cli              Interactive mode" }),
-        /* @__PURE__ */ jsx(Text, { color: theme.lightGray, children: '  ny-cli "one piece"  Quick search' }),
-        /* @__PURE__ */ jsx(Text, { children: " " }),
-        /* @__PURE__ */ jsx(Text, { color: theme.cyan, children: "NAVIGATION:" }),
-        /* @__PURE__ */ jsx(Text, { color: theme.lightGray, children: "  Up/Down or j/k  Navigate" }),
-        /* @__PURE__ */ jsx(Text, { color: theme.lightGray, children: "  Enter           Select" }),
-        /* @__PURE__ */ jsx(Text, { color: theme.lightGray, children: "  b or Left       Go back" }),
-        /* @__PURE__ */ jsx(Text, { color: theme.lightGray, children: "  1-9             Quick select" }),
-        /* @__PURE__ */ jsx(Text, { color: theme.lightGray, children: "  q               Quit" }),
-        /* @__PURE__ */ jsx(Text, { children: " " }),
-        /* @__PURE__ */ jsx(Text, { color: theme.cyan, children: "CLOUD SYNC:" }),
-        /* @__PURE__ */ jsx(Text, { color: theme.lightGray, children: "  Login with your nyanime.qzz.io account" }),
-        /* @__PURE__ */ jsx(Text, { color: theme.lightGray, children: "  to sync watch history across devices" }),
-        /* @__PURE__ */ jsx(Text, { children: " " }),
-        /* @__PURE__ */ jsx(Text, { color: theme.cyan, children: "PLAYER (mpv):" }),
-        /* @__PURE__ */ jsx(Text, { color: theme.lightGray, children: "  Space  Play/Pause  |  f  Fullscreen" }),
-        /* @__PURE__ */ jsx(Text, { color: theme.lightGray, children: "  Left/Right   Seek  |  q  Quit" })
+        /* @__PURE__ */ jsx(Text2, { color: theme.blue, bold: true, children: "[?] NY-CLI Help" }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, children: "\u2500".repeat(45) }),
+        /* @__PURE__ */ jsx(Text2, { children: " " }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.cyan, children: "USAGE:" }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.lightGray, children: "  ny-cli              Interactive mode" }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.lightGray, children: '  ny-cli "one piece"  Quick search' }),
+        /* @__PURE__ */ jsx(Text2, { children: " " }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.cyan, children: "NAVIGATION:" }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.lightGray, children: "  Up/Down or j/k  Navigate" }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.lightGray, children: "  Enter           Select" }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.lightGray, children: "  b or Left       Go back" }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.lightGray, children: "  1-9             Quick select" }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.lightGray, children: "  q               Quit" }),
+        /* @__PURE__ */ jsx(Text2, { children: " " }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.cyan, children: "CLOUD SYNC:" }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.lightGray, children: "  Login with your nyanime.qzz.io account" }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.lightGray, children: "  to sync watch history across devices" }),
+        /* @__PURE__ */ jsx(Text2, { children: " " }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.cyan, children: "PLAYER (mpv):" }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.lightGray, children: "  Space  Play/Pause  |  f  Fullscreen" }),
+        /* @__PURE__ */ jsx(Text2, { color: theme.lightGray, children: "  Left/Right   Seek  |  q  Quit" })
       ] }),
-      /* @__PURE__ */ jsx(Box, { marginTop: 1, children: /* @__PURE__ */ jsx(Text, { color: theme.dimGray, children: "Press b or Left to go back" }) }),
+      /* @__PURE__ */ jsx(Box, { marginTop: 1, children: /* @__PURE__ */ jsx(Text2, { color: theme.dimGray, children: "Press b or Left to go back" }) }),
       /* @__PURE__ */ jsx(HelpBackHandler, { onBack: goBack })
     ] }),
     /* @__PURE__ */ jsx(Box, { marginTop: 1, children: /* @__PURE__ */ jsx(StatusBar, { ...status }) })
   ] });
 }
 function HelpBackHandler({ onBack }) {
-  useInput((input, key) => {
+  useInput2((input, key) => {
     if (key.escape || input === "b" || key.leftArrow || input === "q") {
       if (input === "q") process.exit(0);
       onBack();
