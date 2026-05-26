@@ -148,6 +148,7 @@ app.get('/api/aniwatch', async (req, res) => {
     if (action === 'info' || action === 'episodes') {
       const malId = String(req.query.id || '').trim();
       if (!malId) return fail(res, 400, 'Missing id');
+      if (!/^[1-9]\d*$/.test(malId)) return fail(res, 400, 'Invalid id');
 
       const r = await ipv4Fetch(`https://api.jikan.moe/v4/anime/${malId}`);
       const data = await r.json();
