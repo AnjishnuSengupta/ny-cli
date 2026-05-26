@@ -1,5 +1,5 @@
 #!/bin/sh
-# NY-CLI v5.2.1 Installation Script
+# NY-CLI v5.5.6 Installation Script
 # Universal installer for Linux (Arch, Fedora, Ubuntu/Debian) and macOS
 # Usage: curl -fsSL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.sh | sh
 
@@ -31,10 +31,10 @@ printf "  ╚═╝  ╚═══╝   ╚═╝          ╚═════╝�
 printf "${RESET}\n"
 printf "${DIM}${CYAN}       ⟨ Your Gateway to Anime Streaming ⟩${RESET}\n"
 printf "${DIM}       ─────────────────────────────────────${RESET}\n"
-printf "${DIM}            v5.2.1 • nyanime.qzz.io${RESET}\n"
+printf "${DIM}            v5.5.6 • nyanime.qzz.io${RESET}\n"
 printf "\n"
 
-VERSION="5.2.1"
+VERSION="5.5.6"
 REPO_URL="https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main"
 GITHUB_REPO="https://github.com/AnjishnuSengupta/ny-cli"
 
@@ -177,11 +177,7 @@ check_prerequisites() {
         printf "${GREEN}✓ mpv installed${RESET}\n"
     fi
     
-    # Check chafa (for artwork display)
-    if ! command -v chafa >/dev/null 2>&1; then
-        missing_optional="$missing_optional chafa"
-    else
-        printf "${GREEN}✓ chafa installed${RESET}\n"
+
     # Check webtorrent-cli
     if ! command -v webtorrent >/dev/null 2>&1; then
         missing_optional="$missing_optional webtorrent-cli"
@@ -236,7 +232,6 @@ check_prerequisites() {
     if [ -n "$missing_optional" ]; then
         printf "\n${YELLOW}Recommended optional packages:${WHITE}$missing_optional${RESET}\n"
         printf "${DIM}  mpv   - Video player (required for playback)${RESET}\n"
-        printf "${DIM}  chafa - Terminal image renderer (for artwork display)${RESET}\n"
         
         printf "\n${CYAN}Install recommended packages? [Y/n] ${RESET}"
         read -r response </dev/tty || response="y"
@@ -245,27 +240,27 @@ check_prerequisites() {
                 printf "${DIM}Skipping optional packages${RESET}\n"
                 ;;
             *)
-                # Map package names per distro
-                case "$PKG_MANAGER" in
-                    pacman)
-                        opt_pkgs="$missing_optional"
-                        ;;
-                    dnf)
-                        opt_pkgs=$(echo "$missing_optional" | sed 's/chafa/chafa/')
-                        ;;
-                    apt)
-                        opt_pkgs="$missing_optional"
-                        ;;
-                    brew)
-                        opt_pkgs="$missing_optional"
-                        ;;
-                    *)
-                        opt_pkgs="$missing_optional"
-                        ;;
-                esac
-                install_dependencies "$opt_pkgs"
+        # Map package names per distro
+        case "$PKG_MANAGER" in
+            pacman)
+                opt_pkgs="$missing_optional"
+                ;;
+            dnf)
+                opt_pkgs="$missing_optional"
+                ;;
+            apt)
+                opt_pkgs="$missing_optional"
+                ;;
+            brew)
+                opt_pkgs="$missing_optional"
+                ;;
+            *)
+                opt_pkgs="$missing_optional"
                 ;;
         esac
+        install_dependencies "$opt_pkgs"
+        ;;
+esac
     fi
 }
 

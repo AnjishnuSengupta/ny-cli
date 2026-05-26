@@ -1,6 +1,6 @@
 {
   "name": "@anjishnusengupta/ny-cli",
-  "version": "5.5.5",
+  "version": "5.5.6",
   "description": "Beautiful terminal anime streaming CLI with Ink UI, artwork display, and cloud sync",
   "main": "backend.mjs",
   "bin": {
@@ -58,5 +58,8 @@
     "@types/node": "^25.5.2",
     "@types/react": "^19.2.14",
     "typescript": "^6.0.2"
+  },
+  "overrides": {
+    "ip-set": "^2.2.0"
   }
 }
