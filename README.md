@@ -6,7 +6,7 @@
 
 <br/>
 
-[![Version](https://img.shields.io/badge/v5.5.2-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
+[![Version](https://img.shields.io/badge/v5.6.0-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
 [![npm](https://img.shields.io/npm/v/@anjishnusengupta/ny-cli?style=flat-square&color=22c55e&label=npm)](https://www.npmjs.com/package/@anjishnusengupta/ny-cli)
 [![License](https://img.shields.io/badge/MIT-3b82f6?style=flat-square&label=license)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/AnjishnuSengupta/ny-cli?style=flat-square&color=fbbf24)](https://github.com/AnjishnuSengupta/ny-cli/stargazers)
@@ -26,38 +26,28 @@
 
 <br/>
 
-## 🎯 What's New in v5.5.2
+## 🎯 What's New in v5.6.0
 
 <table>
 <tr>
+<td>🔄</td>
+<td><b>Backend Rewrite</b></td>
+<td>Fully rewritten streaming chain utilizing AniList, Jikan, MegaPlay, and AllAnime fallback.</td>
+</tr>
+<tr>
+<td>🌐</td>
+<td><b>Browser Fallback</b></td>
+<td>Detects embed-type streaming sources and securely opens them via <code>xdg-open</code> in your default browser.</td>
+</tr>
+<tr>
+<td>🖼️</td>
+<td><b>Picture Layout Fixes</b></td>
+<td>Fixed <code>ink-picture</code> component dimensions for reliable artwork rendering in terminal.</td>
+</tr>
+<tr>
 <td>🔐</td>
-<td><b>Automated Browser Login</b></td>
-<td>No more copy-pasting user IDs! Simply type <code>ny-cli login</code> and authenticate securely in your browser.</td>
-</tr>
-<tr>
-<td>🌊</td>
-<td><b>Hybrid Streaming Engine</b></td>
-<td>Primary streaming via Anipy API with a seamless native WebTorrent fallback for high-availability.</td>
-</tr>
-<tr>
-<td>🎨</td>
-<td><b>Anime Artwork Display</b></td>
-<td>See anime cover art in your terminal as you browse — powered by Jikan API + ink-picture</td>
-</tr>
-<tr>
-<td>⏱️</td>
-<td><b>Watch Progress Tracking</b></td>
-<td>Tracks exactly where you left off using mpv IPC — resume to the second</td>
-</tr>
-<tr>
-<td>✨</td>
-<td><b>97% Auto-Advance</b></td>
-<td>Watched 97%+ of an episode? Next episode loads automatically from Continue Watching</td>
-</tr>
-<tr>
-<td>☁️</td>
-<td><b>Enhanced Cloud Sync</b></td>
-<td>Watch time syncs to nyanime.qzz.io — continue from any device</td>
+<td><b>Auth Improvements</b></td>
+<td>Bypassed Firebase OAuth whitelisting limits and implemented reliable token delivery.</td>
 </tr>
 </table>
 
