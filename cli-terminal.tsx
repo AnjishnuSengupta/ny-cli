@@ -669,7 +669,7 @@ function Banner({ phase }: { phase: number }) {
         ⟨ Your Gateway to Anime Streaming ⟩
       </Text>
       <Text color={theme.dimGray} dimColor>
-        v{VERSION} • nyanime.tech
+        v{VERSION} • nyanime.qzz.io
       </Text>
     </Box>
   );
@@ -1097,7 +1097,7 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }: { title: str
   return (
     <Box width={width} height={height} borderStyle="round" borderColor={theme.purple}>
       <Box width={Math.max(1, width - 2)} height={Math.max(1, height - 2)} overflow="hidden">
-        <Picture src={imgPath!} width="100%" height="100%" />
+        <Picture src={imgPath!} width={Math.max(1, width - 2)} height={Math.max(1, height - 2)} />
       </Box>
     </Box>
   );
@@ -1457,6 +1457,274 @@ async function getJson(path: string) {
     throw new Error(body?.error || `HTTP ${res.status}`);
   }
   return body.data;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ALLANIME CLIENT-SIDE STREAM RESOLVER
+// Mirrors ani-cli logic: called locally (no CF block) to get real m3u8/mp4 URLs
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const ALLANIME_API   = 'https://api.allanime.day/api';
+const ALLANIME_BASE  = 'allanime.day';
+const ALLANIME_REFR  = 'https://youtu-chan.com';
+const ALLANIME_UA    = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0';
+const ALLANIME_EP_HASH = 'd405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec';
+
+// Cache: title → AllAnime _id
+const aaIdCache = new Map<string, string>();
+
+async function aaFetch(body: object): Promise<any> {
+  const res = await fetch(ALLANIME_API, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': ALLANIME_UA,
+      'Referer': ALLANIME_REFR,
+      'Origin': ALLANIME_REFR,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`AllAnime HTTP ${res.status}`);
+  return res.json();
+}
+
+async function aaFetchGET(params: URLSearchParams): Promise<any> {
+  const url = `${ALLANIME_API}?${params.toString()}`;
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': ALLANIME_UA,
+      'Referer': ALLANIME_REFR,
+      'Origin': ALLANIME_REFR,
+    },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`AllAnime HTTP ${res.status}`);
+  return res.json();
+}
+
+// Search AllAnime and return best matching _id for the given title
+async function aaSearchId(title: string, malId?: number): Promise<string | null> {
+  const cacheKey = `${malId || ''}_${title}`;
+  if (aaIdCache.has(cacheKey)) return aaIdCache.get(cacheKey)!;
+
+  const searchGql = `query($search:SearchInput $limit:Int $page:Int $translationType:VaildTranslationTypeEnumType $countryOrigin:VaildCountryOriginEnumType){shows(search:$search limit:$limit page:$page translationType:$translationType countryOrigin:$countryOrigin){edges{_id name availableEpisodes}}}`;
+  try {
+    const data = await aaFetch({
+      variables: { search: { allowAdult: false, allowUnknown: false, query: title }, limit: 10, page: 1, translationType: 'sub', countryOrigin: 'ALL' },
+      query: searchGql,
+    });
+    const edges: Array<{ _id: string; name: string; availableEpisodes: any }> = data?.data?.shows?.edges || [];
+    if (!edges.length) return null;
+
+    // Pick best match: prefer one with most episodes (for series vs. specials)
+    let best = edges[0];
+    for (const e of edges) {
+      const eEps = (e.availableEpisodes?.sub || 0) + (e.availableEpisodes?.dub || 0);
+      const bEps = (best.availableEpisodes?.sub || 0) + (best.availableEpisodes?.dub || 0);
+      if (eEps > bEps) best = e;
+    }
+    aaIdCache.set(cacheKey, best._id);
+    return best._id;
+  } catch {
+    return null;
+  }
+}
+
+// Port of ani-cli's hex substitution cipher for "--" encoded provider URLs
+function aaDecodeProviderHex(raw: string): string {
+  if (!raw.startsWith('--')) return raw;
+  const hexMap: Record<string, string> = {
+    '79':'A','7a':'B','7b':'C','7c':'D','7d':'E','7e':'F','7f':'G','70':'H','71':'I','72':'J','73':'K','74':'L','75':'M','76':'N','77':'O',
+    '68':'P','69':'Q','6a':'R','6b':'S','6c':'T','6d':'U','6e':'V','6f':'W','60':'X','61':'Y','62':'Z',
+    '59':'a','5a':'b','5b':'c','5c':'d','5d':'e','5e':'f','5f':'g','50':'h','51':'i','52':'j','53':'k','54':'l','55':'m','56':'n','57':'o',
+    '48':'p','49':'q','4a':'r','4b':'s','4c':'t','4d':'u','4e':'v','4f':'w','40':'x','41':'y','42':'z',
+    '08':'0','09':'1','0a':'2','0b':'3','0c':'4','0d':'5','0e':'6','0f':'7','00':'8','01':'9',
+    '15':'-','16':'.','67':'_','46':'~','02':':','17':'/','07':'?','1b':'#','63':'[','65':']','78':'@',
+    '19':'!','1c':'$','1e':'&','10':'(','11':')','12':'*','13':'+','14':',','03':';','05':'=','1d':'%',
+  };
+  const hexStr = raw.slice(2); // strip leading '--'
+  let result = '';
+  for (let i = 0; i < hexStr.length; i += 2) {
+    const byte = hexStr.slice(i, i + 2).toLowerCase();
+    if (byte === '--') { result += '\n'; continue; }
+    result += hexMap[byte] || '';
+  }
+  return result.replace('/clock', '/clock.json');
+}
+
+// Decrypt AllAnime "tobeparsed" AES-256-CTR payload
+function aaDecrypt(tobeparsed: string): string {
+  const { createDecipheriv, createHash } = require('node:crypto');
+  const key = createHash('sha256').update('Xot36i3lK3:v1').digest();
+  const buf = Buffer.from(tobeparsed, 'base64');
+  // bytes 1-12 are the IV, then 00000002 suffix
+  const ivBytes = buf.slice(1, 13);
+  const iv = Buffer.concat([ivBytes, Buffer.from([0, 0, 0, 2])]);
+  const ciphertext = buf.slice(13, buf.length - 16);
+  const decipher = createDecipheriv('aes-256-ctr', key, iv);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+}
+
+// Process raw AllAnime API response — decrypt if needed
+function aaProcessResponse(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    const tobeparsed = parsed?.data?.episode?.sourceUrls
+      ? null // already parsed JSON
+      : null;
+    if (tobeparsed) return aaDecrypt(tobeparsed);
+    return raw;
+  } catch {
+    return raw;
+  }
+}
+
+// Fetch the clock.json from AllAnime's CDN to get the actual m3u8 URL
+async function aaResolveCdnUrl(cdnPath: string): Promise<string | null> {
+  try {
+    const url = `https://${ALLANIME_BASE}${cdnPath}`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': ALLANIME_UA, 'Referer': ALLANIME_REFR },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    // Extract links array: {"links":[{"link":"https://...","resolutionStr":"1080p"},...]}
+    try {
+      const json = JSON.parse(text);
+      const links: Array<{ link: string; resolutionStr?: string; hls?: boolean }> = json?.links || [];
+      if (!links.length) return null;
+      // Prefer highest resolution m3u8
+      links.sort((a, b) => {
+        const aRes = parseInt(a.resolutionStr || '0') || 0;
+        const bRes = parseInt(b.resolutionStr || '0') || 0;
+        return bRes - aRes;
+      });
+      return links[0]?.link || null;
+    } catch {
+      // Try regex for hls url
+      const match = text.match(/"link"\s*:\s*"([^"]+)"/);
+      return match ? match[1] : null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+// Resolve a Mp4Upload page to its direct mp4 URL
+async function aaResolveMp4Upload(pageUrl: string): Promise<string | null> {
+  try {
+    const res = await fetch(pageUrl, {
+      headers: { 'User-Agent': ALLANIME_UA, 'Referer': ALLANIME_REFR },
+      signal: AbortSignal.timeout(8000),
+    });
+    const text = await res.text();
+    const match = text.match(/src:\s*"(https?:\/\/[^"]+\.mp4[^"]*)"/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+interface AllAnimeSource {
+  url: string;
+  quality: string;
+  type: 'hls' | 'mp4';
+  referer: string;
+}
+
+// Main resolver: title + episode number → direct stream URL
+export async function resolveAllAnimeStream(
+  title: string,
+  epNo: number,
+  mode: 'sub' | 'dub' = 'sub',
+  malId?: number
+): Promise<AllAnimeSource | null> {
+  try {
+    // 1. Get AllAnime show ID
+    const showId = await aaSearchId(title, malId);
+    if (!showId) return null;
+
+    // 2. Fetch episode source URLs (try persisted query first, then POST fallback)
+    let epData: any;
+    try {
+      const params = new URLSearchParams();
+      params.set('variables', JSON.stringify({ showId, translationType: mode, episodeString: String(epNo) }));
+      params.set('extensions', JSON.stringify({ persistedQuery: { version: 1, sha256Hash: ALLANIME_EP_HASH } }));
+      epData = await aaFetchGET(params);
+    } catch {
+      const epGql = `query ($showId: String!, $translationType: VaildTranslationTypeEnumType!, $episodeString: String!) { episode( showId: $showId translationType: $translationType episodeString: $episodeString ) { episodeString sourceUrls }}`;
+      epData = await aaFetch({
+        variables: { showId, translationType: mode, episodeString: String(epNo) },
+        query: epGql,
+      });
+    }
+
+    // 3. Check for tobeparsed encryption
+    const rawStr = JSON.stringify(epData);
+    let sourceUrls: Array<{ sourceUrl: string; sourceName: string }> = [];
+
+    if (rawStr.includes('"tobeparsed"')) {
+      // Extract and decrypt
+      const tobeparsedMatch = rawStr.match(/"tobeparsed"\s*:\s*"([^"]+)"/);
+      if (!tobeparsedMatch) return null;
+      try {
+        const decrypted = aaDecrypt(tobeparsedMatch[1]);
+        // Parse sourceUrls from decrypted JSON fragments
+        const urlMatches = decrypted.matchAll(/"sourceUrl"\s*:\s*"([^"]+)".*?"sourceName"\s*:\s*"([^"]+)"/g);
+        for (const m of urlMatches) {
+          sourceUrls.push({ sourceUrl: m[1].replace(/\\/g, ''), sourceName: m[2] });
+        }
+      } catch { return null; }
+    } else {
+      sourceUrls = epData?.data?.episode?.sourceUrls || [];
+    }
+
+    if (!sourceUrls.length) return null;
+
+    // 4. Try providers in order: wixmp (CDN m3u8), mp4upload, sharepoint
+    // Provider name patterns from ani-cli:
+    //   "Default" → wixmp CDN  (m3u8, best)
+    //   "Yt-mp4"  → youtube    (mp4)
+    //   "S-mp4"   → sharepoint (mp4)
+    //   "Mp4"     → mp4upload  (mp4)
+    const providerOrder = ['Default', 'Luf-mp4', 'Yt-mp4', 'S-mp4', 'Mp4', 'Ok', 'Ac', 'Sak', 'Kir'];
+
+    for (const providerName of providerOrder) {
+      const entry = sourceUrls.find(s => s.sourceName === providerName);
+      if (!entry) continue;
+
+      let providerUrl = entry.sourceUrl;
+      // Decode "--" hex encoded URLs
+      if (providerUrl.startsWith('--')) {
+        providerUrl = aaDecodeProviderHex(providerUrl);
+      }
+      // Unescape slashes
+      providerUrl = providerUrl.replace(/\\\//g, '/');
+
+      if (providerName === 'Default') {
+        // wixmp: path like "/apivtwo/clock?id=..." → fetch clock.json
+        const m3u8 = await aaResolveCdnUrl(providerUrl);
+        if (m3u8) return { url: m3u8, quality: 'Auto (m3u8)', type: 'hls', referer: ALLANIME_REFR };
+      } else if (providerName === 'Mp4') {
+        // mp4upload: full page URL → extract src
+        if (providerUrl.startsWith('http')) {
+          const mp4 = await aaResolveMp4Upload(providerUrl);
+          if (mp4) return { url: mp4, quality: 'mp4upload', type: 'mp4', referer: 'https://www.mp4upload.com/' };
+        }
+      } else if (providerName === 'S-mp4' || providerName === 'Yt-mp4') {
+        // Direct mp4 links
+        if (providerUrl.startsWith('http')) {
+          return { url: providerUrl, quality: providerName, type: 'mp4', referer: ALLANIME_REFR };
+        }
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function pickPlayableSource(sources: any[]) {
@@ -2109,27 +2377,49 @@ function App() {
     setStatus({ message: `Getting stream for Episode ${item.number}...`, type: 'info', loading: true });
 
     try {
-      // Use .label (from SelectItem) or animeInfo.name — NOT .title which doesn't exist on SelectItem
       const animeTitle = selectedAnime?.label || animeInfo?.name || '';
       const animeJName = animeInfo?.jname || '';
       const totalEps = episodes.length || 0;
-      const sourcesData = await getJson(
-        `/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId!)}&category=${audioType}&audio=${audioType}&title=${encodeURIComponent(animeTitle)}&title_ro=${encodeURIComponent(animeJName)}&episodeNo=${item.number || 1}&totalEpisodes=${totalEps}`
-      );
-      const source = pickPlayableSource(sourcesData?.sources);
+      const epNo = item.number || 1;
+      const mode = audioType === 'dub' ? 'dub' : 'sub';
+
+      // Extract malId from episodeId: "ep::malId::epNo"
+      const epIdParts = String(item.episodeId || '').split('::');
+      const malId = epIdParts[0] === 'ep' ? Number(epIdParts[1]) : undefined;
+
+      // ── 1. Try AllAnime locally (direct m3u8/mp4 → mpv) ─────────────────
+      setStatus({ message: `Resolving stream locally (AllAnime)...`, type: 'info', loading: true });
+      const aaStream = await resolveAllAnimeStream(animeTitle, epNo, mode, malId);
+
+      // ── 2. Fall back: get embed sources from backend ──────────────────────
+      let source: any = null;
+      let streamHeaders: Record<string, string> = {};
+      let isLocalStream = false;
+
+      if (aaStream) {
+        source = { url: aaStream.url, quality: aaStream.quality, type: aaStream.type };
+        streamHeaders = { Referer: aaStream.referer, Origin: new URL(aaStream.referer).origin };
+        isLocalStream = true;
+        setStatus({ message: `Found: ${aaStream.quality}`, type: 'success', loading: true });
+      } else {
+        setStatus({ message: `AllAnime unavailable, trying embeds...`, type: 'info', loading: true });
+        const sourcesData = await getJson(
+          `/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId!)}&category=${mode}&audio=${mode}&title=${encodeURIComponent(animeTitle)}&title_ro=${encodeURIComponent(animeJName)}&episodeNo=${epNo}&totalEpisodes=${totalEps}`
+        );
+        source = pickPlayableSource(sourcesData?.sources);
+        streamHeaders = sourcesData?.headers || {};
+      }
 
       if (!source?.url) {
         setStatus({ message: 'No playable source found', type: 'error', loading: false });
         return;
       }
 
+
       // Get previous watch progress if not starting from a specific position
       const prevProgress = !startPosition ? getWatchProgress(selectedAnime?.id || '', item.number || 1) : null;
       const resumeTime = startPosition || prevProgress?.watchTime || 0;
-      // totalEps is already declared above when fetching sources
 
-      // Use direct URL with headers passed to player
-      const streamHeaders = sourcesData?.headers || {};
       const directUrl = source.url;
       
       // Fallback to proxy URL if direct fails
@@ -2137,9 +2427,10 @@ function App() {
       const proxyUrl = `${API_BASE}/api/stream?url=${encodeURIComponent(directUrl)}&h=${encodeURIComponent(proxyHeaders)}`;
 
       const epAnimeTitle = selectedAnime?.label || animeInfo?.name || animeInfo?.title || '';
-      const title = `${epAnimeTitle || 'Anime'} - Episode ${item.number} (${audioType.toUpperCase()})`;
+      const title = `${epAnimeTitle || 'Anime'} - Episode ${item.number} (${mode.toUpperCase()})`;
       const animeId = selectedAnime?.id || '';
       const episodeNum = item.number || 1;
+
 
       // ── Embed sources (MegaPlay / Anikoto): open in browser ─────────────
       if (isEmbedSource(source)) {
