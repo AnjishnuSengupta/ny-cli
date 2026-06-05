@@ -1463,7 +1463,8 @@ function pickPlayableSource(sources: any[]) {
   const list = Array.isArray(sources) ? sources : [];
   if (!list.length) return null;
 
-  const score = (url: string) => {
+  const score = (url: string, type?: string) => {
+    if (type === 'embed') return 10; // always lowest — opened in browser
     const v = String(url || '').toLowerCase();
     if (!v.startsWith('http')) return -1;
     if (v.includes('.m3u8')) return 100;
@@ -1473,11 +1474,18 @@ function pickPlayableSource(sources: any[]) {
   };
 
   const ranked = [...list]
-    .map((item) => ({ item, s: score(item?.url) }))
+    .map((item) => ({ item, s: score(item?.url, item?.type) }))
     .filter((entry) => entry.s > 0)
     .sort((a, b) => b.s - a.s);
 
   return ranked.length ? ranked[0].item : list.find((s) => String(s?.url).startsWith('http')) || null;
+}
+
+function isEmbedSource(source: any): boolean {
+  if (!source) return false;
+  if (source.type === 'embed') return true;
+  const url = String(source.url || '').toLowerCase();
+  return url.includes('megaplay.buzz') || url.includes('anikoto.live') || url.includes('/stream/mal/');
 }
 
 function getPlayerCommand(): string | null {
@@ -2128,28 +2136,52 @@ function App() {
       const proxyHeaders = Buffer.from(JSON.stringify(streamHeaders)).toString('base64');
       const proxyUrl = `${API_BASE}/api/stream?url=${encodeURIComponent(directUrl)}&h=${encodeURIComponent(proxyHeaders)}`;
 
+      const epAnimeTitle = selectedAnime?.label || animeInfo?.name || animeInfo?.title || '';
+      const title = `${epAnimeTitle || 'Anime'} - Episode ${item.number} (${audioType.toUpperCase()})`;
+      const animeId = selectedAnime?.id || '';
+      const episodeNum = item.number || 1;
+
+      // ── Embed sources (MegaPlay / Anikoto): open in browser ─────────────
+      if (isEmbedSource(source)) {
+        const browserCmds = ['xdg-open', 'open', 'firefox', 'chromium', 'google-chrome'];
+        let opened = false;
+        for (const cmd of browserCmds) {
+          try {
+            const which = spawnSync('which', [cmd], { encoding: 'utf8' });
+            if (which.status === 0) {
+              spawn(cmd, [directUrl], { stdio: 'ignore', detached: true }).unref();
+              setStatus({ message: `Opening in browser: ${source.quality || 'Embed'}`, type: 'success', loading: false });
+              opened = true;
+              break;
+            }
+          } catch {}
+        }
+        if (!opened) {
+          setStatus({ message: `Embed URL (copy to browser): ${directUrl}`, type: 'info', loading: false });
+        }
+        // Save progress marker (no time tracking for embeds)
+        if (animeId && epAnimeTitle) {
+          saveWatchHistory({ id: animeId, label: epAnimeTitle, episodeId: item.episodeId!, number: episodeNum });
+        }
+        return;
+      }
+
+      // ── Direct stream: open in media player ─────────────────────────────
       const player = getPlayerCommand();
       if (!player) {
         setStatus({ message: 'No player found. Install mpv or vlc.', type: 'warning', loading: false });
         return;
       }
 
-      const epAnimeTitle = selectedAnime?.label || animeInfo?.name || animeInfo?.title || '';
-      const title = `${epAnimeTitle || 'Anime'} - Episode ${item.number} (${audioType.toUpperCase()})`;
-      const animeId = selectedAnime?.id || '';
-      const episodeNum = item.number || 1;
-
-      // Use per-source Referer from anipy (allanime.day) — critical for stream access
       const sourceReferer = (source as any).headers?.Referer
         || streamHeaders.Referer
         || streamHeaders.referer
-        || 'https://allanime.day';
+        || 'https://megaplay.buzz';
       const sourceOrigin = (source as any).headers?.Origin
         || streamHeaders.Origin
         || streamHeaders.origin
         || new URL(sourceReferer).origin;
       
-      // Create IPC socket for mpv to track progress
       const ipcPath = `/tmp/nycli-mpv-${process.pid}.sock`;
       
       let args: string[] = [];
@@ -2159,39 +2191,29 @@ function App() {
           `--force-media-title=${title}`,
           `--input-ipc-server=${ipcPath}`,
         ];
-
-        // Critical: pass the correct per-source Referer so CDN does not 403
         args.push(`--http-header-fields=Referer: ${sourceReferer},Origin: ${sourceOrigin}`);
         args.push(`--referrer=${sourceReferer}`);
-        
-        // Add Anime4K shaders if enabled
         const settings = loadSettings();
         if (settings.anime4k && isAnime4kInstalled()) {
           const shaderPath = getAnime4kShaders(settings.anime4kMode);
           args.push(`--glsl-shaders=${shaderPath}`);
           args.push('--profile=gpu-hq');
         }
-        
-        // Resume from last position if available
         if (resumeTime > 5) {
           args.push(`--start=${Math.floor(resumeTime)}`);
           setStatus({ message: `Resuming from ${formatTime(resumeTime)}...`, type: 'success', loading: false });
         } else {
           setStatus({ message: `Opening ${player}...`, type: 'success', loading: false });
         }
-        // Stream directly using per-source correct URL
         args.push(directUrl);
       } else if (player === 'vlc') {
         args = ['--meta-title', title, '--play-and-exit'];
-        // VLC: use the correct per-source Referer
         args.push(`--http-referrer=${sourceReferer}`);
-        if (resumeTime > 5) {
-          args.push(`--start-time=${Math.floor(resumeTime)}`);
-        }
+        if (resumeTime > 5) args.push(`--start-time=${Math.floor(resumeTime)}`);
         args.push(directUrl);
         setStatus({ message: `Opening ${player}...`, type: 'success', loading: false });
       } else {
-        args = [proxyUrl]; // Use proxy for other players
+        args = [proxyUrl];
         setStatus({ message: `Opening ${player}...`, type: 'success', loading: false });
       }
 
