@@ -1,6 +1,6 @@
 {
   "name": "@anjishnusengupta/ny-cli",
-  "version": "5.5.12",
+  "version": "5.5.13",
   "description": "Beautiful terminal anime streaming CLI with Ink UI, artwork display, and cloud sync",
   "main": "backend.mjs",
   "bin": {
