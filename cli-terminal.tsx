@@ -15,7 +15,7 @@ const VERSION = '6.0.1';
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
 // ═══════════════════════════════════════════════════════════════════════════════
-import { getFirebaseConfig } from './firebase-config';
+import { getFirebaseConfig } from './firebase-config.js';
 const fbConfig = getFirebaseConfig();
 const FIREBASE_PROJECT_ID = fbConfig.projectId;
 const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -2519,7 +2519,7 @@ function App() {
         }
         // Save progress marker (no time tracking for embeds)
         if (animeId && epAnimeTitle) {
-          saveWatchHistory({ id: animeId, label: epAnimeTitle, episodeId: item.episodeId!, number: episodeNum });
+          saveToHistory({ id: animeId, title: epAnimeTitle, episode: episodeNum, timestamp: Date.now(), category: audioType, totalEpisodes: totalEps });
         }
         return;
       }
@@ -2718,8 +2718,8 @@ function App() {
         let streamHeaders: any = {};
 
         const aaStream = await resolveAllAnimeStream(task.animeTitle, task.episodeNumber, audioType, malId);
-        if (aaStream && aaStream.links && aaStream.links.length > 0) {
-          streamUrl = aaStream.links[0].link;
+        if (aaStream && aaStream.url) {
+          streamUrl = aaStream.url;
         } else {
            const res = await fetch(`${NYANIME_BASE}/api/embeds`, {
               method: 'POST',

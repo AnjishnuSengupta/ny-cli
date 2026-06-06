@@ -1590,7 +1590,7 @@ function App() {
           setStatus({ message: `Embed URL (copy to browser): ${directUrl}`, type: "info", loading: false });
         }
         if (animeId && epAnimeTitle) {
-          saveWatchHistory({ id: animeId, label: epAnimeTitle, episodeId: item.episodeId, number: episodeNum });
+          saveToHistory({ id: animeId, title: epAnimeTitle, episode: episodeNum, timestamp: Date.now(), category: audioType, totalEpisodes: totalEps });
         }
         return;
       }
@@ -1755,8 +1755,8 @@ function App() {
         let streamUrl = "";
         let streamHeaders = {};
         const aaStream = await resolveAllAnimeStream(task.animeTitle, task.episodeNumber, audioType, malId);
-        if (aaStream && aaStream.links && aaStream.links.length > 0) {
-          streamUrl = aaStream.links[0].link;
+        if (aaStream && aaStream.url) {
+          streamUrl = aaStream.url;
         } else {
           const res = await fetch(`${NYANIME_BASE}/api/embeds`, {
             method: "POST",
