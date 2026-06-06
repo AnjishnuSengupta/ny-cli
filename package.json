@@ -1,6 +1,7 @@
 {
   "name": "@anjishnusengupta/ny-cli",
   "version": "5.6.0",
+  "type": "module",
   "description": "Beautiful terminal anime streaming CLI with Ink UI, artwork display, and cloud sync",
   "main": "backend.mjs",
   "bin": {
@@ -55,7 +56,7 @@
     "webtorrent-cli": "^6.0.0"
   },
   "devDependencies": {
-    "@types/node": "^25.5.2",
+    "@types/node": "^25.9.2",
     "@types/react": "^19.2.14",
     "typescript": "^6.0.2"
   },

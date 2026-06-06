@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ny-cli backend v5.5.14
+ * ny-cli backend v5.6.0
  * Provider chain: AniList GraphQL (search/meta) + Jikan (episodes) + MegaPlay embed (streaming)
  * AnimeKAI is down. AllAnime is CF-blocked. MegaPlay works reliably via iframe embed.
  */
@@ -52,9 +52,10 @@ async function anilistGQL(query, variables) {
 
 const AL_SEARCH_Q = `query($q:String,$page:Int){Page(page:$page,perPage:20){
   pageInfo{hasNextPage currentPage}
-  media(search:$q,type:ANIME){
+  media(search:$q,type:ANIME,sort:[SEARCH_MATCH,POPULARITY_DESC]){
     id idMal title{english romaji} status episodes
-    coverImage{large} genres format
+    nextAiringEpisode{episode airingAt}
+    coverImage{large extraLarge} genres format
   }
 }}`;
 
@@ -75,7 +76,7 @@ function mapALAnime(m) {
     malId: m.idMal,
     name,
     jname: m.title?.romaji || name,
-    poster: m.coverImage?.large || m.coverImage?.extraLarge || '',
+    poster: m.coverImage?.extraLarge || m.coverImage?.large || '',
     type: m.format || 'TV',
     episodes: { sub: epCount, dub: 0 },
     status: m.status || 'Unknown',
@@ -118,6 +119,13 @@ async function getEpisodesForMal(malId, totalEps = 0) {
     if (allEps.length === 0 && totalEps > 0) {
       // Generate synthetic episode list from totalEps count
       allEps = Array.from({ length: totalEps }, (_, i) => ({ mal_id: i + 1, title: `Episode ${i + 1}`, aired: { string: '' } }));
+    } else if (allEps.length > 0 && allEps.length < totalEps) {
+      // Jikan is lagging behind AniList (e.g., Jikan has 6, AniList says 9)
+      const missing = totalEps - allEps.length;
+      const lastEp = allEps[allEps.length - 1].mal_id || allEps.length;
+      for (let i = 1; i <= missing; i++) {
+        allEps.push({ mal_id: lastEp + i, title: `Episode ${lastEp + i}`, aired: { string: '' } });
+      }
     }
     const mapped = allEps.map((e, i) => ({
       number: e.mal_id || i + 1,
@@ -169,7 +177,7 @@ function parseAnimeId(id) {
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.get('/', (req, res) => res.json({ status: 'ok', version: '5.5.14', providers: ['anilist', 'jikan', 'megaplay'] }));
+app.get('/', (req, res) => res.json({ status: 'ok', version: '5.6.0', providers: ['anilist', 'jikan', 'megaplay'] }));
 
 app.get('/api/aniwatch', async (req, res) => {
   const { action, q, id, episodeId, category, page, malId: qMalId, episodeNo: qEpNo } = req.query;
@@ -196,7 +204,7 @@ app.get('/api/aniwatch', async (req, res) => {
     // ── home / random ────────────────────────────────────────────────────────
     if (action === 'home' || action === 'random') {
       try {
-        const data = await anilistGQL(`query{Page(page:1,perPage:10){media(type:ANIME,sort:TRENDING_DESC,status:RELEASING){id idMal title{english romaji}episodes coverImage{large}format status genres}}}`, {});
+        const data = await anilistGQL(`query{Page(page:1,perPage:10){media(type:ANIME,sort:TRENDING_DESC,status:RELEASING){id idMal title{english romaji}episodes nextAiringEpisode{episode airingAt} coverImage{large}format status genres}}}`, {});
         const trending = (data?.data?.Page?.media || []).map(mapALAnime);
         return ok(res, { spotlightAnimes: trending.slice(0, 5), trendingAnimes: trending, latestEpisodeAnimes: [], provider: 'anilist' }, 300);
       } catch (e) {
@@ -292,6 +300,35 @@ app.get('/api/aniwatch', async (req, res) => {
   } catch (e) {
     console.error('[/api/aniwatch]', e.message);
     return fail(res, 500, e.message || 'Internal error');
+  }
+});
+
+// ── Image proxy ──────────────────────────────────────────────────────────────
+app.get('/api/image', async (req, res) => {
+  const imageUrl = req.query.url;
+  if (!imageUrl) return res.status(400).send('Missing url parameter');
+  
+  try {
+    const response = await fetch(imageUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://anilist.co/',
+      }
+    });
+    
+    if (!response.ok) {
+      return res.status(response.status).send('Failed to fetch image');
+    }
+    
+    const contentType = response.headers.get('content-type');
+    if (contentType) res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    
+    const buffer = Buffer.from(await response.arrayBuffer());
+    res.send(buffer);
+  } catch (error) {
+    console.error('Image proxy error:', error);
+    res.status(500).send('Error fetching image');
   }
 });
 
@@ -392,12 +429,28 @@ app.get('/api/auth/login', (req, res) => {
   <script>
     firebase.initializeApp({apiKey:"AIzaSyAfwO_c-_BbkiI0NcipTvGIya_R1EYyyTI",authDomain:"nyanime-tech.firebaseapp.com",projectId:"nyanime-tech",storageBucket:"nyanime-tech.firebasestorage.app",messagingSenderId:"677407184955",appId:"1:677407184955:web:b3cc5095e838c9017e241e"});
     const auth=firebase.auth();
-    function notify(u){document.getElementById('ui').style.display='none';document.getElementById('loader').style.display='none';document.getElementById('ok').style.display='block';fetch('http://localhost:${cliPort}/callback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:u.uid,username:u.displayName||u.email||'AnimeFan'})}).catch(console.error);}
+    function notify(u){
+      document.getElementById('ui').style.display='none';
+      document.getElementById('loader').style.display='none';
+      document.getElementById('ok').style.display='block';
+      u.getIdToken().then(idToken => {
+        fetch('http://localhost:${cliPort}/callback',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            token:u.uid,
+            idToken:idToken,
+            refreshToken:u.refreshToken,
+            username:u.displayName||u.email||'AnimeFan'
+          })
+        }).catch(console.error);
+      });
+    }
     auth.onAuthStateChanged(u=>{if(u){notify(u);}else{document.getElementById('loader').style.display='none';new firebaseui.auth.AuthUI(auth).start('#ui',{callbacks:{signInSuccessWithAuthResult:function(r){notify(r.user);return false;}},signInFlow:'popup',signInOptions:[firebase.auth.EmailAuthProvider.PROVIDER_ID,firebase.auth.GoogleAuthProvider.PROVIDER_ID]});}});
   </script></body></html>`);
 });
 
 app.listen(PORT, HOST, () => {
-  console.log(`[ny-cli] backend v5.5.14 on http://${HOST}:${PORT}`);
+  console.log(`[ny-cli] backend v5.6.0 on http://${HOST}:${PORT}`);
   console.log(`[ny-cli] providers: AniList (search/info) + Jikan (episodes) + MegaPlay/Anikoto (streaming)`);
 });

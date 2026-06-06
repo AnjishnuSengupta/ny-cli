@@ -372,9 +372,33 @@ function getToken(): string {
   }
 }
 
-function saveAuth(username: string, token: string): void {
+function getIdToken(): string {
   try {
-    fs.writeFileSync(AUTH_FILE, `${username}\n${token}`, { mode: 0o600 });
+    if (!isLoggedIn()) return '';
+    const content = fs.readFileSync(AUTH_FILE, 'utf8');
+    return content.split('\n')[2] || '';
+  } catch {
+    return '';
+  }
+}
+
+function getRefreshToken(): string {
+  try {
+    if (!isLoggedIn()) return '';
+    const content = fs.readFileSync(AUTH_FILE, 'utf8');
+    return content.split('\n')[3] || '';
+  } catch {
+    return '';
+  }
+}
+
+function saveAuth(username: string, token: string, idToken?: string, refreshToken?: string): void {
+  try {
+    const existingId = getIdToken();
+    const existingRefresh = getRefreshToken();
+    const finalIdToken = idToken || existingId;
+    const finalRefreshToken = refreshToken || existingRefresh;
+    fs.writeFileSync(AUTH_FILE, `${username}\n${token}\n${finalIdToken}\n${finalRefreshToken}`, { mode: 0o600 });
   } catch {}
 }
 
@@ -1958,6 +1982,7 @@ type Screen =
   | 'login-token'
   | 'login-waiting'
   | 'settings'
+  | 'auto-advance'
   | 'help';
 
 const initialQuery = process.argv.slice(2).join(' ').trim();
@@ -1970,6 +1995,7 @@ function App() {
   const [animeInfo, setAnimeInfo] = useState<any>(null);
   const [audioType, setAudioType] = useState<'sub' | 'dub'>('sub');
   const [episodes, setEpisodes] = useState<any[]>([]);
+  const [autoAdvanceData, setAutoAdvanceData] = useState<any>(null);
   const [appSettings, setAppSettings] = useState<Settings>(loadSettings());
   const [history, setHistory] = useState<HistoryEntry[]>(getHistory());
   const [status, setStatus] = useState<StatusProps>({
@@ -2170,7 +2196,7 @@ function App() {
             if (data.token && data.username) {
               setStatus({ message: 'Callback verified, logging in...', type: 'info', loading: true });
               setPendingUsername(data.username);
-              handleLoginToken(data.token, data.username);
+              handleLoginToken(data.token, data.username, data.idToken, data.refreshToken);
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ success: true }));
             } else {
@@ -2209,7 +2235,7 @@ function App() {
     }, 5 * 60 * 1000);
   }, []);
 
-  const handleLoginToken = useCallback(async (firebaseUid: string, providedUsername?: string) => {
+  const handleLoginToken = useCallback(async (firebaseUid: string, providedUsername?: string, idToken?: string, refreshToken?: string) => {
     if (!firebaseUid.trim()) {
       setStatus({ message: 'User ID cannot be empty', type: 'error', loading: false });
       return;
@@ -2222,7 +2248,7 @@ function App() {
       
       if (result.valid) {
         const finalUsername = result.username || providedUsername || pendingUsername;
-        saveAuth(finalUsername, firebaseUid.trim());
+        saveAuth(finalUsername, firebaseUid.trim(), idToken, refreshToken);
         setLoggedIn(true);
         setUsername(finalUsername);
         setStatus({ message: `Welcome, ${finalUsername}!`, type: 'success', loading: false });
@@ -2343,20 +2369,22 @@ function App() {
       const eps = data?.episodes?.[type] || [];
       setEpisodes(eps);
       
-      // Check watch progress - if 97%+ watched, skip to next episode
+      // Check watch progress - if 90%+ watched, prompt user
       let targetEpisode = histEntry?.episode || 1;
       const progress = getWatchProgress(item.id!, targetEpisode);
       const watchPercentage = progress ? getWatchPercentage(progress.watchTime, progress.duration) : 0;
       
-      if (watchPercentage >= 97 && targetEpisode < eps.length) {
-        // Auto-advance to next episode - store in state for playback
-        targetEpisode += 1;
-        const nextEp = eps.find((e: any) => e.number === targetEpisode);
-        if (nextEp) {
-          setStatus({ message: `Episode ${targetEpisode - 1} completed! Loading Episode ${targetEpisode}...`, type: 'success', loading: true });
-          // Set state to trigger auto-play after render
-          setAutoPlayEpisode({ episodeId: nextEp.episodeId, number: targetEpisode });
-          setScreen('episode-select');
+      if (watchPercentage >= 90 && targetEpisode < eps.length) {
+        const nextEp = eps.find((e: any) => e.number === targetEpisode + 1);
+        const currEp = eps.find((e: any) => e.number === targetEpisode);
+        if (nextEp && currEp) {
+          setAutoAdvanceData({
+            currentEpisode: currEp,
+            nextEpisode: nextEp,
+            percentage: watchPercentage
+          });
+          setScreen('auto-advance');
+          setStatus({ message: `Episode ${targetEpisode} is almost complete.`, type: 'info', loading: false });
           return;
         }
       }
@@ -2838,6 +2866,30 @@ function App() {
               color={theme.blue}
               showNumbers={false}
               enableSearch={episodeItems.length > 20}
+            />
+          </Box>
+        </Box>
+      )}
+
+
+      {/* Auto Advance Prompt */}
+      {screen === 'auto-advance' && autoAdvanceData && (
+        <Box flexDirection="column">
+          <Text color={theme.pink} bold>
+            📺 {selectedAnime?.label || 'Anime'} <Text color={theme.cyan}>({audioType.toUpperCase()})</Text>
+          </Text>
+          <Box marginTop={1}>
+            <SelectList
+              items={[
+                { label: `Resume Episode ${autoAdvanceData.currentEpisode.number} (${autoAdvanceData.percentage}%)`, value: 'resume', episodeId: autoAdvanceData.currentEpisode.episodeId, number: autoAdvanceData.currentEpisode.number },
+                { label: `Start Next Episode ${autoAdvanceData.nextEpisode.number}`, value: 'next', episodeId: autoAdvanceData.nextEpisode.episodeId, number: autoAdvanceData.nextEpisode.number }
+              ]}
+              onSelect={(item) => handleEpisodeSelect(item)}
+              onBack={goBack}
+              title={`⏭️ Continue Watching?`}
+              color={theme.cyan}
+              showNumbers={true}
+              enableSearch={false}
             />
           </Box>
         </Box>
