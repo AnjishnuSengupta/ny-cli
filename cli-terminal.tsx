@@ -10,7 +10,7 @@ import os from 'node:os';
 import http from 'node:http';
 
 const API_BASE = process.env.NYCLI_API_BASE || 'http://localhost:43201';
-const VERSION = '6.0.4';
+const VERSION = '6.0.5';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
@@ -2776,6 +2776,9 @@ function App() {
         // Try Torrent first
         let isTorrent = false;
         let magnetLink = '';
+        const safeTitle = task.animeTitle.replace(/[^a-zA-Z0-9]/g, '_');
+        const outDir = path.join(os.homedir(), 'Downloads', 'ny-cli', safeTitle);
+        
         try {
           const torrentData = await getJson(`/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`);
           if (torrentData?.magnet) {
@@ -2785,7 +2788,6 @@ function App() {
         } catch {}
 
         if (isTorrent && magnetLink) {
-          const outDir = path.join(os.homedir(), 'Downloads', 'ny-cli');
           if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
           
           setDownloadQueue(prev => {
@@ -2863,8 +2865,8 @@ function App() {
           throw new Error('No stream found');
         }
 
-        const safeTitle = task.animeTitle.replace(/[^a-zA-Z0-9]/g, '_');
-        const filename = `${safeTitle}_Ep${task.episodeNumber}.mp4`;
+        if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+        const filename = path.join(outDir, `${safeTitle}_Ep${task.episodeNumber}.mp4`);
         
         setDownloadQueue(prev => {
            const q = [...prev];

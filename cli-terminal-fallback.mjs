@@ -32,7 +32,7 @@ var getFirebaseConfig = () => {
 
 // cli-terminal.tsx
 var API_BASE = process.env.NYCLI_API_BASE || "http://localhost:43201";
-var VERSION = "6.0.4";
+var VERSION = "6.0.5";
 var fbConfig = getFirebaseConfig();
 var FIREBASE_PROJECT_ID = fbConfig.projectId;
 var FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -1800,6 +1800,8 @@ function App() {
         const malId = epIdParts[0] === "ep" ? Number(epIdParts[1]) : void 0;
         let isTorrent = false;
         let magnetLink = "";
+        const safeTitle = task.animeTitle.replace(/[^a-zA-Z0-9]/g, "_");
+        const outDir = path.join(os.homedir(), "Downloads", "ny-cli", safeTitle);
         try {
           const torrentData = await getJson(`/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`);
           if (torrentData?.magnet) {
@@ -1809,7 +1811,6 @@ function App() {
         } catch {
         }
         if (isTorrent && magnetLink) {
-          const outDir = path.join(os.homedir(), "Downloads", "ny-cli");
           if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
           setDownloadQueue((prev) => {
             const q = [...prev];
@@ -1873,8 +1874,8 @@ function App() {
         if (!streamUrl) {
           throw new Error("No stream found");
         }
-        const safeTitle = task.animeTitle.replace(/[^a-zA-Z0-9]/g, "_");
-        const filename = `${safeTitle}_Ep${task.episodeNumber}.mp4`;
+        if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+        const filename = path.join(outDir, `${safeTitle}_Ep${task.episodeNumber}.mp4`);
         setDownloadQueue((prev) => {
           const q = [...prev];
           q[nextTaskIndex].message = "Downloading Embed...";

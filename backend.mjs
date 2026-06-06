@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ny-cli backend v6.0.4
+ * ny-cli backend v6.0.5
  * Provider chain: AniList GraphQL (search/meta) + Jikan (episodes) + MegaPlay embed (streaming)
  * AnimeKAI is down. AllAnime is CF-blocked. MegaPlay works reliably via iframe embed.
  */
@@ -195,7 +195,7 @@ function parseAnimeId(id) {
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.get('/', (req, res) => res.json({ status: 'ok', version: '6.0.4', providers: ['anilist', 'jikan', 'megaplay'] }));
+app.get('/', (req, res) => res.json({ status: 'ok', version: '6.0.5', providers: ['anilist', 'jikan', 'megaplay'] }));
 
 app.get('/api/aniwatch', async (req, res) => {
   const { action, q, id, episodeId, category, page, malId: qMalId, episodeNo: qEpNo } = req.query;
@@ -469,6 +469,6 @@ app.get('/api/auth/login', (req, res) => {
 });
 
 app.listen(PORT, HOST, () => {
-  console.log(`[ny-cli] backend v6.0.4 on http://${HOST}:${PORT}`);
+  console.log(`[ny-cli] backend v6.0.5 on http://${HOST}:${PORT}`);
   console.log(`[ny-cli] providers: AniList (search/info) + Jikan (episodes) + MegaPlay/Anikoto (streaming)`);
 });
