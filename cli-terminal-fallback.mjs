@@ -32,7 +32,7 @@ var getFirebaseConfig = () => {
 
 // cli-terminal.tsx
 var API_BASE = process.env.NYCLI_API_BASE || "http://localhost:43201";
-var VERSION = "6.0.8";
+var VERSION = "6.0.9";
 var fbConfig = getFirebaseConfig();
 var FIREBASE_PROJECT_ID = fbConfig.projectId;
 var FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -193,11 +193,11 @@ function saveToHistory(entry) {
   } catch {
   }
 }
-function getWatchProgress(animeId2, episode) {
+function getWatchProgress(animeId, episode) {
   try {
     if (!fs.existsSync(WATCH_PROGRESS_FILE)) return null;
     const progress = JSON.parse(fs.readFileSync(WATCH_PROGRESS_FILE, "utf8"));
-    return progress[`${animeId2}:${episode}`] || null;
+    return progress[`${animeId}:${episode}`] || null;
   } catch {
     return null;
   }
@@ -1525,6 +1525,9 @@ function App() {
       setPlayingPaused(false);
       setScreen("playing");
       playProvider(providers[0]);
+      const epAnimeTitle = selectedAnime?.label || animeInfo?.name || animeInfo?.title || "";
+      const animeId = selectedAnime?.id || "";
+      const episodeNum = item.number || 1;
       if (animeId && epAnimeTitle) {
         saveToHistory({ id: animeId, title: epAnimeTitle, episode: episodeNum, timestamp: Date.now(), category: audioType, totalEpisodes: totalEps });
       }

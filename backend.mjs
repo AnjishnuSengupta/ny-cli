@@ -416,7 +416,7 @@ app.get('/api/torrent', async (req, res) => {
     }
 
     if (bestMagnet) {
-      return ok(res, { magnet: bestMagnet, seeders: maxSeeders }, 3600);
+      return ok(res, { magnet: bestMagnet, score: maxScore }, 3600);
     }
     
     return fail(res, 404, 'No torrent found');

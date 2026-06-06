@@ -10,7 +10,7 @@ import os from 'node:os';
 import http from 'node:http';
 
 const API_BASE = process.env.NYCLI_API_BASE || 'http://localhost:43201';
-const VERSION = '6.0.9';
+const VERSION = '6.0.10';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
@@ -2560,6 +2560,10 @@ function App() {
 
       // Start the best provider
       playProvider(providers[0]);
+
+      const epAnimeTitle = selectedAnime?.label || animeInfo?.name || animeInfo?.title || '';
+      const animeId = selectedAnime?.id || '';
+      const episodeNum = item.number || 1;
 
       if (animeId && epAnimeTitle) {
         saveToHistory({ id: animeId, title: epAnimeTitle, episode: episodeNum, timestamp: Date.now(), category: audioType, totalEpisodes: totalEps });
