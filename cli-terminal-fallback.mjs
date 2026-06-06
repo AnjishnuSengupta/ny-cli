@@ -32,7 +32,7 @@ var getFirebaseConfig = () => {
 
 // cli-terminal.tsx
 var API_BASE = process.env.NYCLI_API_BASE || "http://localhost:43201";
-var VERSION = "6.0.1";
+var VERSION = "6.0.2";
 var fbConfig = getFirebaseConfig();
 var FIREBASE_PROJECT_ID = fbConfig.projectId;
 var FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -218,7 +218,8 @@ function getHistory() {
     const content = fs.readFileSync(HISTORY_FILE, "utf8");
     return content.split("\n").filter(Boolean).map((line) => {
       const parts = line.split("|");
-      const [id, title, ep, ts, cat, watchTime, duration, totalEps] = parts;
+      const [rawId, title, ep, ts, cat, watchTime, duration, totalEps] = parts;
+      const id = rawId && /^\d+$/.test(rawId.trim()) ? `anilist::${rawId.trim()}` : rawId;
       return {
         id,
         title,
@@ -1545,6 +1546,7 @@ function App() {
       let source = null;
       let streamHeaders = {};
       let isLocalStream = false;
+      let allEmbedSources = [];
       if (aaStream) {
         source = { url: aaStream.url, quality: aaStream.quality, type: aaStream.type };
         streamHeaders = { Referer: aaStream.referer, Origin: new URL(aaStream.referer).origin };
@@ -1555,7 +1557,8 @@ function App() {
         const sourcesData = await getJson(
           `/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId)}&category=${mode}&audio=${mode}&title=${encodeURIComponent(animeTitle)}&title_ro=${encodeURIComponent(animeJName)}&episodeNo=${epNo}&totalEpisodes=${totalEps}`
         );
-        source = pickPlayableSource(sourcesData?.sources);
+        allEmbedSources = sourcesData?.sources || [];
+        source = pickPlayableSource(allEmbedSources);
         streamHeaders = sourcesData?.headers || {};
       }
       if (!source?.url) {
@@ -1572,22 +1575,41 @@ function App() {
       const animeId = selectedAnime?.id || "";
       const episodeNum = item.number || 1;
       if (isEmbedSource(source)) {
+        const embedUrls = [];
+        for (const s of allEmbedSources) {
+          if (s?.url && isEmbedSource(s)) {
+            const name = s.quality || (String(s.url).includes("megaplay") ? "MegaPlay" : "Anikoto");
+            if (!embedUrls.find((e) => e.url === s.url)) {
+              embedUrls.push({ url: s.url, name });
+            }
+          }
+        }
+        if (!embedUrls.find((e) => e.url === directUrl)) {
+          embedUrls.unshift({ url: directUrl, name: source.quality || "Embed" });
+        }
         const browserCmds = ["xdg-open", "open", "firefox", "chromium", "google-chrome"];
-        let opened = false;
+        let browserCmd = null;
         for (const cmd of browserCmds) {
           try {
             const which = spawnSync("which", [cmd], { encoding: "utf8" });
             if (which.status === 0) {
-              spawn(cmd, [directUrl], { stdio: "ignore", detached: true }).unref();
-              setStatus({ message: `Opening in browser: ${source.quality || "Embed"}`, type: "success", loading: false });
-              opened = true;
+              browserCmd = cmd;
               break;
             }
           } catch {
           }
         }
-        if (!opened) {
-          setStatus({ message: `Embed URL (copy to browser): ${directUrl}`, type: "info", loading: false });
+        if (browserCmd) {
+          spawn(browserCmd, [embedUrls[0].url], { stdio: "ignore", detached: true }).unref();
+          const altMsg = embedUrls.length > 1 ? ` \u2502 Alt: press b\u2192episode to try ${embedUrls[1].name}` : "";
+          setStatus({
+            message: `Opened ${embedUrls[0].name} in browser. If 404, try re-selecting the episode for ${embedUrls.length > 1 ? embedUrls[1].name : "another source"}.${altMsg}`,
+            type: "success",
+            loading: false
+          });
+        } else {
+          const urlList = embedUrls.map((e) => `${e.name}: ${e.url}`).join(" | ");
+          setStatus({ message: `Copy to browser \u2192 ${urlList}`, type: "info", loading: false });
         }
         if (animeId && epAnimeTitle) {
           saveToHistory({ id: animeId, title: epAnimeTitle, episode: episodeNum, timestamp: Date.now(), category: audioType, totalEpisodes: totalEps });
@@ -1893,6 +1915,7 @@ function App() {
     const progressStr = percentage > 0 ? almostDone ? " - Almost done!" : ` \u2022 ${percentage}%` : "";
     return {
       id: h.id,
+      value: h.id,
       label: h.title,
       badge: `Ep ${h.episode} \u2022 ${h.category.toUpperCase()}${progressStr}`,
       icon: almostDone ? "[*]" : void 0

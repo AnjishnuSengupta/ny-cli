@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ny-cli backend v6.0.1
+ * ny-cli backend v6.0.2
  * Provider chain: AniList GraphQL (search/meta) + Jikan (episodes) + MegaPlay embed (streaming)
  * AnimeKAI is down. AllAnime is CF-blocked. MegaPlay works reliably via iframe embed.
  */
@@ -116,6 +116,19 @@ async function getEpisodesForMal(malId, totalEps = 0) {
       page++;
       if (page > 10) break; // safety
     }
+
+    // If Jikan returned very few episodes and AniList didn't give us a count,
+    // query Jikan's /anime/{malId} endpoint to get the real episode count
+    if (totalEps === 0 && allEps.length < 5) {
+      try {
+        const meta = await jikanFetch(`/anime/${malId}`);
+        const jikanEpCount = meta?.data?.episodes || 0;
+        if (jikanEpCount > allEps.length) {
+          totalEps = jikanEpCount;
+        }
+      } catch {}
+    }
+
     if (allEps.length === 0 && totalEps > 0) {
       // Generate synthetic episode list from totalEps count
       allEps = Array.from({ length: totalEps }, (_, i) => ({ mal_id: i + 1, title: `Episode ${i + 1}`, aired: { string: '' } }));
@@ -171,13 +184,18 @@ function parseEpId(epId) {
 
 function parseAnimeId(id) {
   if (!id) return null;
-  const parts = String(id).split('::');
+  const s = String(id).trim();
+  const parts = s.split('::');
+  // Standard format: "anilist::12345"
   if (parts[0] === 'anilist' && parts[1]) return { anilistId: Number(parts[1]) };
+  // Backward compat: bare numeric ID — treat as AniList ID
+  // (older history entries stored raw AniList IDs before the anilist:: prefix was added)
+  if (/^\d+$/.test(s)) return { anilistId: Number(s) };
   return null;
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.get('/', (req, res) => res.json({ status: 'ok', version: '6.0.1', providers: ['anilist', 'jikan', 'megaplay'] }));
+app.get('/', (req, res) => res.json({ status: 'ok', version: '6.0.2', providers: ['anilist', 'jikan', 'megaplay'] }));
 
 app.get('/api/aniwatch', async (req, res) => {
   const { action, q, id, episodeId, category, page, malId: qMalId, episodeNo: qEpNo } = req.query;
@@ -451,6 +469,6 @@ app.get('/api/auth/login', (req, res) => {
 });
 
 app.listen(PORT, HOST, () => {
-  console.log(`[ny-cli] backend v6.0.1 on http://${HOST}:${PORT}`);
+  console.log(`[ny-cli] backend v6.0.2 on http://${HOST}:${PORT}`);
   console.log(`[ny-cli] providers: AniList (search/info) + Jikan (episodes) + MegaPlay/Anikoto (streaming)`);
 });
