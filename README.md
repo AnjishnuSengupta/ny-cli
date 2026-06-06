@@ -6,7 +6,7 @@
 
 <br/>
 
-[![Version](https://img.shields.io/badge/v5.6.0-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
+[![Version](https://img.shields.io/badge/v6.0.0-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
 [![npm](https://img.shields.io/npm/v/@anjishnusengupta/ny-cli?style=flat-square&color=22c55e&label=npm)](https://www.npmjs.com/package/@anjishnusengupta/ny-cli)
 [![License](https://img.shields.io/badge/MIT-3b82f6?style=flat-square&label=license)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/AnjishnuSengupta/ny-cli?style=flat-square&color=fbbf24)](https://github.com/AnjishnuSengupta/ny-cli/stargazers)
@@ -26,7 +26,12 @@
 
 <br/>
 
-## 🎯 What's New in v5.6.0
+## 🎯 What's New in v6.0.0
+
+- **📥 Batch Downloading**: Download single or all episodes via `d` and `a` hotkeys with an integrated UI progress queue!
+- **🔄 Auto-Advance**: Intelligently prompts you to start the next episode when you've watched 90% of the current one.
+- **🐛 Resume Bugfix**: Fixed an issue where the player wouldn't resume from the last known timestamp properly.
+- **🔌 Local Image Proxy**: Circumvents blocked CDNs by proxying thumbnails automatically.
 
 <table>
 <tr>

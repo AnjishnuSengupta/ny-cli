@@ -10,7 +10,7 @@ import os from 'node:os';
 import http from 'node:http';
 
 const API_BASE = process.env.NYCLI_API_BASE || 'http://localhost:3000';
-const VERSION = '5.5.13';
+const VERSION = '6.0.0';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
@@ -1151,9 +1151,10 @@ interface SelectInputProps {
   showArtwork?: boolean; // Enable artwork display
   showNumbers?: boolean; // Show quick-select numbers (default: true)
   enableSearch?: boolean; // Enable search/filter for large lists
+  onAction?: (action: string, item: SelectItem) => void;
 }
 
-function SelectList({ items, onSelect, onBack, title, color = theme.purple, showBorder = true, showArtwork = false, showNumbers = true, enableSearch = false }: SelectInputProps) {
+function SelectList({ items, onSelect, onBack, title, color = theme.purple, showBorder = true, showArtwork = false, showNumbers = true, enableSearch = false, onAction }: SelectInputProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [rippleIndex, setRippleIndex] = useState(-1);
   const [ripplePhase, setRipplePhase] = useState(0);
@@ -1240,6 +1241,10 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
       } else if (onBack) {
         onBack();
       }
+    } else if (onAction && (input === 'd' || input === 'a')) {
+      if (filteredItems.length > 0) {
+        onAction(input, filteredItems[selectedIndex]);
+      }
     } else if (enableSearch && /^[0-9]$/.test(input)) {
       // Quick jump: type episode number directly
       setSearchQuery(q => q + input);
@@ -1266,7 +1271,7 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
       {title && <Text color={color} bold>{title}</Text>}
       {title && (
         <Text color={theme.dimGray} dimColor>
-          ↑↓: navigate │ Enter: select │ b: back{enableSearch ? ' │ Type number to jump' : ''} │ q: quit
+          ↑↓: navigate │ Enter: select │ b: back{enableSearch ? ' │ Type number to jump' : ''}{onAction ? ' │ d: dl │ a: dl all' : ''} │ q: quit
         </Text>
       )}
       {/* Search input for large lists */}
@@ -1983,9 +1988,19 @@ type Screen =
   | 'login-waiting'
   | 'settings'
   | 'auto-advance'
+  | 'downloading'
   | 'help';
 
 const initialQuery = process.argv.slice(2).join(' ').trim();
+
+export interface DownloadTask {
+  id: string;
+  animeTitle: string;
+  episodeNumber: number;
+  status: 'pending' | 'downloading' | 'completed' | 'error';
+  progress: number;
+  message?: string;
+}
 
 function App() {
   const { exit } = useApp();
@@ -1998,6 +2013,7 @@ function App() {
   const [autoAdvanceData, setAutoAdvanceData] = useState<any>(null);
   const [appSettings, setAppSettings] = useState<Settings>(loadSettings());
   const [history, setHistory] = useState<HistoryEntry[]>(getHistory());
+  const [downloadQueue, setDownloadQueue] = useState<DownloadTask[]>([]);
   const [status, setStatus] = useState<StatusProps>({
     message: 'Welcome to NY-CLI!',
     type: 'info',
@@ -2308,11 +2324,34 @@ function App() {
       setScreen('login');
       setPendingUsername('');
       setStatus({ message: 'Enter your NyAnime username', type: 'info', loading: false });
-    } else if (['anime-select', 'continue', 'search', 'profile', 'login', 'settings', 'help'].includes(screen)) {
+    } else if (['anime-select', 'continue', 'search', 'profile', 'login', 'settings', 'help', 'downloading'].includes(screen)) {
       setScreen('main-menu');
       setStatus({ message: 'Welcome to NY-CLI!', type: 'info', loading: false });
     }
   }, [screen, animes.length]);
+
+  const handleEpisodeAction = useCallback((action: string, item: SelectItem) => {
+    if (action === 'd' || action === 'a') {
+      const itemsToDownload = action === 'a' ? episodes.map(e => ({
+        ...e,
+        label: `Episode ${e.number}`,
+        value: `ep-${e.number}`,
+        episodeId: e.episodeId
+      })) : [item];
+
+      const newTasks: DownloadTask[] = itemsToDownload.map((ep: any) => ({
+        id: ep.episodeId,
+        animeTitle: selectedAnime?.label || animeInfo?.name || 'Anime',
+        episodeNumber: ep.number || ep.epNo || 1,
+        status: 'pending',
+        progress: 0,
+        message: 'Waiting...'
+      }));
+
+      setDownloadQueue(prev => [...prev, ...newTasks]);
+      setScreen('downloading');
+    }
+  }, [episodes, selectedAnime, animeInfo]);
 
   const handleAnimeSelect = useCallback(async (item: SelectItem) => {
     setStatus({ message: `Loading "${item.label}"...`, type: 'info', loading: true });
@@ -2656,6 +2695,132 @@ function App() {
     }
   }, [autoPlayEpisode, screen, selectedAnime, handleEpisodeSelect]);
 
+  useEffect(() => {
+    if (downloadQueue.some(t => t.status === 'downloading')) return;
+    
+    const nextTaskIndex = downloadQueue.findIndex(t => t.status === 'pending');
+    if (nextTaskIndex === -1) return;
+
+    const task = downloadQueue[nextTaskIndex];
+    
+    setDownloadQueue(prev => {
+      const q = [...prev];
+      q[nextTaskIndex].status = 'downloading';
+      q[nextTaskIndex].message = 'Resolving stream...';
+      return q;
+    });
+
+    const startDownload = async () => {
+      try {
+        const epIdParts = String(task.id || '').split('::');
+        const malId = epIdParts[0] === 'ep' ? Number(epIdParts[1]) : undefined;
+        let streamUrl = '';
+        let streamHeaders: any = {};
+
+        const aaStream = await resolveAllAnimeStream(task.animeTitle, task.episodeNumber, audioType, malId);
+        if (aaStream && aaStream.links && aaStream.links.length > 0) {
+          streamUrl = aaStream.links[0].link;
+        } else {
+           const res = await fetch(`${NYANIME_BASE}/api/embeds`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                malId,
+                episodeId: task.id,
+                episodeNumber: task.episodeNumber,
+                title: task.animeTitle,
+                audioType
+              })
+           });
+           const data = await res.json();
+           if (data.success && data.sources && data.sources.length > 0) {
+             const defaultSource = data.sources.find((s: any) => s.isM3U8) || data.sources[0];
+             streamUrl = defaultSource.url;
+             if (data.headers) streamHeaders = data.headers;
+           }
+        }
+
+        if (!streamUrl) {
+          throw new Error('No stream found');
+        }
+
+        const safeTitle = task.animeTitle.replace(/[^a-zA-Z0-9]/g, '_');
+        const filename = `${safeTitle}_Ep${task.episodeNumber}.mp4`;
+        
+        setDownloadQueue(prev => {
+           const q = [...prev];
+           q[nextTaskIndex].message = 'Downloading...';
+           return q;
+        });
+
+        const args = ['-y'];
+        if (streamHeaders && streamHeaders.Referer) {
+          args.push('-headers', `Referer: ${streamHeaders.Referer}\r\n`);
+        }
+        args.push(
+          '-i', streamUrl,
+          '-c', 'copy',
+          '-bsf:a', 'aac_adtstoasc',
+          '-progress', 'pipe:1',
+          '-nostats',
+          filename
+        );
+
+        const ffmpeg = spawn('ffmpeg', args);
+
+        let durationUs = 0;
+
+        ffmpeg.stderr.on('data', (data: any) => {
+           const output = data.toString();
+           if (!durationUs) {
+              const durMatch = output.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+              if (durMatch) {
+                 const h = parseInt(durMatch[1]);
+                 const m = parseInt(durMatch[2]);
+                 const s = parseInt(durMatch[3]);
+                 durationUs = (h * 3600 + m * 60 + s) * 1000000;
+              }
+           }
+        });
+
+        ffmpeg.stdout.on('data', (data: any) => {
+          const output = data.toString();
+          const timeMatch = output.match(/out_time_us=(\d+)/);
+          if (timeMatch && durationUs > 0) {
+            const timeUs = parseInt(timeMatch[1]);
+            const progress = Math.min(100, Math.max(0, Math.floor((timeUs / durationUs) * 100)));
+            setDownloadQueue(prev => {
+              const q = [...prev];
+              q[nextTaskIndex].progress = progress;
+              return q;
+            });
+          }
+        });
+
+        ffmpeg.on('close', (code) => {
+           setDownloadQueue(prev => {
+              const q = [...prev];
+              q[nextTaskIndex].status = code === 0 ? 'completed' : 'error';
+              q[nextTaskIndex].message = code === 0 ? 'Completed' : 'FFmpeg Error';
+              if (code === 0) q[nextTaskIndex].progress = 100;
+              return q;
+           });
+        });
+
+      } catch (err: any) {
+        setDownloadQueue(prev => {
+          const q = [...prev];
+          q[nextTaskIndex].status = 'error';
+          q[nextTaskIndex].message = err.message;
+          return q;
+        });
+      }
+    };
+
+    startDownload();
+
+  }, [downloadQueue, audioType]);
+
   // ═══════════════════════════════════════════════════════════════════════════
   // COMPUTED DATA
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2861,6 +3026,7 @@ function App() {
             <SelectList
               items={episodeItems}
               onSelect={handleEpisodeSelect}
+              onAction={handleEpisodeAction}
               onBack={goBack}
               title={`📋 Select Episode (${episodeItems.length} total)`}
               color={theme.blue}
@@ -2871,6 +3037,37 @@ function App() {
         </Box>
       )}
 
+
+      {/* Downloading Queue */}
+      {screen === 'downloading' && (
+        <Box flexDirection="column" paddingX={2} paddingY={1} borderStyle="round" borderColor={theme.cyan} width={70}>
+          <Text color={theme.pink} bold>📥 Downloads</Text>
+          <Text color={theme.dimGray}>{'─'.repeat(60)}</Text>
+          {downloadQueue.length === 0 ? (
+            <Text color={theme.lightGray}>Queue is empty.</Text>
+          ) : (
+            downloadQueue.map((t, idx) => {
+              const pBar = '█'.repeat(Math.floor(t.progress / 5)) + '░'.repeat(20 - Math.floor(t.progress / 5));
+              let statusColor = theme.lightGray;
+              let icon = '⏳';
+              if (t.status === 'downloading') { statusColor = theme.cyan; icon = '⬇️ '; }
+              else if (t.status === 'completed') { statusColor = theme.green; icon = '✅'; }
+              else if (t.status === 'error') { statusColor = theme.red; icon = '❌'; }
+              
+              return (
+                <Box key={idx} flexDirection="column" marginBottom={1}>
+                  <Text color={statusColor} bold>
+                    {icon} {t.animeTitle} - Ep {t.episodeNumber} <Text dimColor>({t.progress}%)</Text>
+                  </Text>
+                  <Text color={theme.purple}>{pBar} <Text dimColor>{t.message}</Text></Text>
+                </Box>
+              );
+            })
+          )}
+          <Text color={theme.dimGray}>{'─'.repeat(60)}</Text>
+          <Text color={theme.dimGray}>Press 'b' to go back</Text>
+        </Box>
+      )}
 
       {/* Auto Advance Prompt */}
       {screen === 'auto-advance' && autoAdvanceData && (

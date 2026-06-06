@@ -32,7 +32,7 @@ var getFirebaseConfig = () => {
 
 // cli-terminal.tsx
 var API_BASE = process.env.NYCLI_API_BASE || "http://localhost:3000";
-var VERSION = "5.5.13";
+var VERSION = "6.0.0";
 var fbConfig = getFirebaseConfig();
 var FIREBASE_PROJECT_ID = fbConfig.projectId;
 var FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -613,7 +613,7 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }) {
   }
   return /* @__PURE__ */ React.createElement(Box, { width, height, borderStyle: "round", borderColor: theme.purple }, /* @__PURE__ */ React.createElement(Box, { width: Math.max(1, width - 2), height: Math.max(1, height - 2), overflow: "hidden" }, /* @__PURE__ */ React.createElement(Picture, { src: imgPath, width: Math.max(1, width - 2), height: Math.max(1, height - 2) })));
 }
-function SelectList({ items, onSelect, onBack, title, color = theme.purple, showBorder = true, showArtwork = false, showNumbers = true, enableSearch = false }) {
+function SelectList({ items, onSelect, onBack, title, color = theme.purple, showBorder = true, showArtwork = false, showNumbers = true, enableSearch = false, onAction }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [rippleIndex, setRippleIndex] = useState(-1);
   const [ripplePhase, setRipplePhase] = useState(0);
@@ -685,6 +685,10 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
       } else if (onBack) {
         onBack();
       }
+    } else if (onAction && (input === "d" || input === "a")) {
+      if (filteredItems.length > 0) {
+        onAction(input, filteredItems[selectedIndex]);
+      }
     } else if (enableSearch && /^[0-9]$/.test(input)) {
       setSearchQuery((q) => q + input);
     } else if (showNumbers && /^[1-9]$/.test(input) && !enableSearch) {
@@ -703,7 +707,7 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
   const getRippleChar = (phase) => rippleChars[Math.min(phase, rippleChars.length - 1)];
   const termWidth = process.stdout.columns || 80;
   const maxLabelLen = Math.max(30, termWidth - 25);
-  const content = /* @__PURE__ */ React.createElement(Box, { flexDirection: "column" }, title && /* @__PURE__ */ React.createElement(Text, { color, bold: true }, title), title && /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray, dimColor: true }, "\u2191\u2193: navigate \u2502 Enter: select \u2502 b: back", enableSearch ? " \u2502 Type number to jump" : "", " \u2502 q: quit"), enableSearch && /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "[S] "), /* @__PURE__ */ React.createElement(Text, { color: searchQuery ? theme.white : theme.dimGray }, searchQuery || "Type episode number..."), searchQuery && /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, " (", filteredItems.length, " matches)")), /* @__PURE__ */ React.createElement(Box, { marginTop: title ? 1 : 0, flexDirection: "column" }, visibleItems.map((item, idx) => {
+  const content = /* @__PURE__ */ React.createElement(Box, { flexDirection: "column" }, title && /* @__PURE__ */ React.createElement(Text, { color, bold: true }, title), title && /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray, dimColor: true }, "\u2191\u2193: navigate \u2502 Enter: select \u2502 b: back", enableSearch ? " \u2502 Type number to jump" : "", onAction ? " \u2502 d: dl \u2502 a: dl all" : "", " \u2502 q: quit"), enableSearch && /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "[S] "), /* @__PURE__ */ React.createElement(Text, { color: searchQuery ? theme.white : theme.dimGray }, searchQuery || "Type episode number..."), searchQuery && /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, " (", filteredItems.length, " matches)")), /* @__PURE__ */ React.createElement(Box, { marginTop: title ? 1 : 0, flexDirection: "column" }, visibleItems.map((item, idx) => {
     const actualIdx = startIdx + idx;
     const isSelected = actualIdx === selectedIndex;
     const isRippling = actualIdx === rippleIndex;
@@ -1174,6 +1178,7 @@ function App() {
   const [autoAdvanceData, setAutoAdvanceData] = useState(null);
   const [appSettings, setAppSettings] = useState(loadSettings());
   const [history, setHistory] = useState(getHistory());
+  const [downloadQueue, setDownloadQueue] = useState([]);
   const [status, setStatus] = useState({
     message: "Welcome to NY-CLI!",
     type: "info",
@@ -1432,11 +1437,31 @@ function App() {
       setScreen("login");
       setPendingUsername("");
       setStatus({ message: "Enter your NyAnime username", type: "info", loading: false });
-    } else if (["anime-select", "continue", "search", "profile", "login", "settings", "help"].includes(screen)) {
+    } else if (["anime-select", "continue", "search", "profile", "login", "settings", "help", "downloading"].includes(screen)) {
       setScreen("main-menu");
       setStatus({ message: "Welcome to NY-CLI!", type: "info", loading: false });
     }
   }, [screen, animes.length]);
+  const handleEpisodeAction = useCallback((action, item) => {
+    if (action === "d" || action === "a") {
+      const itemsToDownload = action === "a" ? episodes.map((e) => ({
+        ...e,
+        label: `Episode ${e.number}`,
+        value: `ep-${e.number}`,
+        episodeId: e.episodeId
+      })) : [item];
+      const newTasks = itemsToDownload.map((ep) => ({
+        id: ep.episodeId,
+        animeTitle: selectedAnime?.label || animeInfo?.name || "Anime",
+        episodeNumber: ep.number || ep.epNo || 1,
+        status: "pending",
+        progress: 0,
+        message: "Waiting..."
+      }));
+      setDownloadQueue((prev) => [...prev, ...newTasks]);
+      setScreen("downloading");
+    }
+  }, [episodes, selectedAnime, animeInfo]);
   const handleAnimeSelect = useCallback(async (item) => {
     setStatus({ message: `Loading "${item.label}"...`, type: "info", loading: true });
     try {
@@ -1712,6 +1737,119 @@ function App() {
       return () => clearTimeout(timer);
     }
   }, [autoPlayEpisode, screen, selectedAnime, handleEpisodeSelect]);
+  useEffect(() => {
+    if (downloadQueue.some((t) => t.status === "downloading")) return;
+    const nextTaskIndex = downloadQueue.findIndex((t) => t.status === "pending");
+    if (nextTaskIndex === -1) return;
+    const task = downloadQueue[nextTaskIndex];
+    setDownloadQueue((prev) => {
+      const q = [...prev];
+      q[nextTaskIndex].status = "downloading";
+      q[nextTaskIndex].message = "Resolving stream...";
+      return q;
+    });
+    const startDownload = async () => {
+      try {
+        const epIdParts = String(task.id || "").split("::");
+        const malId = epIdParts[0] === "ep" ? Number(epIdParts[1]) : void 0;
+        let streamUrl = "";
+        let streamHeaders = {};
+        const aaStream = await resolveAllAnimeStream(task.animeTitle, task.episodeNumber, audioType, malId);
+        if (aaStream && aaStream.links && aaStream.links.length > 0) {
+          streamUrl = aaStream.links[0].link;
+        } else {
+          const res = await fetch(`${NYANIME_BASE}/api/embeds`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              malId,
+              episodeId: task.id,
+              episodeNumber: task.episodeNumber,
+              title: task.animeTitle,
+              audioType
+            })
+          });
+          const data = await res.json();
+          if (data.success && data.sources && data.sources.length > 0) {
+            const defaultSource = data.sources.find((s) => s.isM3U8) || data.sources[0];
+            streamUrl = defaultSource.url;
+            if (data.headers) streamHeaders = data.headers;
+          }
+        }
+        if (!streamUrl) {
+          throw new Error("No stream found");
+        }
+        const safeTitle = task.animeTitle.replace(/[^a-zA-Z0-9]/g, "_");
+        const filename = `${safeTitle}_Ep${task.episodeNumber}.mp4`;
+        setDownloadQueue((prev) => {
+          const q = [...prev];
+          q[nextTaskIndex].message = "Downloading...";
+          return q;
+        });
+        const args = ["-y"];
+        if (streamHeaders && streamHeaders.Referer) {
+          args.push("-headers", `Referer: ${streamHeaders.Referer}\r
+`);
+        }
+        args.push(
+          "-i",
+          streamUrl,
+          "-c",
+          "copy",
+          "-bsf:a",
+          "aac_adtstoasc",
+          "-progress",
+          "pipe:1",
+          "-nostats",
+          filename
+        );
+        const ffmpeg = spawn("ffmpeg", args);
+        let durationUs = 0;
+        ffmpeg.stderr.on("data", (data) => {
+          const output = data.toString();
+          if (!durationUs) {
+            const durMatch = output.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+            if (durMatch) {
+              const h = parseInt(durMatch[1]);
+              const m = parseInt(durMatch[2]);
+              const s = parseInt(durMatch[3]);
+              durationUs = (h * 3600 + m * 60 + s) * 1e6;
+            }
+          }
+        });
+        ffmpeg.stdout.on("data", (data) => {
+          const output = data.toString();
+          const timeMatch = output.match(/out_time_us=(\d+)/);
+          if (timeMatch && durationUs > 0) {
+            const timeUs = parseInt(timeMatch[1]);
+            const progress = Math.min(100, Math.max(0, Math.floor(timeUs / durationUs * 100)));
+            setDownloadQueue((prev) => {
+              const q = [...prev];
+              q[nextTaskIndex].progress = progress;
+              return q;
+            });
+          }
+        });
+        ffmpeg.on("close", (code) => {
+          setDownloadQueue((prev) => {
+            const q = [...prev];
+            q[nextTaskIndex].status = code === 0 ? "completed" : "error";
+            q[nextTaskIndex].message = code === 0 ? "Completed" : "FFmpeg Error";
+            if (code === 0) q[nextTaskIndex].progress = 100;
+            return q;
+          });
+        });
+      } catch (err) {
+        setDownloadQueue((prev) => {
+          const q = [...prev];
+          q[nextTaskIndex].status = "error";
+          q[nextTaskIndex].message = err.message;
+          return q;
+        });
+      }
+    };
+    startDownload();
+  }, [downloadQueue, audioType]);
   const animeItems = animes.map((a) => ({
     id: a.id,
     label: a.name || a.title || "Untitled",
@@ -1837,13 +1975,29 @@ function App() {
     {
       items: episodeItems,
       onSelect: handleEpisodeSelect,
+      onAction: handleEpisodeAction,
       onBack: goBack,
       title: `\u{1F4CB} Select Episode (${episodeItems.length} total)`,
       color: theme.blue,
       showNumbers: false,
       enableSearch: episodeItems.length > 20
     }
-  ))), screen === "auto-advance" && autoAdvanceData && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.pink, bold: true }, "\u{1F4FA} ", selectedAnime?.label || "Anime", " ", /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "(", audioType.toUpperCase(), ")")), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(
+  ))), screen === "downloading" && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", paddingX: 2, paddingY: 1, borderStyle: "round", borderColor: theme.cyan, width: 70 }, /* @__PURE__ */ React.createElement(Text, { color: theme.pink, bold: true }, "\u{1F4E5} Downloads"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(60)), downloadQueue.length === 0 ? /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "Queue is empty.") : downloadQueue.map((t, idx) => {
+    const pBar = "\u2588".repeat(Math.floor(t.progress / 5)) + "\u2591".repeat(20 - Math.floor(t.progress / 5));
+    let statusColor = theme.lightGray;
+    let icon = "\u23F3";
+    if (t.status === "downloading") {
+      statusColor = theme.cyan;
+      icon = "\u2B07\uFE0F ";
+    } else if (t.status === "completed") {
+      statusColor = theme.green;
+      icon = "\u2705";
+    } else if (t.status === "error") {
+      statusColor = theme.red;
+      icon = "\u274C";
+    }
+    return /* @__PURE__ */ React.createElement(Box, { key: idx, flexDirection: "column", marginBottom: 1 }, /* @__PURE__ */ React.createElement(Text, { color: statusColor, bold: true }, icon, " ", t.animeTitle, " - Ep ", t.episodeNumber, " ", /* @__PURE__ */ React.createElement(Text, { dimColor: true }, "(", t.progress, "%)")), /* @__PURE__ */ React.createElement(Text, { color: theme.purple }, pBar, " ", /* @__PURE__ */ React.createElement(Text, { dimColor: true }, t.message)));
+  }), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(60)), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "Press 'b' to go back")), screen === "auto-advance" && autoAdvanceData && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.pink, bold: true }, "\u{1F4FA} ", selectedAnime?.label || "Anime", " ", /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "(", audioType.toUpperCase(), ")")), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(
     SelectList,
     {
       items: [
