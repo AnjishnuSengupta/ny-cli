@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ny-cli backend v6.0.6
+ * ny-cli backend v6.0.7
  * Provider chain: AniList GraphQL (search/meta) + Jikan (episodes) + MegaPlay embed (streaming)
  * AnimeKAI is down. AllAnime is CF-blocked. MegaPlay works reliably via iframe embed.
  */
@@ -159,18 +159,37 @@ async function getEpisodesForMal(malId, totalEps = 0) {
   }
 }
 
+// ── Source Verification ───────────────────────────────────────────────────────
+async function verifyEmbed(src) {
+  if (!src || !src.url) return false;
+  try {
+    const res = await fetch(src.url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return false;
+    const text = await res.text();
+    // Catch fake 200 HTTP responses that are actually error pages
+    if (text.includes("We can't find the file you are looking for") || 
+        text.includes("Oops! Something went wrong") || 
+        text.includes("<title>Error")) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ── MegaPlay ──────────────────────────────────────────────────────────────────
-function megaplaySrc(malId, epNo, lang = 'sub') {
-  if (!malId || !epNo) return null;
-  const url = `https://megaplay.buzz/stream/mal/${malId}/${epNo}/${lang}`;
-  return { url, embedUrl: url, quality: 'MegaPlay (Embed)', type: 'embed', isM3U8: false, tracks: [] };
+function megaplaySrc(id, epNo, lang = 'sub', type = 'mal') {
+  if (!id || !epNo) return null;
+  const url = `https://megaplay.buzz/stream/${type}/${id}/${epNo}/${lang}`;
+  return { url, embedUrl: url, quality: `MegaPlay (${type})`, type: 'embed', isM3U8: false, tracks: [] };
 }
 
 // Anikoto embed (alternative embed source)
-function anikotoSrc(malId, epNo) {
-  if (!malId || !epNo) return null;
-  const url = `https://anikoto.live/stream/mal/${malId}/${epNo}/sub`;
-  return { url, embedUrl: url, quality: 'Anikoto (Embed)', type: 'embed', isM3U8: false, tracks: [] };
+function anikotoSrc(id, epNo, type = 'mal') {
+  if (!id || !epNo) return null;
+  const url = `https://anikoto.live/stream/${type}/${id}/${epNo}/sub`;
+  return { url, embedUrl: url, quality: `Anikoto (${type})`, type: 'embed', isM3U8: false, tracks: [] };
 }
 
 // ── Decode episodeId → malId + epNo ──────────────────────────────────────────
@@ -195,7 +214,7 @@ function parseAnimeId(id) {
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.get('/', (req, res) => res.json({ status: 'ok', version: '6.0.6', providers: ['anilist', 'jikan', 'megaplay'] }));
+app.get('/', (req, res) => res.json({ status: 'ok', version: '6.0.7', providers: ['anilist', 'jikan', 'megaplay'] }));
 
 app.get('/api/aniwatch', async (req, res) => {
   const { action, q, id, episodeId, category, page, malId: qMalId, episodeNo: qEpNo } = req.query;
@@ -286,18 +305,27 @@ app.get('/api/aniwatch', async (req, res) => {
 
       if (!malId || !epNo) return fail(res, 400, 'Cannot resolve malId/epNo from episodeId');
 
-      const sources = [];
+      let anilistId = req.query.anilistId ? Number(req.query.anilistId) : null;
+      let candidateSources = [];
       const lang = cat === 'dub' ? 'dub' : 'sub';
 
-      // Primary: MegaPlay embed
-      const mp = megaplaySrc(malId, epNo, lang);
-      if (mp) sources.push(mp);
+      if (malId) {
+        candidateSources.push(megaplaySrc(malId, epNo, lang, 'mal'));
+        candidateSources.push(anikotoSrc(malId, epNo, 'mal'));
+      }
 
-      // Secondary: Anikoto embed
-      const ak = anikotoSrc(malId, epNo);
-      if (ak) sources.push(ak);
+      if (anilistId) {
+        candidateSources.push(megaplaySrc(anilistId, epNo, lang, 'anilist'));
+        candidateSources.push(anikotoSrc(anilistId, epNo, 'anilist'));
+      }
 
-      if (!sources.length) return fail(res, 404, 'No sources available');
+      candidateSources = candidateSources.filter(Boolean);
+
+      // Verify all candidate sources concurrently to filter out fake 200 error pages
+      const verificationResults = await Promise.all(candidateSources.map(src => verifyEmbed(src)));
+      const sources = candidateSources.filter((_, i) => verificationResults[i]);
+
+      if (!sources.length) return fail(res, 404, 'No playable sources available');
 
       return ok(res, {
         sources,
@@ -469,6 +497,6 @@ app.get('/api/auth/login', (req, res) => {
 });
 
 app.listen(PORT, HOST, () => {
-  console.log(`[ny-cli] backend v6.0.6 on http://${HOST}:${PORT}`);
+  console.log(`[ny-cli] backend v6.0.7 on http://${HOST}:${PORT}`);
   console.log(`[ny-cli] providers: AniList (search/info) + Jikan (episodes) + MegaPlay/Anikoto (streaming)`);
 });

@@ -32,7 +32,7 @@ var getFirebaseConfig = () => {
 
 // cli-terminal.tsx
 var API_BASE = process.env.NYCLI_API_BASE || "http://localhost:43201";
-var VERSION = "6.0.6";
+var VERSION = "6.0.7";
 var fbConfig = getFirebaseConfig();
 var FIREBASE_PROJECT_ID = fbConfig.projectId;
 var FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -1451,8 +1451,10 @@ function App() {
         value: `ep-${e.number}`,
         episodeId: e.episodeId
       })) : [item];
+      const anilistId = animeInfo?.id?.replace("anilist::", "") || "";
       const newTasks = itemsToDownload.map((ep) => ({
         id: ep.episodeId,
+        anilistId,
         animeTitle: selectedAnime?.label || animeInfo?.name || "Anime",
         episodeNumber: ep.number || ep.epNo || 1,
         status: "pending",
@@ -1541,11 +1543,12 @@ function App() {
       const mode = audioType === "dub" ? "dub" : "sub";
       const epIdParts = String(item.episodeId || "").split("::");
       const malId = epIdParts[0] === "ep" ? Number(epIdParts[1]) : void 0;
+      const anilistId = animeInfo?.id?.replace("anilist::", "") || "";
       setStatus({ message: `Resolving fastest available stream...`, type: "info", loading: true });
       const [aaResult, torrentResult, embedResult] = await Promise.allSettled([
         resolveAllAnimeStream(animeTitle, epNo, mode, malId),
         getJson(`/api/torrent?title=${encodeURIComponent(animeTitle)}&ep=${epNo}`),
-        getJson(`/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId)}&category=${mode}&audio=${mode}&title=${encodeURIComponent(animeTitle)}&title_ro=${encodeURIComponent(animeJName)}&episodeNo=${epNo}&totalEpisodes=${totalEps}`)
+        getJson(`/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId)}&category=${mode}&audio=${mode}&title=${encodeURIComponent(animeTitle)}&title_ro=${encodeURIComponent(animeJName)}&episodeNo=${epNo}&totalEpisodes=${totalEps}&anilistId=${anilistId}`)
       ]);
       const aaStream = aaResult.status === "fulfilled" ? aaResult.value : null;
       const torrentData = torrentResult.status === "fulfilled" ? torrentResult.value : null;
@@ -1796,20 +1799,11 @@ function App() {
         const malId = epIdParts[0] === "ep" ? Number(epIdParts[1]) : void 0;
         const safeTitle = task.animeTitle.replace(/[^a-zA-Z0-9]/g, "_");
         const outDir = path.join(os.homedir(), "Downloads", "ny-cli", safeTitle);
+        const anilistQuery = task.anilistId ? `&anilistId=${task.anilistId}` : "";
         const [aaResult, torrentResult, embedResult] = await Promise.allSettled([
           resolveAllAnimeStream(task.animeTitle, task.episodeNumber, audioType, malId),
           getJson(`/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`),
-          fetch(`${NYANIME_BASE}/api/embeds`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              malId,
-              episodeId: task.id,
-              episodeNumber: task.episodeNumber,
-              title: task.animeTitle,
-              audioType
-            })
-          }).then((res) => res.json())
+          getJson(`/api/aniwatch?action=sources&episodeId=${encodeURIComponent(task.id)}&category=${audioType}&audio=${audioType}&title=${encodeURIComponent(task.animeTitle)}&episodeNo=${task.episodeNumber}${anilistQuery}`)
         ]);
         const aaStream = aaResult.status === "fulfilled" ? aaResult.value : null;
         const torrentData = torrentResult.status === "fulfilled" ? torrentResult.value : null;
