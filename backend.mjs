@@ -380,18 +380,43 @@ app.get('/api/torrent', async (req, res) => {
       text = await response.text();
     }
 
-    const hashMatch = text.match(/<nyaa:infoHash>([a-zA-Z0-9]+)<\/nyaa:infoHash>/i);
-    const titleMatch = text.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i) || text.match(/<title>(.*?)<\/title>/i);
+    const items = [...text.matchAll(/<item>([\s\S]*?)<\/item>/gi)].map(m => m[1]);
     
-    if (hashMatch && hashMatch[1]) {
-      const infoHash = hashMatch[1];
-      // The first title tag is the channel title, so we should look for the item title
-      const itemTitleMatch = text.match(/<item>[\s\S]*?<title>(.*?)<\/title>/i);
-      const torrentName = itemTitleMatch && itemTitleMatch[1] ? encodeURIComponent(itemTitleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '')) : 'ny-cli-download';
+    let bestMagnet = null;
+    let maxScore = -1;
+
+    for (const item of items) {
+      const hashMatch = item.match(/<nyaa:infoHash>([a-zA-Z0-9]+)<\/nyaa:infoHash>/i);
+      const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i) || item.match(/<title>(.*?)<\/title>/i);
+      const seedersMatch = item.match(/<nyaa:seeders>(\d+)<\/nyaa:seeders>/i);
       
-      // Construct standard magnet link with basic trackers
-      let magnet = `magnet:?xt=urn:btih:${infoHash}&dn=${torrentName}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.leechers-paradise.org%3A6969%2Fannounce`;
-      return ok(res, { magnet }, 3600);
+      if (hashMatch && hashMatch[1] && titleMatch && titleMatch[1]) {
+        const title = titleMatch[1];
+        
+        // Exclude French or Raw
+        if (/\b(FR|French|Raw|VF|VOSTFR)\b/i.test(title)) continue;
+        if (/^\[FR\]/i.test(title)) continue;
+        
+        // Calculate score
+        const seeders = seedersMatch ? parseInt(seedersMatch[1], 10) : 0;
+        let score = seeders * 10; // Base score heavily depends on seeders
+        
+        // Bonus for English/Multi indicators
+        if (/\b(Multi|Dual Audio|Eng Sub|English)\b/i.test(title)) score += 500;
+        if (/\.mkv\b/i.test(title)) score += 200;
+        if (/\[(SubsPlease|Erai-raws)\]/i.test(title)) score += 1000; // Trusted groups
+        
+        if (score > maxScore) {
+          maxScore = score;
+          const infoHash = hashMatch[1];
+          const torrentName = encodeURIComponent(title);
+          bestMagnet = `magnet:?xt=urn:btih:${infoHash}&dn=${torrentName}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.leechers-paradise.org%3A6969%2Fannounce`;
+        }
+      }
+    }
+
+    if (bestMagnet) {
+      return ok(res, { magnet: bestMagnet, seeders: maxSeeders }, 3600);
     }
     
     return fail(res, 404, 'No torrent found');

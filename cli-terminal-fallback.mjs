@@ -94,61 +94,6 @@ function isAnime4kInstalled() {
     return false;
   }
 }
-function getAnime4kShaders(mode) {
-  const shaders = {
-    "A": [
-      "Anime4K_Clamp_Highlights.glsl",
-      "Anime4K_Restore_CNN_VL.glsl",
-      "Anime4K_Upscale_CNN_x2_VL.glsl",
-      "Anime4K_AutoDownscalePre_x2.glsl",
-      "Anime4K_AutoDownscalePre_x4.glsl",
-      "Anime4K_Upscale_CNN_x2_M.glsl"
-    ],
-    "B": [
-      "Anime4K_Clamp_Highlights.glsl",
-      "Anime4K_Restore_CNN_Soft_VL.glsl",
-      "Anime4K_Upscale_CNN_x2_VL.glsl",
-      "Anime4K_AutoDownscalePre_x2.glsl",
-      "Anime4K_AutoDownscalePre_x4.glsl",
-      "Anime4K_Upscale_CNN_x2_M.glsl"
-    ],
-    "C": [
-      "Anime4K_Clamp_Highlights.glsl",
-      "Anime4K_Upscale_Denoise_CNN_x2_VL.glsl",
-      "Anime4K_AutoDownscalePre_x2.glsl",
-      "Anime4K_AutoDownscalePre_x4.glsl",
-      "Anime4K_Upscale_CNN_x2_M.glsl"
-    ],
-    "A+A": [
-      "Anime4K_Clamp_Highlights.glsl",
-      "Anime4K_Restore_CNN_VL.glsl",
-      "Anime4K_Upscale_CNN_x2_VL.glsl",
-      "Anime4K_Restore_CNN_M.glsl",
-      "Anime4K_AutoDownscalePre_x2.glsl",
-      "Anime4K_AutoDownscalePre_x4.glsl",
-      "Anime4K_Upscale_CNN_x2_M.glsl"
-    ],
-    "B+B": [
-      "Anime4K_Clamp_Highlights.glsl",
-      "Anime4K_Restore_CNN_Soft_VL.glsl",
-      "Anime4K_Upscale_CNN_x2_VL.glsl",
-      "Anime4K_AutoDownscalePre_x2.glsl",
-      "Anime4K_AutoDownscalePre_x4.glsl",
-      "Anime4K_Restore_CNN_Soft_M.glsl",
-      "Anime4K_Upscale_CNN_x2_M.glsl"
-    ],
-    "C+A": [
-      "Anime4K_Clamp_Highlights.glsl",
-      "Anime4K_Upscale_Denoise_CNN_x2_VL.glsl",
-      "Anime4K_AutoDownscalePre_x2.glsl",
-      "Anime4K_AutoDownscalePre_x4.glsl",
-      "Anime4K_Restore_CNN_M.glsl",
-      "Anime4K_Upscale_CNN_x2_M.glsl"
-    ]
-  };
-  const modeShaders = shaders[mode] || shaders["A"];
-  return modeShaders.map((s) => path.join(ANIME4K_DIR, s)).join(":");
-}
 function isLoggedIn() {
   try {
     return fs.existsSync(AUTH_FILE) && fs.statSync(AUTH_FILE).size > 0;
@@ -248,26 +193,11 @@ function saveToHistory(entry) {
   } catch {
   }
 }
-function saveWatchProgress(animeId, episode, watchTime, duration) {
-  try {
-    const key = `${animeId}:${episode}`;
-    let progress = {};
-    if (fs.existsSync(WATCH_PROGRESS_FILE)) {
-      try {
-        progress = JSON.parse(fs.readFileSync(WATCH_PROGRESS_FILE, "utf8"));
-      } catch {
-      }
-    }
-    progress[key] = { watchTime, duration };
-    fs.writeFileSync(WATCH_PROGRESS_FILE, JSON.stringify(progress));
-  } catch {
-  }
-}
-function getWatchProgress(animeId, episode) {
+function getWatchProgress(animeId2, episode) {
   try {
     if (!fs.existsSync(WATCH_PROGRESS_FILE)) return null;
     const progress = JSON.parse(fs.readFileSync(WATCH_PROGRESS_FILE, "utf8"));
-    return progress[`${animeId}:${episode}`] || null;
+    return progress[`${animeId2}:${episode}`] || null;
   } catch {
     return null;
   }
@@ -1059,40 +989,6 @@ async function resolveAllAnimeStream(title, epNo, mode = "sub", malId) {
     return null;
   }
 }
-function pickPlayableSource(sources) {
-  const list = Array.isArray(sources) ? sources : [];
-  if (!list.length) return null;
-  const score = (url, type) => {
-    if (type === "embed") return 10;
-    const v = String(url || "").toLowerCase();
-    if (!v.startsWith("http")) return -1;
-    if (v.includes(".m3u8")) return 100;
-    if (v.includes("/media") || v.includes("/videos/")) return 90;
-    if (v.includes(".mp4") || v.includes(".webm")) return 80;
-    return 20;
-  };
-  const ranked = [...list].map((item) => ({ item, s: score(item?.url, item?.type) })).filter((entry) => entry.s > 0).sort((a, b) => b.s - a.s);
-  return ranked.length ? ranked[0].item : list.find((s) => String(s?.url).startsWith("http")) || null;
-}
-function isEmbedSource(source) {
-  if (!source) return false;
-  if (source.type === "embed") return true;
-  const url = String(source.url || "").toLowerCase();
-  return url.includes("megaplay.buzz") || url.includes("anikoto.live") || url.includes("/stream/mal/");
-}
-function getPlayerCommand() {
-  const candidates = ["mpv", "vlc", "iina"];
-  for (const cmd of candidates) {
-    try {
-      const result = spawnSync("which", [cmd], { encoding: "utf8" });
-      if (result.status === 0 && result.stdout.trim()) {
-        return cmd;
-      }
-    } catch {
-    }
-  }
-  return null;
-}
 function SettingsScreen({ settings, onUpdate, onBack }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [downloading, setDownloading] = useState(false);
@@ -1194,6 +1090,54 @@ function App() {
   const [showWelcome, setShowWelcome] = useState(!initialQuery);
   const [isExiting, setIsExiting] = useState(false);
   const [userPhotoUrl, setUserPhotoUrl] = useState(null);
+  const [playingEpisode, setPlayingEpisode] = useState(null);
+  const [playingPaused, setPlayingPaused] = useState(false);
+  const [playingProviders, setPlayingProviders] = useState([]);
+  const [playingProviderIndex, setPlayingProviderIndex] = useState(0);
+  const togglePause = () => {
+    if (os.platform() === "win32") return;
+    if (playingPaused) {
+      spawnSync("killall", ["-CONT", "mpv"]);
+      setPlayingPaused(false);
+    } else {
+      spawnSync("killall", ["-STOP", "mpv"]);
+      setPlayingPaused(true);
+    }
+  };
+  const playProvider = (provider) => {
+    if (provider.type === "torrent") {
+      setStatus({ message: `Starting ${provider.name}...`, type: "success", loading: false });
+      const wtCmd = os.platform() === "win32" ? "npx.cmd" : "npx";
+      spawn(wtCmd, ["-y", "webtorrent-cli", provider.magnet, "--mpv"], { stdio: "ignore", detached: true }).unref();
+    } else if (provider.type === "direct") {
+      setStatus({ message: `Starting ${provider.name} in MPV...`, type: "success", loading: false });
+      const headerArgs = [];
+      if (provider.headers) {
+        Object.entries(provider.headers).forEach(([k, v]) => {
+          headerArgs.push(`--http-header-fields-append=${k}: ${v}`);
+        });
+      }
+      spawn("mpv", [provider.url, ...headerArgs, "--force-media-title=NY-CLI Stream"], { stdio: "ignore", detached: true }).unref();
+    } else if (provider.type === "embed") {
+      const browserCmds = ["xdg-open", "open", "firefox", "chromium", "google-chrome"];
+      let browserCmd = null;
+      for (const cmd of browserCmds) {
+        try {
+          if (spawnSync("which", [cmd]).status === 0) {
+            browserCmd = cmd;
+            break;
+          }
+        } catch {
+        }
+      }
+      if (browserCmd) {
+        spawn(browserCmd, [provider.url], { stdio: "ignore", detached: true }).unref();
+        setStatus({ message: `Opened ${provider.name} in browser.`, type: "success", loading: false });
+      } else {
+        setStatus({ message: `Copy to browser: ${provider.url}`, type: "info", loading: false });
+      }
+    }
+  };
   useEffect(() => {
     const timer = setInterval(() => {
       setBannerPhase((p) => (p + 1) % 50);
@@ -1559,209 +1503,30 @@ function App() {
       let streamHeaders = {};
       let isLocalStream = false;
       let allEmbedSources = [];
-      if (aaStream) {
-        source = { url: aaStream.url, quality: aaStream.quality, type: aaStream.type };
-        streamHeaders = { Referer: aaStream.referer, Origin: new URL(aaStream.referer).origin };
-        isLocalStream = true;
-        setStatus({ message: `Found Direct Stream: ${aaStream.quality}`, type: "success", loading: true });
-      } else if (torrentData?.magnet) {
-        magnetLink = torrentData.magnet;
-        isTorrent = true;
-        setStatus({ message: `Found Torrent, buffering...`, type: "success", loading: true });
-      } else if (sourcesData) {
-        allEmbedSources = sourcesData.sources || [];
-        source = pickPlayableSource(allEmbedSources);
-        streamHeaders = sourcesData.headers || {};
-        setStatus({ message: `Using Embed Fallback`, type: "success", loading: true });
+      const providers = [];
+      if (torrentData?.magnet) {
+        providers.push({ name: "Nyaa (Torrent)", type: "torrent", magnet: torrentData.magnet });
       }
-      if (!isTorrent && !source?.url) {
+      if (aaStream) {
+        providers.push({ name: "AllAnime (Direct)", type: "direct", url: aaStream.url, headers: { Referer: aaStream.referer, Origin: new URL(aaStream.referer).origin } });
+      }
+      if (sourcesData?.sources) {
+        sourcesData.sources.forEach((s) => {
+          if (s.url) providers.push({ name: s.quality || (s.url.includes("megaplay") ? "MegaPlay (Embed)" : "Anikoto (Embed)"), type: "embed", url: s.url });
+        });
+      }
+      if (providers.length === 0) {
         setStatus({ message: "No playable source found", type: "error", loading: false });
         return;
       }
-      const prevProgress = !startPosition ? getWatchProgress(selectedAnime?.id || "", item.number || 1) : null;
-      const resumeTime = startPosition || prevProgress?.watchTime || 0;
-      const directUrl = source.url;
-      const proxyHeaders = Buffer.from(JSON.stringify(streamHeaders)).toString("base64");
-      const proxyUrl = `${API_BASE}/api/stream?url=${encodeURIComponent(directUrl)}&h=${encodeURIComponent(proxyHeaders)}`;
-      const epAnimeTitle = selectedAnime?.label || animeInfo?.name || animeInfo?.title || "";
-      const title = `${epAnimeTitle || "Anime"} - Episode ${item.number} (${mode.toUpperCase()})`;
-      const animeId = selectedAnime?.id || "";
-      const episodeNum = item.number || 1;
-      if (isTorrent && magnetLink) {
-        setStatus({ message: `Opening Torrent in MPV...`, type: "success", loading: false });
-        const wtCmd = os.platform() === "win32" ? "npx.cmd" : "npx";
-        const args2 = ["-y", "webtorrent-cli", magnetLink, "--mpv"];
-        spawn(wtCmd, args2, { stdio: "ignore", detached: true }).unref();
-        if (animeId && epAnimeTitle) {
-          saveToHistory({ id: animeId, title: epAnimeTitle, episode: episodeNum, timestamp: Date.now(), category: audioType, totalEpisodes: totalEps });
-        }
-        return;
-      }
-      if (!isTorrent && isEmbedSource(source)) {
-        const embedUrls = [];
-        for (const s of allEmbedSources) {
-          if (s?.url && isEmbedSource(s)) {
-            const name = s.quality || (String(s.url).includes("megaplay") ? "MegaPlay" : "Anikoto");
-            if (!embedUrls.find((e) => e.url === s.url)) {
-              embedUrls.push({ url: s.url, name });
-            }
-          }
-        }
-        if (!embedUrls.find((e) => e.url === directUrl)) {
-          embedUrls.unshift({ url: directUrl, name: source.quality || "Embed" });
-        }
-        const browserCmds = ["xdg-open", "open", "firefox", "chromium", "google-chrome"];
-        let browserCmd = null;
-        for (const cmd of browserCmds) {
-          try {
-            const which = spawnSync("which", [cmd], { encoding: "utf8" });
-            if (which.status === 0) {
-              browserCmd = cmd;
-              break;
-            }
-          } catch {
-          }
-        }
-        if (browserCmd) {
-          spawn(browserCmd, [embedUrls[0].url], { stdio: "ignore", detached: true }).unref();
-          const altMsg = embedUrls.length > 1 ? ` \u2502 Alt: press b\u2192episode to try ${embedUrls[1].name}` : "";
-          setStatus({
-            message: `Opened ${embedUrls[0].name} in browser. If 404, try re-selecting the episode for ${embedUrls.length > 1 ? embedUrls[1].name : "another source"}.${altMsg}`,
-            type: "success",
-            loading: false
-          });
-        } else {
-          const urlList = embedUrls.map((e) => `${e.name}: ${e.url}`).join(" | ");
-          setStatus({ message: `Copy to browser \u2192 ${urlList}`, type: "info", loading: false });
-        }
-        if (animeId && epAnimeTitle) {
-          saveToHistory({ id: animeId, title: epAnimeTitle, episode: episodeNum, timestamp: Date.now(), category: audioType, totalEpisodes: totalEps });
-        }
-        return;
-      }
-      const player = getPlayerCommand();
-      if (!player) {
-        setStatus({ message: "No player found. Install mpv or vlc.", type: "warning", loading: false });
-        return;
-      }
-      const sourceReferer = source.headers?.Referer || streamHeaders.Referer || streamHeaders.referer || "https://megaplay.buzz";
-      const sourceOrigin = source.headers?.Origin || streamHeaders.Origin || streamHeaders.origin || new URL(sourceReferer).origin;
-      const ipcPath = `/tmp/nycli-mpv-${process.pid}.sock`;
-      let args = [];
-      if (player === "mpv") {
-        args = [
-          "--ytdl=no",
-          `--force-media-title=${title}`,
-          `--input-ipc-server=${ipcPath}`
-        ];
-        args.push(`--http-header-fields=Referer: ${sourceReferer},Origin: ${sourceOrigin}`);
-        args.push(`--referrer=${sourceReferer}`);
-        const settings = loadSettings();
-        if (settings.anime4k && isAnime4kInstalled()) {
-          const shaderPath = getAnime4kShaders(settings.anime4kMode);
-          args.push(`--glsl-shaders=${shaderPath}`);
-          args.push("--profile=gpu-hq");
-        }
-        if (resumeTime > 5) {
-          args.push(`--start=${Math.floor(resumeTime)}`);
-          setStatus({ message: `Resuming from ${formatTime(resumeTime)}...`, type: "success", loading: false });
-        } else {
-          setStatus({ message: `Opening ${player}...`, type: "success", loading: false });
-        }
-        args.push(directUrl);
-      } else if (player === "vlc") {
-        args = ["--meta-title", title, "--play-and-exit"];
-        args.push(`--http-referrer=${sourceReferer}`);
-        if (resumeTime > 5) args.push(`--start-time=${Math.floor(resumeTime)}`);
-        args.push(directUrl);
-        setStatus({ message: `Opening ${player}...`, type: "success", loading: false });
-      } else {
-        args = [proxyUrl];
-        setStatus({ message: `Opening ${player}...`, type: "success", loading: false });
-      }
-      const child = spawn(player, args, { stdio: "ignore", detached: false });
-      if (player === "mpv") {
-        let lastPosition = 0;
-        let duration = 0;
-        const trackProgress = async () => {
-          try {
-            await new Promise((r) => setTimeout(r, 2e3));
-            const net = __require("node:net");
-            const client = new net.Socket();
-            client.connect(ipcPath, () => {
-              const poll = setInterval(() => {
-                try {
-                  client.write('{"command": ["get_property", "time-pos"]}\n');
-                  client.write('{"command": ["get_property", "duration"]}\n');
-                } catch {
-                  clearInterval(poll);
-                }
-              }, 5e3);
-              client.on("close", () => {
-                clearInterval(poll);
-                if (lastPosition > 0 && animeId && epAnimeTitle) {
-                  saveWatchProgress(animeId, episodeNum, lastPosition, duration);
-                  saveToHistory({
-                    id: animeId,
-                    title: epAnimeTitle,
-                    episode: episodeNum,
-                    timestamp: Date.now(),
-                    category: audioType,
-                    watchTime: lastPosition,
-                    duration,
-                    totalEpisodes: totalEps
-                  });
-                  setHistory(getHistory());
-                }
-              });
-            });
-            client.on("data", (data) => {
-              const lines = data.toString().split("\n").filter(Boolean);
-              for (const line of lines) {
-                try {
-                  const json = JSON.parse(line);
-                  if (json.data !== void 0 && json.data !== null) {
-                    if (typeof json.data === "number") {
-                      if (json.data > 60 && json.data < 7200) {
-                        if (duration === 0 || Math.abs(json.data - duration) < 10) {
-                          duration = json.data;
-                        }
-                      }
-                      if (duration > 0 && json.data < duration) {
-                        lastPosition = json.data;
-                      } else if (duration === 0) {
-                        lastPosition = json.data;
-                      }
-                    }
-                  }
-                } catch {
-                }
-              }
-            });
-            client.on("error", () => {
-            });
-          } catch {
-          }
-        };
-        trackProgress();
-      }
-      child.on("exit", () => {
-        try {
-          __require("fs").unlinkSync(ipcPath);
-        } catch {
-        }
-      });
-      setStatus({ message: "Player launched! Select another episode or press b to go back.", type: "info", loading: false });
-      if (animeId && animeTitle) {
-        saveToHistory({
-          id: animeId,
-          title: animeTitle,
-          episode: episodeNum,
-          timestamp: Date.now(),
-          category: audioType,
-          totalEpisodes: totalEps
-        });
-        setHistory(getHistory());
+      setPlayingProviders(providers);
+      setPlayingProviderIndex(0);
+      setPlayingEpisode(item);
+      setPlayingPaused(false);
+      setScreen("playing");
+      playProvider(providers[0]);
+      if (animeId && epAnimeTitle) {
+        saveToHistory({ id: animeId, title: epAnimeTitle, episode: episodeNum, timestamp: Date.now(), category: audioType, totalEpisodes: totalEps });
       }
     } catch (err) {
       setStatus({ message: `Stream error: ${err.message}`, type: "error", loading: false });
@@ -2009,7 +1774,44 @@ function App() {
       text: "~ Youkoso! Welcome to NyAnime CLI! ~",
       onComplete: () => setShowWelcome(false)
     }
-  )), screen === "main-menu" && !showWelcome && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: 55, alignItems: "center" }, loggedIn ? /* @__PURE__ */ React.createElement(Box, { marginBottom: 1, borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 0, width: 55 }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "Okaeri, "), /* @__PURE__ */ React.createElement(ShimmerText, { text: username, speed: 150 }), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "!")) : /* @__PURE__ */ React.createElement(Box, { marginBottom: 1, borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 0, width: 55 }, /* @__PURE__ */ React.createElement(WaveText, { text: "Irasshaimase! Sign in for all features", colors: [theme.purple, theme.blue, theme.pink, theme.cyan], speed: 150 })), /* @__PURE__ */ React.createElement(
+  )), screen === "playing" && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", alignItems: "center", marginTop: 1 }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.cyan, padding: 1, flexDirection: "column", alignItems: "center" }, /* @__PURE__ */ React.createElement(Text, { color: theme.yellow, bold: true }, "Now Playing"), /* @__PURE__ */ React.createElement(Text, { color: theme.white }, selectedAnime?.label), /* @__PURE__ */ React.createElement(Text, { color: theme.white }, "Episode ", playingEpisode?.number), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "Provider: ", playingProviders[playingProviderIndex]?.name)), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(
+    SelectList,
+    {
+      items: [
+        { label: playingPaused ? "\u25B6 Resume Player" : "\u23F8 Pause Player", value: "pause" },
+        { label: "\u23ED Next Episode", value: "next" },
+        { label: "\u23EE Previous Episode", value: "prev" },
+        { label: "\u2B07 Download Episode", value: "download" },
+        { label: "\u2699 Switch Provider", value: "provider" },
+        { label: "\u21A9 Back to Episodes", value: "back" }
+      ],
+      onSelect: (i) => {
+        if (i.value === "pause") {
+          togglePause();
+        } else if (i.value === "back") {
+          spawnSync("killall", ["-9", "mpv", "webtorrent-cli"]);
+          setScreen("episode-select");
+        } else if (i.value === "next") {
+          spawnSync("killall", ["-9", "mpv", "webtorrent-cli"]);
+          const nextEp = episodes.find((e) => e.number === (playingEpisode?.number || 0) + 1);
+          if (nextEp) handleEpisodeSelect(nextEp);
+        } else if (i.value === "prev") {
+          spawnSync("killall", ["-9", "mpv", "webtorrent-cli"]);
+          const prevEp = episodes.find((e) => e.number === (playingEpisode?.number || 0) - 1);
+          if (prevEp) handleEpisodeSelect(prevEp);
+        } else if (i.value === "download") {
+          handleDownloadStart(playingEpisode);
+          setStatus({ message: "Added to download queue!", type: "success" });
+        } else if (i.value === "provider") {
+          spawnSync("killall", ["-9", "mpv", "webtorrent-cli"]);
+          const nextIndex = (playingProviderIndex + 1) % playingProviders.length;
+          setPlayingProviderIndex(nextIndex);
+          playProvider(playingProviders[nextIndex]);
+        }
+      },
+      color: theme.magenta
+    }
+  ))), screen === "main-menu" && !showWelcome && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: 55, alignItems: "center" }, loggedIn ? /* @__PURE__ */ React.createElement(Box, { marginBottom: 1, borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 0, width: 55 }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "Okaeri, "), /* @__PURE__ */ React.createElement(ShimmerText, { text: username, speed: 150 }), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "!")) : /* @__PURE__ */ React.createElement(Box, { marginBottom: 1, borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 0, width: 55 }, /* @__PURE__ */ React.createElement(WaveText, { text: "Irasshaimase! Sign in for all features", colors: [theme.purple, theme.blue, theme.pink, theme.cyan], speed: 150 })), /* @__PURE__ */ React.createElement(
     SelectList,
     {
       items: loggedIn ? loggedInMenuItems : loggedOutMenuItems,
