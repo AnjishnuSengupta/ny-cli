@@ -9,8 +9,8 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 
-const API_BASE = process.env.NYCLI_API_BASE || 'http://localhost:3000';
-const VERSION = '6.0.0';
+const API_BASE = process.env.NYCLI_API_BASE || 'http://localhost:43201';
+const VERSION = '6.0.1';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION

@@ -1,5 +1,5 @@
 Name:           ny-cli
-Version:        6.0.0
+Version:        6.0.1
 Release:        1%{?dist}
 Summary:        Beautiful terminal anime streaming client with artwork display and cloud sync
 

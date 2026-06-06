@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# NY-CLI v6.0.0 - Terminal Anime Streaming Client
+# NY-CLI v6.0.1 - Terminal Anime Streaming Client
 # https://github.com/AnjishnuSengupta/ny-cli
 
 set -e
@@ -15,8 +15,8 @@ SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
 # Check if backend is already running
 check_backend() {
-    # Check if port 3000 is responding and it's our backend
-    curl -sf --connect-timeout 1 "http://127.0.0.1:3000/" 2>/dev/null | grep -q '"status":"ok"' && return 0
+    # Check if port 43201 is responding and it's our backend
+    curl -sf --connect-timeout 1 "http://127.0.0.1:43201/" 2>/dev/null | grep -q '"status":"ok"' && return 0
     return 1
 }
 

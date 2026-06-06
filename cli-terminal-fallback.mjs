@@ -31,8 +31,8 @@ var getFirebaseConfig = () => {
 };
 
 // cli-terminal.tsx
-var API_BASE = process.env.NYCLI_API_BASE || "http://localhost:3000";
-var VERSION = "6.0.0";
+var API_BASE = process.env.NYCLI_API_BASE || "http://localhost:43201";
+var VERSION = "6.0.1";
 var fbConfig = getFirebaseConfig();
 var FIREBASE_PROJECT_ID = fbConfig.projectId;
 var FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
