@@ -32,7 +32,7 @@ var getFirebaseConfig = () => {
 
 // cli-terminal.tsx
 var API_BASE = process.env.NYCLI_API_BASE || "http://localhost:43201";
-var VERSION = "6.0.5";
+var VERSION = "6.0.6";
 var fbConfig = getFirebaseConfig();
 var FIREBASE_PROJECT_ID = fbConfig.projectId;
 var FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -1541,22 +1541,17 @@ function App() {
       const mode = audioType === "dub" ? "dub" : "sub";
       const epIdParts = String(item.episodeId || "").split("::");
       const malId = epIdParts[0] === "ep" ? Number(epIdParts[1]) : void 0;
-      setStatus({ message: `Resolving stream locally (AllAnime)...`, type: "info", loading: true });
-      const aaStream = await resolveAllAnimeStream(animeTitle, epNo, mode, malId);
+      setStatus({ message: `Resolving fastest available stream...`, type: "info", loading: true });
+      const [aaResult, torrentResult, embedResult] = await Promise.allSettled([
+        resolveAllAnimeStream(animeTitle, epNo, mode, malId),
+        getJson(`/api/torrent?title=${encodeURIComponent(animeTitle)}&ep=${epNo}`),
+        getJson(`/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId)}&category=${mode}&audio=${mode}&title=${encodeURIComponent(animeTitle)}&title_ro=${encodeURIComponent(animeJName)}&episodeNo=${epNo}&totalEpisodes=${totalEps}`)
+      ]);
+      const aaStream = aaResult.status === "fulfilled" ? aaResult.value : null;
+      const torrentData = torrentResult.status === "fulfilled" ? torrentResult.value : null;
+      const sourcesData = embedResult.status === "fulfilled" ? embedResult.value : null;
       let isTorrent = false;
       let magnetLink = "";
-      if (!aaStream) {
-        setStatus({ message: `AllAnime unavailable, searching Torrents (Nyaa)...`, type: "info", loading: true });
-        try {
-          const torrentData = await getJson(`/api/torrent?title=${encodeURIComponent(animeTitle)}&ep=${epNo}`);
-          if (torrentData?.magnet) {
-            magnetLink = torrentData.magnet;
-            isTorrent = true;
-            setStatus({ message: `Found Torrent, buffering...`, type: "success", loading: true });
-          }
-        } catch {
-        }
-      }
       let source = null;
       let streamHeaders = {};
       let isLocalStream = false;
@@ -1565,15 +1560,16 @@ function App() {
         source = { url: aaStream.url, quality: aaStream.quality, type: aaStream.type };
         streamHeaders = { Referer: aaStream.referer, Origin: new URL(aaStream.referer).origin };
         isLocalStream = true;
-        setStatus({ message: `Found: ${aaStream.quality}`, type: "success", loading: true });
-      } else if (!isTorrent) {
-        setStatus({ message: `No Torrent found, trying embeds...`, type: "info", loading: true });
-        const sourcesData = await getJson(
-          `/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId)}&category=${mode}&audio=${mode}&title=${encodeURIComponent(animeTitle)}&title_ro=${encodeURIComponent(animeJName)}&episodeNo=${epNo}&totalEpisodes=${totalEps}`
-        );
-        allEmbedSources = sourcesData?.sources || [];
+        setStatus({ message: `Found Direct Stream: ${aaStream.quality}`, type: "success", loading: true });
+      } else if (torrentData?.magnet) {
+        magnetLink = torrentData.magnet;
+        isTorrent = true;
+        setStatus({ message: `Found Torrent, buffering...`, type: "success", loading: true });
+      } else if (sourcesData) {
+        allEmbedSources = sourcesData.sources || [];
         source = pickPlayableSource(allEmbedSources);
-        streamHeaders = sourcesData?.headers || {};
+        streamHeaders = sourcesData.headers || {};
+        setStatus({ message: `Using Embed Fallback`, type: "success", loading: true });
       }
       if (!isTorrent && !source?.url) {
         setStatus({ message: "No playable source found", type: "error", loading: false });
@@ -1798,17 +1794,31 @@ function App() {
       try {
         const epIdParts = String(task.id || "").split("::");
         const malId = epIdParts[0] === "ep" ? Number(epIdParts[1]) : void 0;
-        let isTorrent = false;
-        let magnetLink = "";
         const safeTitle = task.animeTitle.replace(/[^a-zA-Z0-9]/g, "_");
         const outDir = path.join(os.homedir(), "Downloads", "ny-cli", safeTitle);
-        try {
-          const torrentData = await getJson(`/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`);
-          if (torrentData?.magnet) {
-            magnetLink = torrentData.magnet;
-            isTorrent = true;
-          }
-        } catch {
+        const [aaResult, torrentResult, embedResult] = await Promise.allSettled([
+          resolveAllAnimeStream(task.animeTitle, task.episodeNumber, audioType, malId),
+          getJson(`/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`),
+          fetch(`${NYANIME_BASE}/api/embeds`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              malId,
+              episodeId: task.id,
+              episodeNumber: task.episodeNumber,
+              title: task.animeTitle,
+              audioType
+            })
+          }).then((res) => res.json())
+        ]);
+        const aaStream = aaResult.status === "fulfilled" ? aaResult.value : null;
+        const torrentData = torrentResult.status === "fulfilled" ? torrentResult.value : null;
+        const embedData = embedResult.status === "fulfilled" ? embedResult.value : null;
+        let isTorrent = false;
+        let magnetLink = "";
+        if (torrentData?.magnet) {
+          magnetLink = torrentData.magnet;
+          isTorrent = true;
         }
         if (isTorrent && magnetLink) {
           if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
@@ -1849,27 +1859,12 @@ function App() {
         }
         let streamUrl = "";
         let streamHeaders = {};
-        const aaStream = await resolveAllAnimeStream(task.animeTitle, task.episodeNumber, audioType, malId);
-        if (aaStream && aaStream.url) {
+        if (aaStream?.url) {
           streamUrl = aaStream.url;
-        } else {
-          const res = await fetch(`${NYANIME_BASE}/api/embeds`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              malId,
-              episodeId: task.id,
-              episodeNumber: task.episodeNumber,
-              title: task.animeTitle,
-              audioType
-            })
-          });
-          const data = await res.json();
-          if (data.success && data.sources && data.sources.length > 0) {
-            const defaultSource = data.sources.find((s) => s.isM3U8) || data.sources[0];
-            streamUrl = defaultSource.url;
-            if (data.headers) streamHeaders = data.headers;
-          }
+        } else if (embedData?.success && embedData.sources?.length > 0) {
+          const defaultSource = embedData.sources.find((s) => s.isM3U8) || embedData.sources[0];
+          streamUrl = defaultSource.url;
+          if (embedData.headers) streamHeaders = embedData.headers;
         }
         if (!streamUrl) {
           throw new Error("No stream found");

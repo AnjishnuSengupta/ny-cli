@@ -10,7 +10,7 @@ import os from 'node:os';
 import http from 'node:http';
 
 const API_BASE = process.env.NYCLI_API_BASE || 'http://localhost:43201';
-const VERSION = '6.0.5';
+const VERSION = '6.0.6';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
@@ -2457,45 +2457,45 @@ function App() {
       const epIdParts = String(item.episodeId || '').split('::');
       const malId = epIdParts[0] === 'ep' ? Number(epIdParts[1]) : undefined;
 
-      // ── 1. Try AllAnime locally (direct m3u8/mp4 → mpv) ─────────────────
-      setStatus({ message: `Resolving stream locally (AllAnime)...`, type: 'info', loading: true });
-      const aaStream = await resolveAllAnimeStream(animeTitle, epNo, mode, malId);
+      // ── Resolve All Sources Concurrently for Max Speed ──────────────────
+      setStatus({ message: `Resolving fastest available stream...`, type: 'info', loading: true });
 
-      // ── 2. Fall back: try Torrent (Nyaa) ────────────────────────────────────
+      const [aaResult, torrentResult, embedResult] = await Promise.allSettled([
+        resolveAllAnimeStream(animeTitle, epNo, mode, malId),
+        getJson(`/api/torrent?title=${encodeURIComponent(animeTitle)}&ep=${epNo}`),
+        getJson(`/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId!)}&category=${mode}&audio=${mode}&title=${encodeURIComponent(animeTitle)}&title_ro=${encodeURIComponent(animeJName)}&episodeNo=${epNo}&totalEpisodes=${totalEps}`)
+      ]);
+
+      const aaStream = aaResult.status === 'fulfilled' ? aaResult.value : null;
+      const torrentData = torrentResult.status === 'fulfilled' ? torrentResult.value : null;
+      const sourcesData = embedResult.status === 'fulfilled' ? embedResult.value : null;
+
       let isTorrent = false;
       let magnetLink = '';
-      if (!aaStream) {
-        setStatus({ message: `AllAnime unavailable, searching Torrents (Nyaa)...`, type: 'info', loading: true });
-        try {
-          const torrentData = await getJson(`/api/torrent?title=${encodeURIComponent(animeTitle)}&ep=${epNo}`);
-          if (torrentData?.magnet) {
-            magnetLink = torrentData.magnet;
-            isTorrent = true;
-            setStatus({ message: `Found Torrent, buffering...`, type: 'success', loading: true });
-          }
-        } catch {}
-      }
-
-      // ── 3. Fall back: get embed sources from backend ──────────────────────
       let source: any = null;
       let streamHeaders: Record<string, string> = {};
       let isLocalStream = false;
       let allEmbedSources: any[] = [];
 
+      // Priority 1: AllAnime (Fastest Direct Stream)
       if (aaStream) {
         source = { url: aaStream.url, quality: aaStream.quality, type: aaStream.type };
         streamHeaders = { Referer: aaStream.referer, Origin: new URL(aaStream.referer).origin };
         isLocalStream = true;
-        setStatus({ message: `Found: ${aaStream.quality}`, type: 'success', loading: true });
-      } else if (!isTorrent) {
-        setStatus({ message: `No Torrent found, trying embeds...`, type: 'info', loading: true });
-        const sourcesData = await getJson(
-          `/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId!)}&category=${mode}&audio=${mode}&title=${encodeURIComponent(animeTitle)}&title_ro=${encodeURIComponent(animeJName)}&episodeNo=${epNo}&totalEpisodes=${totalEps}`
-        );
-        // Store all embed sources for sequential fallback
-        allEmbedSources = sourcesData?.sources || [];
+        setStatus({ message: `Found Direct Stream: ${aaStream.quality}`, type: 'success', loading: true });
+      } 
+      // Priority 2: Torrents (Guaranteed Local Stream)
+      else if (torrentData?.magnet) {
+        magnetLink = torrentData.magnet;
+        isTorrent = true;
+        setStatus({ message: `Found Torrent, buffering...`, type: 'success', loading: true });
+      } 
+      // Priority 3: Embeds (Browser Fallback)
+      else if (sourcesData) {
+        allEmbedSources = sourcesData.sources || [];
         source = pickPlayableSource(allEmbedSources);
-        streamHeaders = sourcesData?.headers || {};
+        streamHeaders = sourcesData.headers || {};
+        setStatus({ message: `Using Embed Fallback`, type: 'success', loading: true });
       }
 
       if (!isTorrent && !source?.url) {
@@ -2773,19 +2773,37 @@ function App() {
         const epIdParts = String(task.id || '').split('::');
         const malId = epIdParts[0] === 'ep' ? Number(epIdParts[1]) : undefined;
 
-        // Try Torrent first
-        let isTorrent = false;
-        let magnetLink = '';
         const safeTitle = task.animeTitle.replace(/[^a-zA-Z0-9]/g, '_');
         const outDir = path.join(os.homedir(), 'Downloads', 'ny-cli', safeTitle);
         
-        try {
-          const torrentData = await getJson(`/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`);
-          if (torrentData?.magnet) {
-             magnetLink = torrentData.magnet;
-             isTorrent = true;
-          }
-        } catch {}
+        // Fetch All Sources Concurrently for Max Speed
+        const [aaResult, torrentResult, embedResult] = await Promise.allSettled([
+          resolveAllAnimeStream(task.animeTitle, task.episodeNumber, audioType, malId),
+          getJson(`/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`),
+          fetch(`${NYANIME_BASE}/api/embeds`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                malId,
+                episodeId: task.id,
+                episodeNumber: task.episodeNumber,
+                title: task.animeTitle,
+                audioType
+              })
+          }).then(res => res.json())
+        ]);
+
+        const aaStream = aaResult.status === 'fulfilled' ? aaResult.value : null;
+        const torrentData = torrentResult.status === 'fulfilled' ? torrentResult.value : null;
+        const embedData = embedResult.status === 'fulfilled' ? embedResult.value : null;
+
+        // Try Torrent first for downloading (most robust)
+        let isTorrent = false;
+        let magnetLink = '';
+        if (torrentData?.magnet) {
+          magnetLink = torrentData.magnet;
+          isTorrent = true;
+        }
 
         if (isTorrent && magnetLink) {
           if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
@@ -2803,12 +2821,9 @@ function App() {
 
           wtProcess.stdout.on('data', (data: any) => {
              const output = data.toString();
-             // Match percentages like 45.2% or 45%
              const progressMatch = output.match(/(\d+(?:\.\d+)?)%/);
              if (progressMatch) {
                 const progress = Math.min(100, Math.floor(parseFloat(progressMatch[1])));
-                
-                // Extract speed or ETA if possible to show in message
                 let msg = 'Downloading Torrent...';
                 const speedMatch = output.match(/([0-9.]+ [KMG]B\/s)/);
                 if (speedMatch) msg = `Speed: ${speedMatch[1]}`;
@@ -2834,31 +2849,16 @@ function App() {
           return;
         }
 
-        // Fallback: Direct stream with FFMpeg
+        // Fallback: Direct stream with FFMpeg (AllAnime > Embeds)
         let streamUrl = '';
         let streamHeaders: any = {};
 
-        const aaStream = await resolveAllAnimeStream(task.animeTitle, task.episodeNumber, audioType, malId);
-        if (aaStream && aaStream.url) {
+        if (aaStream?.url) {
           streamUrl = aaStream.url;
-        } else {
-           const res = await fetch(`${NYANIME_BASE}/api/embeds`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                malId,
-                episodeId: task.id,
-                episodeNumber: task.episodeNumber,
-                title: task.animeTitle,
-                audioType
-              })
-           });
-           const data = await res.json();
-           if (data.success && data.sources && data.sources.length > 0) {
-             const defaultSource = data.sources.find((s: any) => s.isM3U8) || data.sources[0];
-             streamUrl = defaultSource.url;
-             if (data.headers) streamHeaders = data.headers;
-           }
+        } else if (embedData?.success && embedData.sources?.length > 0) {
+          const defaultSource = embedData.sources.find((s: any) => s.isM3U8) || embedData.sources[0];
+          streamUrl = defaultSource.url;
+          if (embedData.headers) streamHeaders = embedData.headers;
         }
 
         if (!streamUrl) {
