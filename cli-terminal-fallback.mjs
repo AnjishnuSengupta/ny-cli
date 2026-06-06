@@ -32,7 +32,7 @@ var getFirebaseConfig = () => {
 
 // cli-terminal.tsx
 var API_BASE = process.env.NYCLI_API_BASE || "http://localhost:43201";
-var VERSION = "6.0.3";
+var VERSION = "6.0.4";
 var fbConfig = getFirebaseConfig();
 var FIREBASE_PROJECT_ID = fbConfig.projectId;
 var FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -1798,6 +1798,54 @@ function App() {
       try {
         const epIdParts = String(task.id || "").split("::");
         const malId = epIdParts[0] === "ep" ? Number(epIdParts[1]) : void 0;
+        let isTorrent = false;
+        let magnetLink = "";
+        try {
+          const torrentData = await getJson(`/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`);
+          if (torrentData?.magnet) {
+            magnetLink = torrentData.magnet;
+            isTorrent = true;
+          }
+        } catch {
+        }
+        if (isTorrent && magnetLink) {
+          const outDir = path.join(os.homedir(), "Downloads", "ny-cli");
+          if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+          setDownloadQueue((prev) => {
+            const q = [...prev];
+            q[nextTaskIndex].message = "Downloading Torrent...";
+            return q;
+          });
+          const wtCmd = os.platform() === "win32" ? "npx.cmd" : "npx";
+          const args2 = ["-y", "webtorrent-cli", "download", magnetLink, "-o", outDir];
+          const wtProcess = spawn(wtCmd, args2);
+          wtProcess.stdout.on("data", (data) => {
+            const output = data.toString();
+            const progressMatch = output.match(/(\d+(?:\.\d+)?)%/);
+            if (progressMatch) {
+              const progress = Math.min(100, Math.floor(parseFloat(progressMatch[1])));
+              let msg = "Downloading Torrent...";
+              const speedMatch = output.match(/([0-9.]+ [KMG]B\/s)/);
+              if (speedMatch) msg = `Speed: ${speedMatch[1]}`;
+              setDownloadQueue((prev) => {
+                const q = [...prev];
+                q[nextTaskIndex].progress = progress;
+                q[nextTaskIndex].message = msg;
+                return q;
+              });
+            }
+          });
+          wtProcess.on("close", (code) => {
+            setDownloadQueue((prev) => {
+              const q = [...prev];
+              q[nextTaskIndex].status = code === 0 ? "completed" : "error";
+              q[nextTaskIndex].message = code === 0 ? "Completed" : "WebTorrent Error";
+              if (code === 0) q[nextTaskIndex].progress = 100;
+              return q;
+            });
+          });
+          return;
+        }
         let streamUrl = "";
         let streamHeaders = {};
         const aaStream = await resolveAllAnimeStream(task.animeTitle, task.episodeNumber, audioType, malId);
@@ -1829,7 +1877,7 @@ function App() {
         const filename = `${safeTitle}_Ep${task.episodeNumber}.mp4`;
         setDownloadQueue((prev) => {
           const q = [...prev];
-          q[nextTaskIndex].message = "Downloading...";
+          q[nextTaskIndex].message = "Downloading Embed...";
           return q;
         });
         const args = ["-y"];
