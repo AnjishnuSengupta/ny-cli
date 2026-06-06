@@ -10,7 +10,7 @@ import os from 'node:os';
 import http from 'node:http';
 
 const API_BASE = process.env.NYCLI_API_BASE || 'http://localhost:43201';
-const VERSION = '6.0.2';
+const VERSION = '6.0.3';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
@@ -2461,7 +2461,22 @@ function App() {
       setStatus({ message: `Resolving stream locally (AllAnime)...`, type: 'info', loading: true });
       const aaStream = await resolveAllAnimeStream(animeTitle, epNo, mode, malId);
 
-      // ── 2. Fall back: get embed sources from backend ──────────────────────
+      // ── 2. Fall back: try Torrent (Nyaa) ────────────────────────────────────
+      let isTorrent = false;
+      let magnetLink = '';
+      if (!aaStream) {
+        setStatus({ message: `AllAnime unavailable, searching Torrents (Nyaa)...`, type: 'info', loading: true });
+        try {
+          const torrentData = await getJson(`/api/torrent?title=${encodeURIComponent(animeTitle)}&ep=${epNo}`);
+          if (torrentData?.magnet) {
+            magnetLink = torrentData.magnet;
+            isTorrent = true;
+            setStatus({ message: `Found Torrent, buffering...`, type: 'success', loading: true });
+          }
+        } catch {}
+      }
+
+      // ── 3. Fall back: get embed sources from backend ──────────────────────
       let source: any = null;
       let streamHeaders: Record<string, string> = {};
       let isLocalStream = false;
@@ -2472,8 +2487,8 @@ function App() {
         streamHeaders = { Referer: aaStream.referer, Origin: new URL(aaStream.referer).origin };
         isLocalStream = true;
         setStatus({ message: `Found: ${aaStream.quality}`, type: 'success', loading: true });
-      } else {
-        setStatus({ message: `AllAnime unavailable, trying embeds...`, type: 'info', loading: true });
+      } else if (!isTorrent) {
+        setStatus({ message: `No Torrent found, trying embeds...`, type: 'info', loading: true });
         const sourcesData = await getJson(
           `/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId!)}&category=${mode}&audio=${mode}&title=${encodeURIComponent(animeTitle)}&title_ro=${encodeURIComponent(animeJName)}&episodeNo=${epNo}&totalEpisodes=${totalEps}`
         );
@@ -2483,7 +2498,7 @@ function App() {
         streamHeaders = sourcesData?.headers || {};
       }
 
-      if (!source?.url) {
+      if (!isTorrent && !source?.url) {
         setStatus({ message: 'No playable source found', type: 'error', loading: false });
         return;
       }
@@ -2505,8 +2520,22 @@ function App() {
       const episodeNum = item.number || 1;
 
 
+      // ── Torrent Stream: open in webtorrent-cli + mpv ───────────────────────
+      if (isTorrent && magnetLink) {
+        setStatus({ message: `Opening Torrent in MPV...`, type: 'success', loading: false });
+        const wtCmd = os.platform() === 'win32' ? 'npx.cmd' : 'npx';
+        const args = ['-y', 'webtorrent-cli', magnetLink, '--mpv'];
+        
+        spawn(wtCmd, args, { stdio: 'ignore', detached: true }).unref();
+
+        if (animeId && epAnimeTitle) {
+          saveToHistory({ id: animeId, title: epAnimeTitle, episode: episodeNum, timestamp: Date.now(), category: audioType, totalEpisodes: totalEps });
+        }
+        return;
+      }
+
       // ── Embed sources (MegaPlay / Anikoto): open in browser ─────────────
-      if (isEmbedSource(source)) {
+      if (!isTorrent && isEmbedSource(source)) {
         // Collect all embed URLs to try (MegaPlay first, then Anikoto)
         const embedUrls: Array<{url: string, name: string}> = [];
         for (const s of allEmbedSources) {

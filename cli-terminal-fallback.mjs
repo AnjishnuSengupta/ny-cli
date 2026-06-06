@@ -32,7 +32,7 @@ var getFirebaseConfig = () => {
 
 // cli-terminal.tsx
 var API_BASE = process.env.NYCLI_API_BASE || "http://localhost:43201";
-var VERSION = "6.0.2";
+var VERSION = "6.0.3";
 var fbConfig = getFirebaseConfig();
 var FIREBASE_PROJECT_ID = fbConfig.projectId;
 var FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -1543,6 +1543,20 @@ function App() {
       const malId = epIdParts[0] === "ep" ? Number(epIdParts[1]) : void 0;
       setStatus({ message: `Resolving stream locally (AllAnime)...`, type: "info", loading: true });
       const aaStream = await resolveAllAnimeStream(animeTitle, epNo, mode, malId);
+      let isTorrent = false;
+      let magnetLink = "";
+      if (!aaStream) {
+        setStatus({ message: `AllAnime unavailable, searching Torrents (Nyaa)...`, type: "info", loading: true });
+        try {
+          const torrentData = await getJson(`/api/torrent?title=${encodeURIComponent(animeTitle)}&ep=${epNo}`);
+          if (torrentData?.magnet) {
+            magnetLink = torrentData.magnet;
+            isTorrent = true;
+            setStatus({ message: `Found Torrent, buffering...`, type: "success", loading: true });
+          }
+        } catch {
+        }
+      }
       let source = null;
       let streamHeaders = {};
       let isLocalStream = false;
@@ -1552,8 +1566,8 @@ function App() {
         streamHeaders = { Referer: aaStream.referer, Origin: new URL(aaStream.referer).origin };
         isLocalStream = true;
         setStatus({ message: `Found: ${aaStream.quality}`, type: "success", loading: true });
-      } else {
-        setStatus({ message: `AllAnime unavailable, trying embeds...`, type: "info", loading: true });
+      } else if (!isTorrent) {
+        setStatus({ message: `No Torrent found, trying embeds...`, type: "info", loading: true });
         const sourcesData = await getJson(
           `/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId)}&category=${mode}&audio=${mode}&title=${encodeURIComponent(animeTitle)}&title_ro=${encodeURIComponent(animeJName)}&episodeNo=${epNo}&totalEpisodes=${totalEps}`
         );
@@ -1561,7 +1575,7 @@ function App() {
         source = pickPlayableSource(allEmbedSources);
         streamHeaders = sourcesData?.headers || {};
       }
-      if (!source?.url) {
+      if (!isTorrent && !source?.url) {
         setStatus({ message: "No playable source found", type: "error", loading: false });
         return;
       }
@@ -1574,7 +1588,17 @@ function App() {
       const title = `${epAnimeTitle || "Anime"} - Episode ${item.number} (${mode.toUpperCase()})`;
       const animeId = selectedAnime?.id || "";
       const episodeNum = item.number || 1;
-      if (isEmbedSource(source)) {
+      if (isTorrent && magnetLink) {
+        setStatus({ message: `Opening Torrent in MPV...`, type: "success", loading: false });
+        const wtCmd = os.platform() === "win32" ? "npx.cmd" : "npx";
+        const args2 = ["-y", "webtorrent-cli", magnetLink, "--mpv"];
+        spawn(wtCmd, args2, { stdio: "ignore", detached: true }).unref();
+        if (animeId && epAnimeTitle) {
+          saveToHistory({ id: animeId, title: epAnimeTitle, episode: episodeNum, timestamp: Date.now(), category: audioType, totalEpisodes: totalEps });
+        }
+        return;
+      }
+      if (!isTorrent && isEmbedSource(source)) {
         const embedUrls = [];
         for (const s of allEmbedSources) {
           if (s?.url && isEmbedSource(s)) {
