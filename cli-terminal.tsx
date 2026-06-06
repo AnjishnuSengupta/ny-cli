@@ -10,7 +10,7 @@ import os from 'node:os';
 import http from 'node:http';
 
 const API_BASE = process.env.NYCLI_API_BASE || 'http://localhost:43201';
-const VERSION = '6.0.10';
+const VERSION = '6.0.11';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
@@ -2929,7 +2929,7 @@ function App() {
                    const prevEp = episodes.find(e => e.number === (playingEpisode?.number || 0) - 1);
                    if (prevEp) handleEpisodeSelect(prevEp);
                  } else if (i.value === 'download') {
-                   handleDownloadStart(playingEpisode);
+                    if (playingEpisode) handleEpisodeAction('d', playingEpisode);
                    setStatus({ message: 'Added to download queue!', type: 'success' });
                  } else if (i.value === 'provider') {
                    // Cycle to the next provider and play it
@@ -2939,7 +2939,7 @@ function App() {
                    playProvider(playingProviders[nextIndex]);
                  }
                }}
-               color={theme.magenta}
+               color={theme.pink}
              />
           </Box>
         </Box>

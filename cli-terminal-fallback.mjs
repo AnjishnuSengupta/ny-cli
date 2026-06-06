@@ -32,7 +32,7 @@ var getFirebaseConfig = () => {
 
 // cli-terminal.tsx
 var API_BASE = process.env.NYCLI_API_BASE || "http://localhost:43201";
-var VERSION = "6.0.9";
+var VERSION = "6.0.10";
 var fbConfig = getFirebaseConfig();
 var FIREBASE_PROJECT_ID = fbConfig.projectId;
 var FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -1803,7 +1803,7 @@ function App() {
           const prevEp = episodes.find((e) => e.number === (playingEpisode?.number || 0) - 1);
           if (prevEp) handleEpisodeSelect(prevEp);
         } else if (i.value === "download") {
-          handleDownloadStart(playingEpisode);
+          if (playingEpisode) handleEpisodeAction("d", playingEpisode);
           setStatus({ message: "Added to download queue!", type: "success" });
         } else if (i.value === "provider") {
           spawnSync("killall", ["-9", "mpv", "webtorrent-cli"]);
@@ -1812,7 +1812,7 @@ function App() {
           playProvider(playingProviders[nextIndex]);
         }
       },
-      color: theme.magenta
+      color: theme.pink
     }
   ))), screen === "main-menu" && !showWelcome && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: 55, alignItems: "center" }, loggedIn ? /* @__PURE__ */ React.createElement(Box, { marginBottom: 1, borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 0, width: 55 }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "Okaeri, "), /* @__PURE__ */ React.createElement(ShimmerText, { text: username, speed: 150 }), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "!")) : /* @__PURE__ */ React.createElement(Box, { marginBottom: 1, borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 0, width: 55 }, /* @__PURE__ */ React.createElement(WaveText, { text: "Irasshaimase! Sign in for all features", colors: [theme.purple, theme.blue, theme.pink, theme.cyan], speed: 150 })), /* @__PURE__ */ React.createElement(
     SelectList,
