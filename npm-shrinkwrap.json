@@ -23,7 +23,7 @@
         "ink-text-input": "^6.0.0",
         "open": "^11.0.0",
         "react": "^18.3.1",
-        "react-devtools-core": "^4.28.5",
+        "react-devtools-core": "^7.0.1",
         "webtorrent": "^3.0.0",
         "webtorrent-cli": "^6.0.0"
       },
@@ -4701,28 +4701,13 @@
       }
     },
     "node_modules/react-devtools-core": {
-      "version": "4.28.5",
-      "resolved": "https://registry.npmjs.org/react-devtools-core/-/react-devtools-core-4.28.5.tgz",
-      "integrity": "sha512-cq/o30z9W2Wb4rzBefjv5fBalHU0rJGZCHAkf/RHSBWSSYwh8PlQTqqOJmgIIbBtpj27T6FIPXeomIjZtCNVqA==",
+      "version": "7.0.1",
+      "resolved": "https://registry.npmjs.org/react-devtools-core/-/react-devtools-core-7.0.1.tgz",
+      "integrity": "sha512-C3yNvRHaizlpiASzy7b9vbnBGLrhvdhl1CbdU6EnZgxPNbai60szdLtl+VL76UNOt5bOoVTOz5rNWZxgGt+Gsw==",
       "license": "MIT",
       "dependencies": {
         "shell-quote": "^1.6.1",
         "ws": "^7"
-      }
-    },
-    "node_modules/react-devtools-core/node_modules/utf-8-validate": {
-      "version": "5.0.10",
-      "resolved": "https://registry.npmjs.org/utf-8-validate/-/utf-8-validate-5.0.10.tgz",
-      "integrity": "sha512-Z6czzLq4u8fPOyx7TU6X3dvUZVvoJmxSQ+IcrlmagKhilxlhZgxPK6C5Jqbkw1IDUmFTM+cz9QDnnLTwDz/2gQ==",
-      "hasInstallScript": true,
-      "license": "MIT",
-      "optional": true,
-      "peer": true,
-      "dependencies": {
-        "node-gyp-build": "^4.3.0"
-      },
-      "engines": {
-        "node": ">=6.14.2"
       }
     },
     "node_modules/react-devtools-core/node_modules/ws": {
