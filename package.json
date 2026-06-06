@@ -51,7 +51,7 @@
     "ink-text-input": "^6.0.0",
     "open": "^11.0.0",
     "react": "^18.3.1",
-    "react-devtools-core": "^4.28.5",
+    "react-devtools-core": "^7.0.1",
     "webtorrent": "^3.0.0",
     "webtorrent-cli": "^6.0.0"
   },
