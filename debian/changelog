@@ -1,4 +1,4 @@
-ny-cli (6.0.7-1) unstable; urgency=medium
+ny-cli (6.0.8-1) unstable; urgency=medium
 
   * Self-hosted scraping via AllAnime adapter backend
   * Parallel server racing with Promise.any() for faster streaming

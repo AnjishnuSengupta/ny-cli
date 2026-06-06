@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ny-cli backend v6.0.7
+ * ny-cli backend v6.0.8
  * Provider chain: AniList GraphQL (search/meta) + Jikan (episodes) + MegaPlay embed (streaming)
  * AnimeKAI is down. AllAnime is CF-blocked. MegaPlay works reliably via iframe embed.
  */
@@ -214,7 +214,7 @@ function parseAnimeId(id) {
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.get('/', (req, res) => res.json({ status: 'ok', version: '6.0.7', providers: ['anilist', 'jikan', 'megaplay'] }));
+app.get('/', (req, res) => res.json({ status: 'ok', version: '6.0.8', providers: ['anilist', 'jikan', 'megaplay'] }));
 
 app.get('/api/aniwatch', async (req, res) => {
   const { action, q, id, episodeId, category, page, malId: qMalId, episodeNo: qEpNo } = req.query;
@@ -346,6 +346,58 @@ app.get('/api/aniwatch', async (req, res) => {
   } catch (e) {
     console.error('[/api/aniwatch]', e.message);
     return fail(res, 500, e.message || 'Internal error');
+  }
+});
+
+// ── Torrents (Nyaa.si Scraper) ────────────────────────────────────────────────
+app.get('/api/torrent', async (req, res) => {
+  const { title, ep } = req.query;
+  if (!title || !ep) return fail(res, 400, 'Missing title or ep');
+
+  try {
+    // Basic formatting for Nyaa search
+    const cleanTitle = title.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const epString = String(ep).padStart(2, '0');
+    
+    const query = encodeURIComponent(`[SubsPlease] ${cleanTitle} ${epString} 1080p`);
+    const fallbackQuery = encodeURIComponent(`${cleanTitle} ${epString} 1080p`);
+    const ultimateFallback = encodeURIComponent(`${cleanTitle} ${epString}`);
+    
+    let feedUrl = `https://nyaa.si/?page=rss&q=${query}&c=1_2&f=0`;
+    let response = await fetch(feedUrl, { signal: AbortSignal.timeout(5000) });
+    let text = await response.text();
+    
+    // If no items found, try fallback query
+    if (!text.includes('<item>')) {
+      feedUrl = `https://nyaa.si/?page=rss&q=${fallbackQuery}&c=1_2&f=0`;
+      response = await fetch(feedUrl, { signal: AbortSignal.timeout(5000) });
+      text = await response.text();
+    }
+    
+    if (!text.includes('<item>')) {
+      feedUrl = `https://nyaa.si/?page=rss&q=${ultimateFallback}&c=1_2&f=0`;
+      response = await fetch(feedUrl, { signal: AbortSignal.timeout(5000) });
+      text = await response.text();
+    }
+
+    const hashMatch = text.match(/<nyaa:infoHash>([a-zA-Z0-9]+)<\/nyaa:infoHash>/i);
+    const titleMatch = text.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i) || text.match(/<title>(.*?)<\/title>/i);
+    
+    if (hashMatch && hashMatch[1]) {
+      const infoHash = hashMatch[1];
+      // The first title tag is the channel title, so we should look for the item title
+      const itemTitleMatch = text.match(/<item>[\s\S]*?<title>(.*?)<\/title>/i);
+      const torrentName = itemTitleMatch && itemTitleMatch[1] ? encodeURIComponent(itemTitleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '')) : 'ny-cli-download';
+      
+      // Construct standard magnet link with basic trackers
+      let magnet = `magnet:?xt=urn:btih:${infoHash}&dn=${torrentName}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.leechers-paradise.org%3A6969%2Fannounce`;
+      return ok(res, { magnet }, 3600);
+    }
+    
+    return fail(res, 404, 'No torrent found');
+  } catch (e) {
+    console.error('[/api/torrent]', e.message);
+    return fail(res, 500, e.message);
   }
 });
 
@@ -497,6 +549,6 @@ app.get('/api/auth/login', (req, res) => {
 });
 
 app.listen(PORT, HOST, () => {
-  console.log(`[ny-cli] backend v6.0.7 on http://${HOST}:${PORT}`);
+  console.log(`[ny-cli] backend v6.0.8 on http://${HOST}:${PORT}`);
   console.log(`[ny-cli] providers: AniList (search/info) + Jikan (episodes) + MegaPlay/Anikoto (streaming)`);
 });

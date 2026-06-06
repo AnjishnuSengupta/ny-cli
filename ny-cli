@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# NY-CLI v6.0.7 - Terminal Anime Streaming Client
+# NY-CLI v6.0.8 - Terminal Anime Streaming Client
 # https://github.com/AnjishnuSengupta/ny-cli
 
 set -e
