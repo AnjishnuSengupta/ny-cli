@@ -8,6 +8,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import WebTorrent from 'webtorrent';
+import { resolveStream } from './providers/index.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -178,19 +179,7 @@ async function verifyEmbed(src) {
   }
 }
 
-// ── MegaPlay ──────────────────────────────────────────────────────────────────
-function megaplaySrc(id, epNo, lang = 'sub', type = 'mal') {
-  if (!id || !epNo) return null;
-  const url = `https://megaplay.buzz/stream/${type}/${id}/${epNo}/${lang}`;
-  return { url, embedUrl: url, quality: `MegaPlay (${type})`, type: 'embed', isM3U8: false, tracks: [] };
-}
-
-// Anikoto embed (alternative embed source)
-function anikotoSrc(id, epNo, type = 'mal') {
-  if (!id || !epNo) return null;
-  const url = `https://anikoto.live/stream/${type}/${id}/${epNo}/sub`;
-  return { url, embedUrl: url, quality: `Anikoto (${type})`, type: 'embed', isM3U8: false, tracks: [] };
-}
+// ── MegaPlay & Anikoto removed in favor of provider orchestration ──────────────
 
 // ── Decode episodeId → malId + epNo ──────────────────────────────────────────
 // Format: "ep::malId::epNo"  or  "anilist::anilistId" (info only)
@@ -214,7 +203,7 @@ function parseAnimeId(id) {
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.get('/', (req, res) => res.json({ status: 'ok', version: '6.0.8', providers: ['anilist', 'jikan', 'megaplay'] }));
+app.get('/', (req, res) => res.json({ status: 'ok', version: '6.0.12', providers: ['anilist', 'jikan', 'megaplay'] }));
 
 app.get('/api/aniwatch', async (req, res) => {
   const { action, q, id, episodeId, category, page, malId: qMalId, episodeNo: qEpNo } = req.query;
@@ -305,20 +294,9 @@ app.get('/api/aniwatch', async (req, res) => {
 
       if (!malId || !epNo) return fail(res, 400, 'Cannot resolve malId/epNo from episodeId');
 
-      let anilistId = req.query.anilistId ? Number(req.query.anilistId) : null;
-      let candidateSources = [];
-      const lang = cat === 'dub' ? 'dub' : 'sub';
-
-      if (malId) {
-        candidateSources.push(megaplaySrc(malId, epNo, lang, 'mal'));
-        candidateSources.push(anikotoSrc(malId, epNo, 'mal'));
-      }
-
-      if (anilistId) {
-        candidateSources.push(megaplaySrc(anilistId, epNo, lang, 'anilist'));
-        candidateSources.push(anikotoSrc(anilistId, epNo, 'anilist'));
-      }
-
+      // Since the new providers handle their own orchestration via /api/resolve-stream,
+      // the old /api/aniwatch?action=sources array approach is deprecated for actual playback.
+      // We will leave candidateSources empty here as it's no longer used for iframe resolution.
       candidateSources = candidateSources.filter(Boolean);
 
       // Verify all candidate sources concurrently to filter out fake 200 error pages
@@ -452,6 +430,21 @@ app.get('/api/image', async (req, res) => {
   } catch (error) {
     console.error('Image proxy error:', error);
     res.status(500).send('Error fetching image');
+  }
+});
+
+// ── Provider Orchestration ────────────────────────────────────────────────────
+app.get('/api/resolve-stream', async (req, res) => {
+  const { title, epNo, mode, malId } = req.query;
+  if (!title || !epNo) return fail(res, 400, 'Missing title or epNo');
+  
+  try {
+    const src = await resolveStream(title, Number(epNo), mode || 'sub', malId ? Number(malId) : null);
+    if (!src) return fail(res, 404, 'No playable sources available');
+    return ok(res, src, 0);
+  } catch (e) {
+    console.error('[/api/resolve-stream]', e.message);
+    return fail(res, 500, e.message);
   }
 });
 
