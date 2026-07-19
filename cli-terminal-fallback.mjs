@@ -1,9 +1,728 @@
 #!/usr/bin/env bun
-var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
-  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
-}) : x)(function(x) {
-  if (typeof require !== "undefined") return require.apply(this, arguments);
-  throw Error('Dynamic require of "' + x + '" is not supported');
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res, err) => function __init() {
+  if (err) throw err[0];
+  try {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  } catch (e) {
+    throw err = [e], e;
+  }
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// node_modules/is-docker/index.js
+import fs from "node:fs";
+function hasDockerEnv() {
+  try {
+    fs.statSync("/.dockerenv");
+    return true;
+  } catch {
+    return false;
+  }
+}
+function hasDockerCGroup() {
+  try {
+    return fs.readFileSync("/proc/self/cgroup", "utf8").includes("docker");
+  } catch {
+    return false;
+  }
+}
+function isDocker() {
+  if (isDockerCached === void 0) {
+    isDockerCached = hasDockerEnv() || hasDockerCGroup();
+  }
+  return isDockerCached;
+}
+var isDockerCached;
+var init_is_docker = __esm({
+  "node_modules/is-docker/index.js"() {
+  }
+});
+
+// node_modules/is-inside-container/index.js
+import fs2 from "node:fs";
+function isInsideContainer() {
+  if (cachedResult === void 0) {
+    cachedResult = hasContainerEnv() || isDocker();
+  }
+  return cachedResult;
+}
+var cachedResult, hasContainerEnv;
+var init_is_inside_container = __esm({
+  "node_modules/is-inside-container/index.js"() {
+    init_is_docker();
+    hasContainerEnv = () => {
+      try {
+        fs2.statSync("/run/.containerenv");
+        return true;
+      } catch {
+        return false;
+      }
+    };
+  }
+});
+
+// node_modules/is-wsl/index.js
+import process2 from "node:process";
+import os from "node:os";
+import fs3 from "node:fs";
+var isWsl, is_wsl_default;
+var init_is_wsl = __esm({
+  "node_modules/is-wsl/index.js"() {
+    init_is_inside_container();
+    isWsl = () => {
+      if (process2.platform !== "linux") {
+        return false;
+      }
+      if (os.release().toLowerCase().includes("microsoft")) {
+        if (isInsideContainer()) {
+          return false;
+        }
+        return true;
+      }
+      try {
+        if (fs3.readFileSync("/proc/version", "utf8").toLowerCase().includes("microsoft")) {
+          return !isInsideContainer();
+        }
+      } catch {
+      }
+      if (fs3.existsSync("/proc/sys/fs/binfmt_misc/WSLInterop") || fs3.existsSync("/run/WSL")) {
+        return !isInsideContainer();
+      }
+      return false;
+    };
+    is_wsl_default = process2.env.__IS_WSL_TEST__ ? isWsl : isWsl();
+  }
+});
+
+// node_modules/powershell-utils/index.js
+import process3 from "node:process";
+import { Buffer as Buffer2 } from "node:buffer";
+import { promisify } from "node:util";
+import childProcess from "node:child_process";
+var execFile, powerShellPath, executePowerShell;
+var init_powershell_utils = __esm({
+  "node_modules/powershell-utils/index.js"() {
+    execFile = promisify(childProcess.execFile);
+    powerShellPath = () => `${process3.env.SYSTEMROOT || process3.env.windir || String.raw`C:\Windows`}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
+    executePowerShell = async (command, options = {}) => {
+      const {
+        powerShellPath: psPath,
+        ...execFileOptions
+      } = options;
+      const encodedCommand = executePowerShell.encodeCommand(command);
+      return execFile(
+        psPath ?? powerShellPath(),
+        [
+          ...executePowerShell.argumentsPrefix,
+          encodedCommand
+        ],
+        {
+          encoding: "utf8",
+          ...execFileOptions
+        }
+      );
+    };
+    executePowerShell.argumentsPrefix = [
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand"
+    ];
+    executePowerShell.encodeCommand = (command) => Buffer2.from(command, "utf16le").toString("base64");
+    executePowerShell.escapeArgument = (value) => `'${String(value).replaceAll("'", "''")}'`;
+  }
+});
+
+// node_modules/wsl-utils/utilities.js
+function parseMountPointFromConfig(content) {
+  for (const line of content.split("\n")) {
+    if (/^\s*#/.test(line)) {
+      continue;
+    }
+    const match = /^\s*root\s*=\s*(?<mountPoint>"[^"]*"|'[^']*'|[^#]*)/.exec(line);
+    if (!match) {
+      continue;
+    }
+    return match.groups.mountPoint.trim().replaceAll(/^["']|["']$/g, "");
+  }
+}
+var init_utilities = __esm({
+  "node_modules/wsl-utils/utilities.js"() {
+  }
+});
+
+// node_modules/wsl-utils/index.js
+import { promisify as promisify2 } from "node:util";
+import childProcess2 from "node:child_process";
+import fs4, { constants as fsConstants } from "node:fs/promises";
+var execFile2, wslDrivesMountPoint, powerShellPathFromWsl, powerShellPath2, canAccessPowerShellPromise, canAccessPowerShell, wslDefaultBrowser, convertWslPathToWindows;
+var init_wsl_utils = __esm({
+  "node_modules/wsl-utils/index.js"() {
+    init_is_wsl();
+    init_powershell_utils();
+    init_utilities();
+    init_is_wsl();
+    execFile2 = promisify2(childProcess2.execFile);
+    wslDrivesMountPoint = /* @__PURE__ */ (() => {
+      const defaultMountPoint = "/mnt/";
+      let mountPoint;
+      return async function() {
+        if (mountPoint) {
+          return mountPoint;
+        }
+        const configFilePath = "/etc/wsl.conf";
+        let isConfigFileExists = false;
+        try {
+          await fs4.access(configFilePath, fsConstants.F_OK);
+          isConfigFileExists = true;
+        } catch {
+        }
+        if (!isConfigFileExists) {
+          return defaultMountPoint;
+        }
+        const configContent = await fs4.readFile(configFilePath, { encoding: "utf8" });
+        const parsedMountPoint = parseMountPointFromConfig(configContent);
+        if (parsedMountPoint === void 0) {
+          return defaultMountPoint;
+        }
+        mountPoint = parsedMountPoint;
+        mountPoint = mountPoint.endsWith("/") ? mountPoint : `${mountPoint}/`;
+        return mountPoint;
+      };
+    })();
+    powerShellPathFromWsl = async () => {
+      const mountPoint = await wslDrivesMountPoint();
+      return `${mountPoint}c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`;
+    };
+    powerShellPath2 = is_wsl_default ? powerShellPathFromWsl : powerShellPath;
+    canAccessPowerShell = async () => {
+      canAccessPowerShellPromise ??= (async () => {
+        try {
+          const psPath = await powerShellPath2();
+          await fs4.access(psPath, fsConstants.X_OK);
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+      return canAccessPowerShellPromise;
+    };
+    wslDefaultBrowser = async () => {
+      const psPath = await powerShellPath2();
+      const command = String.raw`(Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\http\UserChoice").ProgId`;
+      const { stdout } = await executePowerShell(command, { powerShellPath: psPath });
+      return stdout.trim();
+    };
+    convertWslPathToWindows = async (path3) => {
+      if (/^[a-z]+:\/\//i.test(path3)) {
+        return path3;
+      }
+      try {
+        const { stdout } = await execFile2("wslpath", ["-aw", path3], { encoding: "utf8" });
+        return stdout.trim();
+      } catch {
+        return path3;
+      }
+    };
+  }
+});
+
+// node_modules/define-lazy-prop/index.js
+function defineLazyProperty(object, propertyName, valueGetter) {
+  const define = (value) => Object.defineProperty(object, propertyName, { value, enumerable: true, writable: true });
+  Object.defineProperty(object, propertyName, {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const result = valueGetter();
+      define(result);
+      return result;
+    },
+    set(value) {
+      define(value);
+    }
+  });
+  return object;
+}
+var init_define_lazy_prop = __esm({
+  "node_modules/define-lazy-prop/index.js"() {
+  }
+});
+
+// node_modules/default-browser-id/index.js
+import { promisify as promisify3 } from "node:util";
+import process4 from "node:process";
+import { execFile as execFile3 } from "node:child_process";
+async function defaultBrowserId() {
+  if (process4.platform !== "darwin") {
+    throw new Error("macOS only");
+  }
+  const { stdout } = await execFileAsync("defaults", ["read", "com.apple.LaunchServices/com.apple.launchservices.secure", "LSHandlers"]);
+  const match = /LSHandlerRoleAll = "(?!-)(?<id>[^"]+?)";\s+?LSHandlerURLScheme = (?:http|https);/.exec(stdout);
+  const browserId = match?.groups.id ?? "com.apple.Safari";
+  if (browserId === "com.apple.safari") {
+    return "com.apple.Safari";
+  }
+  return browserId;
+}
+var execFileAsync;
+var init_default_browser_id = __esm({
+  "node_modules/default-browser-id/index.js"() {
+    execFileAsync = promisify3(execFile3);
+  }
+});
+
+// node_modules/run-applescript/index.js
+import process5 from "node:process";
+import { promisify as promisify4 } from "node:util";
+import { execFile as execFile4, execFileSync } from "node:child_process";
+async function runAppleScript(script, { humanReadableOutput = true, signal } = {}) {
+  if (process5.platform !== "darwin") {
+    throw new Error("macOS only");
+  }
+  const outputArguments = humanReadableOutput ? [] : ["-ss"];
+  const execOptions = {};
+  if (signal) {
+    execOptions.signal = signal;
+  }
+  const { stdout } = await execFileAsync2("osascript", ["-e", script, outputArguments], execOptions);
+  return stdout.trim();
+}
+var execFileAsync2;
+var init_run_applescript = __esm({
+  "node_modules/run-applescript/index.js"() {
+    execFileAsync2 = promisify4(execFile4);
+  }
+});
+
+// node_modules/bundle-name/index.js
+async function bundleName(bundleId) {
+  return runAppleScript(`tell application "Finder" to set app_path to application file id "${bundleId}" as string
+tell application "System Events" to get value of property list item "CFBundleName" of property list file (app_path & ":Contents:Info.plist")`);
+}
+var init_bundle_name = __esm({
+  "node_modules/bundle-name/index.js"() {
+    init_run_applescript();
+  }
+});
+
+// node_modules/default-browser/windows.js
+import { promisify as promisify5 } from "node:util";
+import { execFile as execFile5 } from "node:child_process";
+async function defaultBrowser(_execFileAsync = execFileAsync3) {
+  const { stdout } = await _execFileAsync("reg", [
+    "QUERY",
+    " HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice",
+    "/v",
+    "ProgId"
+  ]);
+  const match = /ProgId\s*REG_SZ\s*(?<id>\S+)/.exec(stdout);
+  if (!match) {
+    throw new UnknownBrowserError(`Cannot find Windows browser in stdout: ${JSON.stringify(stdout)}`);
+  }
+  const { id } = match.groups;
+  const dotIndex = id.lastIndexOf(".");
+  const hyphenIndex = id.lastIndexOf("-");
+  const baseIdByDot = dotIndex === -1 ? void 0 : id.slice(0, dotIndex);
+  const baseIdByHyphen = hyphenIndex === -1 ? void 0 : id.slice(0, hyphenIndex);
+  return windowsBrowserProgIds[id] ?? windowsBrowserProgIds[baseIdByDot] ?? windowsBrowserProgIds[baseIdByHyphen] ?? { name: id, id };
+}
+var execFileAsync3, windowsBrowserProgIds, _windowsBrowserProgIdMap, UnknownBrowserError;
+var init_windows = __esm({
+  "node_modules/default-browser/windows.js"() {
+    execFileAsync3 = promisify5(execFile5);
+    windowsBrowserProgIds = {
+      MSEdgeHTM: { name: "Edge", id: "com.microsoft.edge" },
+      // The missing `L` is correct.
+      MSEdgeBHTML: { name: "Edge Beta", id: "com.microsoft.edge.beta" },
+      MSEdgeDHTML: { name: "Edge Dev", id: "com.microsoft.edge.dev" },
+      AppXq0fevzme2pys62n3e0fbqa7peapykr8v: { name: "Edge", id: "com.microsoft.edge.old" },
+      ChromeHTML: { name: "Chrome", id: "com.google.chrome" },
+      ChromeBHTML: { name: "Chrome Beta", id: "com.google.chrome.beta" },
+      ChromeDHTML: { name: "Chrome Dev", id: "com.google.chrome.dev" },
+      ChromiumHTM: { name: "Chromium", id: "org.chromium.Chromium" },
+      BraveHTML: { name: "Brave", id: "com.brave.Browser" },
+      BraveBHTML: { name: "Brave Beta", id: "com.brave.Browser.beta" },
+      BraveDHTML: { name: "Brave Dev", id: "com.brave.Browser.dev" },
+      BraveSSHTM: { name: "Brave Nightly", id: "com.brave.Browser.nightly" },
+      FirefoxURL: { name: "Firefox", id: "org.mozilla.firefox" },
+      OperaStable: { name: "Opera", id: "com.operasoftware.Opera" },
+      VivaldiHTM: { name: "Vivaldi", id: "com.vivaldi.Vivaldi" },
+      "IE.HTTP": { name: "Internet Explorer", id: "com.microsoft.ie" }
+    };
+    _windowsBrowserProgIdMap = new Map(Object.entries(windowsBrowserProgIds));
+    UnknownBrowserError = class extends Error {
+    };
+  }
+});
+
+// node_modules/default-browser/index.js
+import { promisify as promisify6 } from "node:util";
+import process6 from "node:process";
+import { execFile as execFile6 } from "node:child_process";
+async function defaultBrowser2() {
+  if (process6.platform === "darwin") {
+    const id = await defaultBrowserId();
+    const name = await bundleName(id);
+    return { name, id };
+  }
+  if (process6.platform === "linux") {
+    const { stdout } = await execFileAsync4("xdg-mime", ["query", "default", "x-scheme-handler/http"]);
+    const id = stdout.trim();
+    const name = titleize(id.replace(/.desktop$/, "").replace("-", " "));
+    return { name, id };
+  }
+  if (process6.platform === "win32") {
+    return defaultBrowser();
+  }
+  throw new Error("Only macOS, Linux, and Windows are supported");
+}
+var execFileAsync4, titleize;
+var init_default_browser = __esm({
+  "node_modules/default-browser/index.js"() {
+    init_default_browser_id();
+    init_bundle_name();
+    init_windows();
+    init_windows();
+    execFileAsync4 = promisify6(execFile6);
+    titleize = (string) => string.toLowerCase().replaceAll(/(?:^|\s|-)\S/g, (x) => x.toUpperCase());
+  }
+});
+
+// node_modules/is-in-ssh/index.js
+import process7 from "node:process";
+var isInSsh, is_in_ssh_default;
+var init_is_in_ssh = __esm({
+  "node_modules/is-in-ssh/index.js"() {
+    isInSsh = Boolean(process7.env.SSH_CONNECTION || process7.env.SSH_CLIENT || process7.env.SSH_TTY);
+    is_in_ssh_default = isInSsh;
+  }
+});
+
+// node_modules/open/index.js
+var open_exports = {};
+__export(open_exports, {
+  apps: () => apps,
+  default: () => open_default,
+  openApp: () => openApp
+});
+import process8 from "node:process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import childProcess3 from "node:child_process";
+import fs5, { constants as fsConstants2 } from "node:fs/promises";
+function detectArchBinary(binary) {
+  if (typeof binary === "string" || Array.isArray(binary)) {
+    return binary;
+  }
+  const { [arch]: archBinary } = binary;
+  if (!archBinary) {
+    throw new Error(`${arch} is not supported`);
+  }
+  return archBinary;
+}
+function detectPlatformBinary({ [platform]: platformBinary }, { wsl } = {}) {
+  if (wsl && is_wsl_default) {
+    return detectArchBinary(wsl);
+  }
+  if (!platformBinary) {
+    throw new Error(`${platform} is not supported`);
+  }
+  return detectArchBinary(platformBinary);
+}
+var fallbackAttemptSymbol, __dirname, localXdgOpenPath, platform, arch, tryEachApp, baseOpen, open, openApp, apps, open_default;
+var init_open = __esm({
+  "node_modules/open/index.js"() {
+    init_wsl_utils();
+    init_powershell_utils();
+    init_define_lazy_prop();
+    init_default_browser();
+    init_is_inside_container();
+    init_is_in_ssh();
+    fallbackAttemptSymbol = /* @__PURE__ */ Symbol("fallbackAttempt");
+    __dirname = import.meta.url ? path.dirname(fileURLToPath(import.meta.url)) : "";
+    localXdgOpenPath = path.join(__dirname, "xdg-open");
+    ({ platform, arch } = process8);
+    tryEachApp = async (apps2, opener) => {
+      if (apps2.length === 0) {
+        return;
+      }
+      const errors = [];
+      for (const app of apps2) {
+        try {
+          return await opener(app);
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      throw new AggregateError(errors, "Failed to open in all supported apps");
+    };
+    baseOpen = async (options) => {
+      options = {
+        wait: false,
+        background: false,
+        newInstance: false,
+        allowNonzeroExitCode: false,
+        ...options
+      };
+      const isFallbackAttempt = options[fallbackAttemptSymbol] === true;
+      delete options[fallbackAttemptSymbol];
+      if (Array.isArray(options.app)) {
+        return tryEachApp(options.app, (singleApp) => baseOpen({
+          ...options,
+          app: singleApp,
+          [fallbackAttemptSymbol]: true
+        }));
+      }
+      let { name: app, arguments: appArguments = [] } = options.app ?? {};
+      appArguments = [...appArguments];
+      if (Array.isArray(app)) {
+        return tryEachApp(app, (appName) => baseOpen({
+          ...options,
+          app: {
+            name: appName,
+            arguments: appArguments
+          },
+          [fallbackAttemptSymbol]: true
+        }));
+      }
+      if (app === "browser" || app === "browserPrivate") {
+        const ids = {
+          "com.google.chrome": "chrome",
+          "google-chrome.desktop": "chrome",
+          "com.brave.browser": "brave",
+          "org.mozilla.firefox": "firefox",
+          "firefox.desktop": "firefox",
+          "com.microsoft.msedge": "edge",
+          "com.microsoft.edge": "edge",
+          "com.microsoft.edgemac": "edge",
+          "microsoft-edge.desktop": "edge",
+          "com.apple.safari": "safari"
+        };
+        const flags = {
+          chrome: "--incognito",
+          brave: "--incognito",
+          firefox: "--private-window",
+          edge: "--inPrivate"
+          // Safari doesn't support private mode via command line
+        };
+        let browser;
+        if (is_wsl_default) {
+          const progId = await wslDefaultBrowser();
+          const browserInfo = _windowsBrowserProgIdMap.get(progId);
+          browser = browserInfo ?? {};
+        } else {
+          browser = await defaultBrowser2();
+        }
+        if (browser.id in ids) {
+          const browserName = ids[browser.id.toLowerCase()];
+          if (app === "browserPrivate") {
+            if (browserName === "safari") {
+              throw new Error("Safari doesn't support opening in private mode via command line");
+            }
+            appArguments.push(flags[browserName]);
+          }
+          return baseOpen({
+            ...options,
+            app: {
+              name: apps[browserName],
+              arguments: appArguments
+            }
+          });
+        }
+        throw new Error(`${browser.name} is not supported as a default browser`);
+      }
+      let command;
+      const cliArguments = [];
+      const childProcessOptions = {};
+      let shouldUseWindowsInWsl = false;
+      if (is_wsl_default && !isInsideContainer() && !is_in_ssh_default && !app) {
+        shouldUseWindowsInWsl = await canAccessPowerShell();
+      }
+      if (platform === "darwin") {
+        command = "open";
+        if (options.wait) {
+          cliArguments.push("--wait-apps");
+        }
+        if (options.background) {
+          cliArguments.push("--background");
+        }
+        if (options.newInstance) {
+          cliArguments.push("--new");
+        }
+        if (app) {
+          cliArguments.push("-a", app);
+        }
+      } else if (platform === "win32" || shouldUseWindowsInWsl) {
+        command = await powerShellPath2();
+        cliArguments.push(...executePowerShell.argumentsPrefix);
+        if (!is_wsl_default) {
+          childProcessOptions.windowsVerbatimArguments = true;
+        }
+        if (is_wsl_default && options.target) {
+          options.target = await convertWslPathToWindows(options.target);
+        }
+        const encodedArguments = ["$ProgressPreference = 'SilentlyContinue';", "Start"];
+        if (options.wait) {
+          encodedArguments.push("-Wait");
+        }
+        if (app) {
+          encodedArguments.push(executePowerShell.escapeArgument(app));
+          if (options.target) {
+            appArguments.push(options.target);
+          }
+        } else if (options.target) {
+          encodedArguments.push(executePowerShell.escapeArgument(options.target));
+        }
+        if (appArguments.length > 0) {
+          appArguments = appArguments.map((argument) => executePowerShell.escapeArgument(argument));
+          encodedArguments.push("-ArgumentList", appArguments.join(","));
+        }
+        options.target = executePowerShell.encodeCommand(encodedArguments.join(" "));
+        if (!options.wait) {
+          childProcessOptions.stdio = "ignore";
+        }
+      } else {
+        if (app) {
+          command = app;
+        } else {
+          const isBundled = !__dirname || __dirname === "/";
+          let exeLocalXdgOpen = false;
+          try {
+            await fs5.access(localXdgOpenPath, fsConstants2.X_OK);
+            exeLocalXdgOpen = true;
+          } catch {
+          }
+          const useSystemXdgOpen = process8.versions.electron ?? (platform === "android" || isBundled || !exeLocalXdgOpen);
+          command = useSystemXdgOpen ? "xdg-open" : localXdgOpenPath;
+        }
+        if (appArguments.length > 0) {
+          cliArguments.push(...appArguments);
+        }
+        if (!options.wait) {
+          childProcessOptions.stdio = "ignore";
+          childProcessOptions.detached = true;
+        }
+      }
+      if (platform === "darwin" && appArguments.length > 0) {
+        cliArguments.push("--args", ...appArguments);
+      }
+      if (options.target) {
+        cliArguments.push(options.target);
+      }
+      const subprocess = childProcess3.spawn(command, cliArguments, childProcessOptions);
+      if (options.wait) {
+        return new Promise((resolve, reject) => {
+          subprocess.once("error", reject);
+          subprocess.once("close", (exitCode) => {
+            if (!options.allowNonzeroExitCode && exitCode !== 0) {
+              reject(new Error(`Exited with code ${exitCode}`));
+              return;
+            }
+            resolve(subprocess);
+          });
+        });
+      }
+      if (isFallbackAttempt) {
+        return new Promise((resolve, reject) => {
+          subprocess.once("error", reject);
+          subprocess.once("spawn", () => {
+            subprocess.once("close", (exitCode) => {
+              subprocess.off("error", reject);
+              if (exitCode !== 0) {
+                reject(new Error(`Exited with code ${exitCode}`));
+                return;
+              }
+              subprocess.unref();
+              resolve(subprocess);
+            });
+          });
+        });
+      }
+      subprocess.unref();
+      return new Promise((resolve, reject) => {
+        subprocess.once("error", reject);
+        subprocess.once("spawn", () => {
+          subprocess.off("error", reject);
+          resolve(subprocess);
+        });
+      });
+    };
+    open = (target, options) => {
+      if (typeof target !== "string") {
+        throw new TypeError("Expected a `target`");
+      }
+      return baseOpen({
+        ...options,
+        target
+      });
+    };
+    openApp = (name, options) => {
+      if (typeof name !== "string" && !Array.isArray(name)) {
+        throw new TypeError("Expected a valid `name`");
+      }
+      const { arguments: appArguments = [] } = options ?? {};
+      if (appArguments !== void 0 && appArguments !== null && !Array.isArray(appArguments)) {
+        throw new TypeError("Expected `appArguments` as Array type");
+      }
+      return baseOpen({
+        ...options,
+        app: {
+          name,
+          arguments: appArguments
+        }
+      });
+    };
+    apps = {
+      browser: "browser",
+      browserPrivate: "browserPrivate"
+    };
+    defineLazyProperty(apps, "chrome", () => detectPlatformBinary({
+      darwin: "google chrome",
+      win32: "chrome",
+      // `chromium-browser` is the older deb package name used by Ubuntu/Debian before snap.
+      linux: ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]
+    }, {
+      wsl: {
+        ia32: "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+        x64: ["/mnt/c/Program Files/Google/Chrome/Application/chrome.exe", "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe"]
+      }
+    }));
+    defineLazyProperty(apps, "brave", () => detectPlatformBinary({
+      darwin: "brave browser",
+      win32: "brave",
+      linux: ["brave-browser", "brave"]
+    }, {
+      wsl: {
+        ia32: "/mnt/c/Program Files (x86)/BraveSoftware/Brave-Browser/Application/brave.exe",
+        x64: ["/mnt/c/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe", "/mnt/c/Program Files (x86)/BraveSoftware/Brave-Browser/Application/brave.exe"]
+      }
+    }));
+    defineLazyProperty(apps, "firefox", () => detectPlatformBinary({
+      darwin: "firefox",
+      win32: String.raw`C:\Program Files\Mozilla Firefox\firefox.exe`,
+      linux: "firefox"
+    }, {
+      wsl: "/mnt/c/Program Files/Mozilla Firefox/firefox.exe"
+    }));
+    defineLazyProperty(apps, "edge", () => detectPlatformBinary({
+      darwin: "microsoft edge",
+      win32: "msedge",
+      linux: ["microsoft-edge", "microsoft-edge-dev"]
+    }, {
+      wsl: "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+    }));
+    defineLazyProperty(apps, "safari", () => detectPlatformBinary({
+      darwin: "Safari"
+    }));
+    open_default = open;
+  }
 });
 
 // cli-terminal.tsx
@@ -12,9 +731,9 @@ import { render, Box, Text, useInput, useApp } from "ink";
 import TextInput from "ink-text-input";
 import Picture, { TerminalInfoProvider } from "ink-picture";
 import { spawn, spawnSync, execSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
+import fs6 from "node:fs";
+import path2 from "node:path";
+import os2 from "node:os";
 import http from "node:http";
 
 // firebase-config.ts
@@ -32,7 +751,7 @@ var getFirebaseConfig = () => {
 
 // cli-terminal.tsx
 var API_BASE = process.env.NYCLI_API_BASE || "http://localhost:43201";
-var VERSION = "6.0.10";
+var VERSION = "6.0.11";
 var fbConfig = getFirebaseConfig();
 var FIREBASE_PROJECT_ID = fbConfig.projectId;
 var FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -55,16 +774,16 @@ var theme = {
   red: "#EF4444"
 };
 var GRADIENT = [theme.purple, theme.blue, theme.pink];
-var CONFIG_DIR = process.env.XDG_CONFIG_HOME ? path.join(process.env.XDG_CONFIG_HOME, "ny-cli") : path.join(os.homedir(), ".config", "ny-cli");
-var DATA_DIR = process.env.XDG_DATA_HOME ? path.join(process.env.XDG_DATA_HOME, "ny-cli") : path.join(os.homedir(), ".local", "share", "ny-cli");
-var AUTH_FILE = path.join(CONFIG_DIR, "auth");
-var HISTORY_FILE = path.join(DATA_DIR, "history");
-var SETTINGS_FILE = path.join(CONFIG_DIR, "settings.json");
-var ANIME4K_DIR = path.join(DATA_DIR, "anime4k");
+var CONFIG_DIR = process.env.XDG_CONFIG_HOME ? path2.join(process.env.XDG_CONFIG_HOME, "ny-cli") : path2.join(os2.homedir(), ".config", "ny-cli");
+var DATA_DIR = process.env.XDG_DATA_HOME ? path2.join(process.env.XDG_DATA_HOME, "ny-cli") : path2.join(os2.homedir(), ".local", "share", "ny-cli");
+var AUTH_FILE = path2.join(CONFIG_DIR, "auth");
+var HISTORY_FILE = path2.join(DATA_DIR, "history");
+var SETTINGS_FILE = path2.join(CONFIG_DIR, "settings.json");
+var ANIME4K_DIR = path2.join(DATA_DIR, "anime4k");
 try {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.mkdirSync(ANIME4K_DIR, { recursive: true });
+  fs6.mkdirSync(CONFIG_DIR, { recursive: true });
+  fs6.mkdirSync(DATA_DIR, { recursive: true });
+  fs6.mkdirSync(ANIME4K_DIR, { recursive: true });
 } catch {
 }
 var defaultSettings = {
@@ -73,8 +792,8 @@ var defaultSettings = {
 };
 function loadSettings() {
   try {
-    if (fs.existsSync(SETTINGS_FILE)) {
-      return { ...defaultSettings, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")) };
+    if (fs6.existsSync(SETTINGS_FILE)) {
+      return { ...defaultSettings, ...JSON.parse(fs6.readFileSync(SETTINGS_FILE, "utf8")) };
     }
   } catch {
   }
@@ -82,21 +801,21 @@ function loadSettings() {
 }
 function saveSettings(settings) {
   try {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+    fs6.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
   } catch {
   }
 }
 function isAnime4kInstalled() {
   try {
-    const shaderPath = path.join(ANIME4K_DIR, "Anime4K_Clamp_Highlights.glsl");
-    return fs.existsSync(shaderPath);
+    const shaderPath = path2.join(ANIME4K_DIR, "Anime4K_Clamp_Highlights.glsl");
+    return fs6.existsSync(shaderPath);
   } catch {
     return false;
   }
 }
 function isLoggedIn() {
   try {
-    return fs.existsSync(AUTH_FILE) && fs.statSync(AUTH_FILE).size > 0;
+    return fs6.existsSync(AUTH_FILE) && fs6.statSync(AUTH_FILE).size > 0;
   } catch {
     return false;
   }
@@ -104,7 +823,7 @@ function isLoggedIn() {
 function getUsername() {
   try {
     if (!isLoggedIn()) return "";
-    const content = fs.readFileSync(AUTH_FILE, "utf8");
+    const content = fs6.readFileSync(AUTH_FILE, "utf8");
     return content.split("\n")[0] || "";
   } catch {
     return "";
@@ -113,7 +832,7 @@ function getUsername() {
 function getToken() {
   try {
     if (!isLoggedIn()) return "";
-    const content = fs.readFileSync(AUTH_FILE, "utf8");
+    const content = fs6.readFileSync(AUTH_FILE, "utf8");
     return content.split("\n")[1] || "";
   } catch {
     return "";
@@ -122,7 +841,7 @@ function getToken() {
 function getIdToken() {
   try {
     if (!isLoggedIn()) return "";
-    const content = fs.readFileSync(AUTH_FILE, "utf8");
+    const content = fs6.readFileSync(AUTH_FILE, "utf8");
     return content.split("\n")[2] || "";
   } catch {
     return "";
@@ -131,7 +850,7 @@ function getIdToken() {
 function getRefreshToken() {
   try {
     if (!isLoggedIn()) return "";
-    const content = fs.readFileSync(AUTH_FILE, "utf8");
+    const content = fs6.readFileSync(AUTH_FILE, "utf8");
     return content.split("\n")[3] || "";
   } catch {
     return "";
@@ -143,7 +862,7 @@ function saveAuth(username, token, idToken, refreshToken) {
     const existingRefresh = getRefreshToken();
     const finalIdToken = idToken || existingId;
     const finalRefreshToken = refreshToken || existingRefresh;
-    fs.writeFileSync(AUTH_FILE, `${username}
+    fs6.writeFileSync(AUTH_FILE, `${username}
 ${token}
 ${finalIdToken}
 ${finalRefreshToken}`, { mode: 384 });
@@ -152,15 +871,15 @@ ${finalRefreshToken}`, { mode: 384 });
 }
 function logout() {
   try {
-    fs.unlinkSync(AUTH_FILE);
+    fs6.unlinkSync(AUTH_FILE);
   } catch {
   }
 }
-var WATCH_PROGRESS_FILE = path.join(DATA_DIR, "progress");
+var WATCH_PROGRESS_FILE = path2.join(DATA_DIR, "progress");
 function getHistory() {
   try {
-    if (!fs.existsSync(HISTORY_FILE)) return [];
-    const content = fs.readFileSync(HISTORY_FILE, "utf8");
+    if (!fs6.existsSync(HISTORY_FILE)) return [];
+    const content = fs6.readFileSync(HISTORY_FILE, "utf8");
     return content.split("\n").filter(Boolean).map((line) => {
       const parts = line.split("|");
       const [rawId, title, ep, ts, cat, watchTime, duration, totalEps] = parts;
@@ -187,7 +906,7 @@ function saveToHistory(entry) {
     const content = newHistory.map(
       (h) => `${h.id}|${h.title}|${h.episode}|${h.timestamp}|${h.category}|${h.watchTime || 0}|${h.duration || 0}|${h.totalEpisodes || 0}`
     ).join("\n");
-    fs.writeFileSync(HISTORY_FILE, content);
+    fs6.writeFileSync(HISTORY_FILE, content);
     syncToCloud(entry).catch(() => {
     });
   } catch {
@@ -195,8 +914,8 @@ function saveToHistory(entry) {
 }
 function getWatchProgress(animeId, episode) {
   try {
-    if (!fs.existsSync(WATCH_PROGRESS_FILE)) return null;
-    const progress = JSON.parse(fs.readFileSync(WATCH_PROGRESS_FILE, "utf8"));
+    if (!fs6.existsSync(WATCH_PROGRESS_FILE)) return null;
+    const progress = JSON.parse(fs6.readFileSync(WATCH_PROGRESS_FILE, "utf8"));
     return progress[`${animeId}:${episode}`] || null;
   } catch {
     return null;
@@ -319,7 +1038,7 @@ async function mergeCloudHistory() {
       const content = merged.slice(0, 50).map(
         (h) => `${h.id}|${h.title}|${h.episode}|${h.timestamp}|${h.category}|${h.watchTime || 0}|${h.duration || 0}|${h.totalEpisodes || 0}`
       ).join("\n");
-      fs.writeFileSync(HISTORY_FILE, content);
+      fs6.writeFileSync(HISTORY_FILE, content);
     }
     return { added: newEntries.length, message: `Synced ${newEntries.length} items from cloud` };
   } catch (error) {
@@ -479,12 +1198,12 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }) {
     async function loadArtwork(url) {
       try {
         setLoading(true);
-        const tmpDir = os.tmpdir();
-        const tmpFile = path.join(tmpDir, `ny-cli-art-${Date.now()}.jpg`);
+        const tmpDir = os2.tmpdir();
+        const tmpFile = path2.join(tmpDir, `ny-cli-art-${Date.now()}.jpg`);
         const res = await fetch(url);
         if (!res.ok) throw new Error("Fetch failed");
         const buffer = await res.arrayBuffer();
-        fs.writeFileSync(tmpFile, Buffer.from(buffer));
+        fs6.writeFileSync(tmpFile, Buffer.from(buffer));
         if (active) {
           setImgPath(tmpFile);
           setError(false);
@@ -710,284 +1429,14 @@ function StatusBar({ message, type = "info", loading = false }) {
   const borderColor = blendHex(baseBorderColor, theme.dimGray, 1 - brightness);
   return /* @__PURE__ */ React.createElement(Box, { borderStyle: "single", borderColor, paddingX: 1 }, loading ? /* @__PURE__ */ React.createElement(Spinner, { color: colors[type], text: message }) : /* @__PURE__ */ React.createElement(Text, null, /* @__PURE__ */ React.createElement(Text, { color: colors[type], bold: true }, icons[type]), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, " ", message)));
 }
-async function getJson(path2) {
-  const res = await fetch(`${API_BASE}${path2}`);
+async function getJson(path3) {
+  const res = await fetch(`${API_BASE}${path3}`);
   const text = await res.text();
   const body = JSON.parse(text);
   if (!res.ok || !body?.success) {
     throw new Error(body?.error || `HTTP ${res.status}`);
   }
   return body.data;
-}
-var ALLANIME_API = "https://api.allanime.day/api";
-var ALLANIME_BASE = "allanime.day";
-var ALLANIME_REFR = "https://youtu-chan.com";
-var ALLANIME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0";
-var ALLANIME_EP_HASH = "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec";
-var aaIdCache = /* @__PURE__ */ new Map();
-async function aaFetch(body) {
-  const res = await fetch(ALLANIME_API, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "User-Agent": ALLANIME_UA,
-      "Referer": ALLANIME_REFR,
-      "Origin": ALLANIME_REFR
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(8e3)
-  });
-  if (!res.ok) throw new Error(`AllAnime HTTP ${res.status}`);
-  return res.json();
-}
-async function aaFetchGET(params) {
-  const url = `${ALLANIME_API}?${params.toString()}`;
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": ALLANIME_UA,
-      "Referer": ALLANIME_REFR,
-      "Origin": ALLANIME_REFR
-    },
-    signal: AbortSignal.timeout(8e3)
-  });
-  if (!res.ok) throw new Error(`AllAnime HTTP ${res.status}`);
-  return res.json();
-}
-async function aaSearchId(title, malId) {
-  const cacheKey = `${malId || ""}_${title}`;
-  if (aaIdCache.has(cacheKey)) return aaIdCache.get(cacheKey);
-  const searchGql = `query($search:SearchInput $limit:Int $page:Int $translationType:VaildTranslationTypeEnumType $countryOrigin:VaildCountryOriginEnumType){shows(search:$search limit:$limit page:$page translationType:$translationType countryOrigin:$countryOrigin){edges{_id name availableEpisodes}}}`;
-  try {
-    const data = await aaFetch({
-      variables: { search: { allowAdult: false, allowUnknown: false, query: title }, limit: 10, page: 1, translationType: "sub", countryOrigin: "ALL" },
-      query: searchGql
-    });
-    const edges = data?.data?.shows?.edges || [];
-    if (!edges.length) return null;
-    let best = edges[0];
-    for (const e of edges) {
-      const eEps = (e.availableEpisodes?.sub || 0) + (e.availableEpisodes?.dub || 0);
-      const bEps = (best.availableEpisodes?.sub || 0) + (best.availableEpisodes?.dub || 0);
-      if (eEps > bEps) best = e;
-    }
-    aaIdCache.set(cacheKey, best._id);
-    return best._id;
-  } catch {
-    return null;
-  }
-}
-function aaDecodeProviderHex(raw) {
-  if (!raw.startsWith("--")) return raw;
-  const hexMap = {
-    "79": "A",
-    "7a": "B",
-    "7b": "C",
-    "7c": "D",
-    "7d": "E",
-    "7e": "F",
-    "7f": "G",
-    "70": "H",
-    "71": "I",
-    "72": "J",
-    "73": "K",
-    "74": "L",
-    "75": "M",
-    "76": "N",
-    "77": "O",
-    "68": "P",
-    "69": "Q",
-    "6a": "R",
-    "6b": "S",
-    "6c": "T",
-    "6d": "U",
-    "6e": "V",
-    "6f": "W",
-    "60": "X",
-    "61": "Y",
-    "62": "Z",
-    "59": "a",
-    "5a": "b",
-    "5b": "c",
-    "5c": "d",
-    "5d": "e",
-    "5e": "f",
-    "5f": "g",
-    "50": "h",
-    "51": "i",
-    "52": "j",
-    "53": "k",
-    "54": "l",
-    "55": "m",
-    "56": "n",
-    "57": "o",
-    "48": "p",
-    "49": "q",
-    "4a": "r",
-    "4b": "s",
-    "4c": "t",
-    "4d": "u",
-    "4e": "v",
-    "4f": "w",
-    "40": "x",
-    "41": "y",
-    "42": "z",
-    "08": "0",
-    "09": "1",
-    "0a": "2",
-    "0b": "3",
-    "0c": "4",
-    "0d": "5",
-    "0e": "6",
-    "0f": "7",
-    "00": "8",
-    "01": "9",
-    "15": "-",
-    "16": ".",
-    "67": "_",
-    "46": "~",
-    "02": ":",
-    "17": "/",
-    "07": "?",
-    "1b": "#",
-    "63": "[",
-    "65": "]",
-    "78": "@",
-    "19": "!",
-    "1c": "$",
-    "1e": "&",
-    "10": "(",
-    "11": ")",
-    "12": "*",
-    "13": "+",
-    "14": ",",
-    "03": ";",
-    "05": "=",
-    "1d": "%"
-  };
-  const hexStr = raw.slice(2);
-  let result = "";
-  for (let i = 0; i < hexStr.length; i += 2) {
-    const byte = hexStr.slice(i, i + 2).toLowerCase();
-    if (byte === "--") {
-      result += "\n";
-      continue;
-    }
-    result += hexMap[byte] || "";
-  }
-  return result.replace("/clock", "/clock.json");
-}
-function aaDecrypt(tobeparsed) {
-  const { createDecipheriv, createHash } = __require("node:crypto");
-  const key = createHash("sha256").update("Xot36i3lK3:v1").digest();
-  const buf = Buffer.from(tobeparsed, "base64");
-  const ivBytes = buf.slice(1, 13);
-  const iv = Buffer.concat([ivBytes, Buffer.from([0, 0, 0, 2])]);
-  const ciphertext = buf.slice(13, buf.length - 16);
-  const decipher = createDecipheriv("aes-256-ctr", key, iv);
-  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
-}
-async function aaResolveCdnUrl(cdnPath) {
-  try {
-    const url = `https://${ALLANIME_BASE}${cdnPath}`;
-    const res = await fetch(url, {
-      headers: { "User-Agent": ALLANIME_UA, "Referer": ALLANIME_REFR },
-      signal: AbortSignal.timeout(8e3)
-    });
-    if (!res.ok) return null;
-    const text = await res.text();
-    try {
-      const json = JSON.parse(text);
-      const links = json?.links || [];
-      if (!links.length) return null;
-      links.sort((a, b) => {
-        const aRes = parseInt(a.resolutionStr || "0") || 0;
-        const bRes = parseInt(b.resolutionStr || "0") || 0;
-        return bRes - aRes;
-      });
-      return links[0]?.link || null;
-    } catch {
-      const match = text.match(/"link"\s*:\s*"([^"]+)"/);
-      return match ? match[1] : null;
-    }
-  } catch {
-    return null;
-  }
-}
-async function aaResolveMp4Upload(pageUrl) {
-  try {
-    const res = await fetch(pageUrl, {
-      headers: { "User-Agent": ALLANIME_UA, "Referer": ALLANIME_REFR },
-      signal: AbortSignal.timeout(8e3)
-    });
-    const text = await res.text();
-    const match = text.match(/src:\s*"(https?:\/\/[^"]+\.mp4[^"]*)"/);
-    return match ? match[1] : null;
-  } catch {
-    return null;
-  }
-}
-async function resolveAllAnimeStream(title, epNo, mode = "sub", malId) {
-  try {
-    const showId = await aaSearchId(title, malId);
-    if (!showId) return null;
-    let epData;
-    try {
-      const params = new URLSearchParams();
-      params.set("variables", JSON.stringify({ showId, translationType: mode, episodeString: String(epNo) }));
-      params.set("extensions", JSON.stringify({ persistedQuery: { version: 1, sha256Hash: ALLANIME_EP_HASH } }));
-      epData = await aaFetchGET(params);
-    } catch {
-      const epGql = `query ($showId: String!, $translationType: VaildTranslationTypeEnumType!, $episodeString: String!) { episode( showId: $showId translationType: $translationType episodeString: $episodeString ) { episodeString sourceUrls }}`;
-      epData = await aaFetch({
-        variables: { showId, translationType: mode, episodeString: String(epNo) },
-        query: epGql
-      });
-    }
-    const rawStr = JSON.stringify(epData);
-    let sourceUrls = [];
-    if (rawStr.includes('"tobeparsed"')) {
-      const tobeparsedMatch = rawStr.match(/"tobeparsed"\s*:\s*"([^"]+)"/);
-      if (!tobeparsedMatch) return null;
-      try {
-        const decrypted = aaDecrypt(tobeparsedMatch[1]);
-        const urlMatches = decrypted.matchAll(/"sourceUrl"\s*:\s*"([^"]+)".*?"sourceName"\s*:\s*"([^"]+)"/g);
-        for (const m of urlMatches) {
-          sourceUrls.push({ sourceUrl: m[1].replace(/\\/g, ""), sourceName: m[2] });
-        }
-      } catch {
-        return null;
-      }
-    } else {
-      sourceUrls = epData?.data?.episode?.sourceUrls || [];
-    }
-    if (!sourceUrls.length) return null;
-    const providerOrder = ["Default", "Luf-mp4", "Yt-mp4", "S-mp4", "Mp4", "Ok", "Ac", "Sak", "Kir"];
-    for (const providerName of providerOrder) {
-      const entry = sourceUrls.find((s) => s.sourceName === providerName);
-      if (!entry) continue;
-      let providerUrl = entry.sourceUrl;
-      if (providerUrl.startsWith("--")) {
-        providerUrl = aaDecodeProviderHex(providerUrl);
-      }
-      providerUrl = providerUrl.replace(/\\\//g, "/");
-      if (providerName === "Default") {
-        const m3u8 = await aaResolveCdnUrl(providerUrl);
-        if (m3u8) return { url: m3u8, quality: "Auto (m3u8)", type: "hls", referer: ALLANIME_REFR };
-      } else if (providerName === "Mp4") {
-        if (providerUrl.startsWith("http")) {
-          const mp4 = await aaResolveMp4Upload(providerUrl);
-          if (mp4) return { url: mp4, quality: "mp4upload", type: "mp4", referer: "https://www.mp4upload.com/" };
-        }
-      } else if (providerName === "S-mp4" || providerName === "Yt-mp4") {
-        if (providerUrl.startsWith("http")) {
-          return { url: providerUrl, quality: providerName, type: "mp4", referer: ALLANIME_REFR };
-        }
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  }
 }
 function SettingsScreen({ settings, onUpdate, onBack }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -1008,7 +1457,7 @@ function SettingsScreen({ settings, onUpdate, onBack }) {
       const targetDir = ANIME4K_DIR;
       const version = "v4.0.1";
       const url = `https://github.com/bloc97/Anime4K/releases/download/${version}/Anime4K_v4.0.zip`;
-      const zipPath = path.join(targetDir, "Anime4K.zip");
+      const zipPath = path2.join(targetDir, "Anime4K.zip");
       setDownloadStatus("Downloading shaders...");
       execSync(`curl -sL "${url}" -o "${zipPath}"`, { stdio: "pipe" });
       setDownloadStatus("Extracting shaders...");
@@ -1095,7 +1544,7 @@ function App() {
   const [playingProviders, setPlayingProviders] = useState([]);
   const [playingProviderIndex, setPlayingProviderIndex] = useState(0);
   const togglePause = () => {
-    if (os.platform() === "win32") return;
+    if (os2.platform() === "win32") return;
     if (playingPaused) {
       spawnSync("killall", ["-CONT", "mpv"]);
       setPlayingPaused(false);
@@ -1107,7 +1556,7 @@ function App() {
   const playProvider = (provider) => {
     if (provider.type === "torrent") {
       setStatus({ message: `Starting ${provider.name}...`, type: "success", loading: false });
-      const wtCmd = os.platform() === "win32" ? "npx.cmd" : "npx";
+      const wtCmd = os2.platform() === "win32" ? "npx.cmd" : "npx";
       spawn(wtCmd, ["-y", "webtorrent-cli", provider.magnet, "--mpv"], { stdio: "ignore", detached: true }).unref();
     } else if (provider.type === "direct") {
       setStatus({ message: `Starting ${provider.name} in MPV...`, type: "success", loading: false });
@@ -1118,24 +1567,9 @@ function App() {
         });
       }
       spawn("mpv", [provider.url, ...headerArgs, "--force-media-title=NY-CLI Stream"], { stdio: "ignore", detached: true }).unref();
-    } else if (provider.type === "embed") {
-      const browserCmds = ["xdg-open", "open", "firefox", "chromium", "google-chrome"];
-      let browserCmd = null;
-      for (const cmd of browserCmds) {
-        try {
-          if (spawnSync("which", [cmd]).status === 0) {
-            browserCmd = cmd;
-            break;
-          }
-        } catch {
-        }
-      }
-      if (browserCmd) {
-        spawn(browserCmd, [provider.url], { stdio: "ignore", detached: true }).unref();
-        setStatus({ message: `Opened ${provider.name} in browser.`, type: "success", loading: false });
-      } else {
-        setStatus({ message: `Copy to browser: ${provider.url}`, type: "info", loading: false });
-      }
+    } else {
+      spawn("mpv", [provider.url, "--force-media-title=NY-CLI Stream"], { stdio: "ignore", detached: true }).unref();
+      setStatus({ message: `Opened stream in player.`, type: "success", loading: false });
     }
   };
   useEffect(() => {
@@ -1306,8 +1740,8 @@ function App() {
       }
     });
     server.listen(4e3, () => {
-      import("open").then((open) => {
-        open.default(`${API_BASE}/api/auth/login?port=4000`).catch(() => {
+      Promise.resolve().then(() => (init_open(), open_exports)).then((open2) => {
+        open2.default(`${API_BASE}/api/auth/login?port=4000`).catch(() => {
         });
       }).catch((err) => {
         setStatus({ message: "Failed to open browser: " + err.message, type: "error", loading: false });
@@ -1489,14 +1923,12 @@ function App() {
       const malId = epIdParts[0] === "ep" ? Number(epIdParts[1]) : void 0;
       const anilistId = animeInfo?.id?.replace("anilist::", "") || "";
       setStatus({ message: `Resolving fastest available stream...`, type: "info", loading: true });
-      const [aaResult, torrentResult, embedResult] = await Promise.allSettled([
-        resolveAllAnimeStream(animeTitle, epNo, mode, malId),
+      const [torrentResult, backendResult] = await Promise.allSettled([
         getJson(`/api/torrent?title=${encodeURIComponent(animeTitle)}&ep=${epNo}`),
-        getJson(`/api/aniwatch?action=sources&episodeId=${encodeURIComponent(item.episodeId)}&category=${mode}&audio=${mode}&title=${encodeURIComponent(animeTitle)}&title_ro=${encodeURIComponent(animeJName)}&episodeNo=${epNo}&totalEpisodes=${totalEps}&anilistId=${anilistId}`)
+        getJson(`/api/resolve-stream?title=${encodeURIComponent(animeTitle)}&epNo=${epNo}&mode=${mode}${malId ? `&malId=${malId}` : ""}`)
       ]);
-      const aaStream = aaResult.status === "fulfilled" ? aaResult.value : null;
       const torrentData = torrentResult.status === "fulfilled" ? torrentResult.value : null;
-      const sourcesData = embedResult.status === "fulfilled" ? embedResult.value : null;
+      const backendStream = backendResult.status === "fulfilled" ? backendResult.value : null;
       let isTorrent = false;
       let magnetLink = "";
       let source = null;
@@ -1507,13 +1939,8 @@ function App() {
       if (torrentData?.magnet) {
         providers.push({ name: "Nyaa (Torrent)", type: "torrent", magnet: torrentData.magnet });
       }
-      if (aaStream) {
-        providers.push({ name: "AllAnime (Direct)", type: "direct", url: aaStream.url, headers: { Referer: aaStream.referer, Origin: new URL(aaStream.referer).origin } });
-      }
-      if (sourcesData?.sources) {
-        sourcesData.sources.forEach((s) => {
-          if (s.url) providers.push({ name: s.quality || (s.url.includes("megaplay") ? "MegaPlay (Embed)" : "Anikoto (Embed)"), type: "embed", url: s.url });
-        });
+      if (backendStream && backendStream.url) {
+        providers.push({ name: backendStream.quality || backendStream.provider || "Direct Stream", type: "direct", url: backendStream.url, headers: backendStream.referer ? { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin } : void 0 });
       }
       if (providers.length === 0) {
         setStatus({ message: "No playable source found", type: "error", loading: false });
@@ -1566,16 +1993,14 @@ function App() {
         const epIdParts = String(task.id || "").split("::");
         const malId = epIdParts[0] === "ep" ? Number(epIdParts[1]) : void 0;
         const safeTitle = task.animeTitle.replace(/[^a-zA-Z0-9]/g, "_");
-        const outDir = path.join(os.homedir(), "Downloads", "ny-cli", safeTitle);
+        const outDir = path2.join(os2.homedir(), "Downloads", "ny-cli", safeTitle);
         const anilistQuery = task.anilistId ? `&anilistId=${task.anilistId}` : "";
-        const [aaResult, torrentResult, embedResult] = await Promise.allSettled([
-          resolveAllAnimeStream(task.animeTitle, task.episodeNumber, audioType, malId),
+        const [torrentResult, backendResult] = await Promise.allSettled([
           getJson(`/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`),
-          getJson(`/api/aniwatch?action=sources&episodeId=${encodeURIComponent(task.id)}&category=${audioType}&audio=${audioType}&title=${encodeURIComponent(task.animeTitle)}&episodeNo=${task.episodeNumber}${anilistQuery}`)
+          getJson(`/api/resolve-stream?title=${encodeURIComponent(task.animeTitle)}&epNo=${task.episodeNumber}&mode=${audioType}${malId ? `&malId=${malId}` : ""}`)
         ]);
-        const aaStream = aaResult.status === "fulfilled" ? aaResult.value : null;
         const torrentData = torrentResult.status === "fulfilled" ? torrentResult.value : null;
-        const embedData = embedResult.status === "fulfilled" ? embedResult.value : null;
+        const backendStream = backendResult.status === "fulfilled" ? backendResult.value : null;
         let isTorrent = false;
         let magnetLink = "";
         if (torrentData?.magnet) {
@@ -1583,13 +2008,13 @@ function App() {
           isTorrent = true;
         }
         if (isTorrent && magnetLink) {
-          if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+          if (!fs6.existsSync(outDir)) fs6.mkdirSync(outDir, { recursive: true });
           setDownloadQueue((prev) => {
             const q = [...prev];
             q[nextTaskIndex].message = "Downloading Torrent...";
             return q;
           });
-          const wtCmd = os.platform() === "win32" ? "npx.cmd" : "npx";
+          const wtCmd = os2.platform() === "win32" ? "npx.cmd" : "npx";
           const args2 = ["-y", "webtorrent-cli", "download", magnetLink, "-o", outDir];
           const wtProcess = spawn(wtCmd, args2);
           wtProcess.stdout.on("data", (data) => {
@@ -1621,18 +2046,17 @@ function App() {
         }
         let streamUrl = "";
         let streamHeaders = {};
-        if (aaStream?.url) {
-          streamUrl = aaStream.url;
-        } else if (embedData?.success && embedData.sources?.length > 0) {
-          const defaultSource = embedData.sources.find((s) => s.isM3U8) || embedData.sources[0];
-          streamUrl = defaultSource.url;
-          if (embedData.headers) streamHeaders = embedData.headers;
+        if (backendStream?.url) {
+          streamUrl = backendStream.url;
+          if (backendStream.referer) {
+            streamHeaders = { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin };
+          }
         }
         if (!streamUrl) {
           throw new Error("No stream found");
         }
-        if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-        const filename = path.join(outDir, `${safeTitle}_Ep${task.episodeNumber}.mp4`);
+        if (!fs6.existsSync(outDir)) fs6.mkdirSync(outDir, { recursive: true });
+        const filename = path2.join(outDir, `${safeTitle}_Ep${task.episodeNumber}.mp4`);
         setDownloadQueue((prev) => {
           const q = [...prev];
           q[nextTaskIndex].message = "Downloading Embed...";
@@ -1945,6 +2369,3 @@ process.on("SIGTERM", () => {
   instance.clear();
   process.exit(0);
 });
-export {
-  resolveAllAnimeStream
-};
