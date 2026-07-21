@@ -20,26 +20,26 @@ export async function senshiSearch(query) {
 }
 
 export async function senshiGetSource(malId, epNo, mode = 'sub') {
-  try {
-    const embeds = await senshiFetch(`/episode-embeds/${malId}/${epNo}`);
-    if (!embeds?.length) return null;
-    
-    const wantStatus = mode === 'dub' ? 'Dub' : 'HardSub';
-    const match = embeds.find(e => (e.status || '').toLowerCase() === wantStatus.toLowerCase());
-    if (!match?.url) return null;
-    
-    return {
-      url: match.url,
-      embedUrl: null,
-      quality: 'Senshi (HLS)',
-      type: 'hls',
-      isM3U8: true,
-      referer: `${SENSHI_BASE}/`,
-      tracks: [], // verify if there are external tracks
-      provider: 'senshi',
-    };
-  } catch (e) {
-    console.error(`[senshi] Error fetching source: ${e.message}`);
-    return null;
+  const embeds = await senshiFetch(`/episode-embeds/${malId}/${epNo}`);
+  if (!embeds?.length) {
+    throw new Error(`No embeds found on Senshi for MAL ID ${malId} Ep ${epNo}`);
   }
+  
+  const wantStatus = mode === 'dub' ? 'Dub' : 'HardSub';
+  const match = embeds.find(e => (e.status || '').toLowerCase() === wantStatus.toLowerCase());
+  
+  if (!match?.url) {
+    throw new Error(`No match found on Senshi for mode: ${mode}`);
+  }
+  
+  return {
+    url: match.url,
+    embedUrl: null,
+    quality: 'Senshi (HLS)',
+    type: 'hls',
+    isM3U8: true,
+    referer: `${SENSHI_BASE}/`,
+    tracks: [], // verify if there are external tracks
+    provider: 'senshi',
+  };
 }

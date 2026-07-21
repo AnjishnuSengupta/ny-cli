@@ -17,39 +17,38 @@ export async function anipubSearch(query) {
 }
 
 export async function anipubGetSource(title, epNo, mode = 'sub') {
-  try {
-    // 1. Search for title
-    const results = await anipubSearch(title);
-    if (!results.length) return null;
-    
-    // Exact or closest match
-    let match = results.find(r => r.Name.toLowerCase() === title.toLowerCase());
-    if (!match) match = results[0]; // fallback to first result
-
-    const anipubId = match.Id;
-    
-    // 2. Fetch episode page to extract the video URL
-    // e.g. https://anipub.xyz/AniPlayer/113/0 for ep 1
-    const epIndex = epNo - 1;
-    const playerPageHtml = await anipubFetchText(`${ANIPUB_BASE}/AniPlayer/${anipubId}/${epIndex}`, `${ANIPUB_BASE}/`);
-    
-    const iframeMatch = playerPageHtml.match(/<iframe\s+src=['"]?(https:\/\/(www\.)?anipub\.xyz\/[Vv]ideo\/\d+\/(sub|dub))['"]?/i);
-    if (!iframeMatch) return null;
-    
-    let videoLink = iframeMatch[1];
-    
-    // Override sub/dub if mode differs
-    if (mode === 'dub') {
-      videoLink = videoLink.replace(/\/sub$/, '/dub');
-    } else {
-      videoLink = videoLink.replace(/\/dub$/, '/sub');
-    }
-
-    return await resolveMegaplayDataId(videoLink, mode);
-  } catch (e) {
-    console.error(`[anipub] Error: ${e.message}`);
-    return null;
+  // 1. Search for title
+  const results = await anipubSearch(title);
+  if (!results.length) {
+    throw new Error(`No search results on Anipub for title: ${title}`);
   }
+  
+  // Exact or closest match
+  let match = results.find(r => r.Name.toLowerCase() === title.toLowerCase());
+  if (!match) match = results[0]; // fallback to first result
+
+  const anipubId = match.Id;
+  
+  // 2. Fetch episode page to extract the video URL
+  // e.g. https://anipub.xyz/AniPlayer/113/0 for ep 1
+  const epIndex = epNo - 1;
+  const playerPageHtml = await anipubFetchText(`${ANIPUB_BASE}/AniPlayer/${anipubId}/${epIndex}`, `${ANIPUB_BASE}/`);
+  
+  const iframeMatch = playerPageHtml.match(/<iframe\s+src=['"]?(https:\/\/(www\.)?anipub\.xyz\/[Vv]ideo\/\d+\/(sub|dub))['"]?/i);
+  if (!iframeMatch) {
+    throw new Error(`Anipub nested iframe not found for title: ${title} (Anipub ID: ${anipubId}, epIndex: ${epIndex})`);
+  }
+  
+  let videoLink = iframeMatch[1];
+  
+  // Override sub/dub if mode differs
+  if (mode === 'dub') {
+    videoLink = videoLink.replace(/\/sub$/, '/dub');
+  } else {
+    videoLink = videoLink.replace(/\/dub$/, '/sub');
+  }
+
+  return await resolveMegaplayDataId(videoLink, mode);
 }
 
 export async function resolveMegaplayDataId(videoLink, mode = 'sub') {
@@ -58,8 +57,13 @@ export async function resolveMegaplayDataId(videoLink, mode = 'sub') {
   const [, embedId] = m;
   const linkMode = mode === 'dub' ? 'dub' : 'sub';
 
-  const streamPage = `${MEGAPLAY_BASE}/stream/s-2/${embedId}/${linkMode}`;
-  const html = await anipubFetchText(streamPage, `${ANIPUB_BASE}/`);
+  // Fetch intermediate page (anipub.xyz/video/...)
+  const intermediateHtml = await anipubFetchText(videoLink, `${ANIPUB_BASE}/`);
+  const embedMatch = intermediateHtml.match(/<iframe\s+src=['"]?(https:\/\/(megaplay\.buzz|anikoto\.live)\/[^'"\s>]+)['"]?/i);
+  if (!embedMatch) throw new Error(`megaplay/anikoto iframe not found in intermediate page ${videoLink}`);
+  
+  const streamPage = embedMatch[1];
+  const html = await anipubFetchText(streamPage, videoLink);
 
   const dataIdMatch = html.match(/data-id="(\d+)"/);
   if (!dataIdMatch) throw new Error('megaplay data-id not found');

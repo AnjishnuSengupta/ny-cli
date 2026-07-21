@@ -81,10 +81,14 @@ function aaDecrypt(tobeparsed) {
 }
 
 async function resolveWixmp(url) {
-  if (url.includes('urlset=')) {
-    const parts = url.split('urlset=');
-    const urls = parts[1].split(',');
-    return urls[urls.length - 1]; // Pick last (usually highest quality)
+  // If the URL ends with .urlset and has a comma-separated list of resolutions,
+  // we can reconstruct the direct mp4 url for the highest resolution (first after comma)
+  if (url.includes('.urlset')) {
+    const match = url.match(/,(.+?),/);
+    if (match) {
+       // e.g. .../video/xxx,720p,480p,/mp4/file.mp4.urlset -> .../video/xxx/720p/mp4/file.mp4
+       return url.replace(/,.*\.urlset$/, '').replace(/,[^/]+/, '') + '/' + match[1] + url.match(/(\/[^/]+\/[^/]+)\.urlset$/)[1];
+    }
   }
   return url;
 }
@@ -118,76 +122,76 @@ async function aaResolveCdnUrl(cdnPath) {
 }
 
 export async function allanimeGetSource(title, epNo, mode = 'sub', malId = null) {
-  try {
-    const showId = await aaSearchId(title);
-    if (!showId) { console.error("Could not find showId for:", title); return null; }
-
-    let epData;
-    try {
-      const params = new URLSearchParams();
-      params.set('variables', JSON.stringify({ showId, translationType: mode, episodeString: String(epNo) }));
-      params.set('extensions', JSON.stringify({ persistedQuery: { version: 1, sha256Hash: ALLANIME_EP_HASH } }));
-      epData = await aaFetchGET(params);
-      if (epData?.errors?.length) throw new Error(epData.errors[0].message);
-    } catch (e) {
-      const epGql = `query ($showId: String!, $translationType: VaildTranslationTypeEnumType!, $episodeString: String!) { episode( showId: $showId translationType: $translationType episodeString: $episodeString ) { episodeString sourceUrls }}`;
-      epData = await aaFetch({ variables: { showId, translationType: mode, episodeString: String(epNo) }, query: epGql });
-    }
-
-    console.log("epData:", JSON.stringify(epData)); const rawStr = JSON.stringify(epData);
-    let sourceUrls = [];
-
-    if (rawStr.includes('"tobeparsed"')) {
-      const tobeparsedMatch = rawStr.match(/"tobeparsed"\s*:\s*"([^"]+)"/);
-      if (!tobeparsedMatch) return null;
-      try {
-        const decrypted = aaDecrypt(tobeparsedMatch[1]);
-        const urlMatches = decrypted.matchAll(/"sourceUrl"\s*:\s*"([^"]+)".*?"sourceName"\s*:\s*"([^"]+)"/g);
-        for (const m of urlMatches) {
-          sourceUrls.push({ sourceUrl: m[1].replace(/\\/g, ''), sourceName: m[2] });
-        }
-      } catch (e) { console.error("Decryption failed:", e); return null; }
-    } else {
-      sourceUrls = epData?.data?.episode?.sourceUrls || [];
-    }
-
-    if (!sourceUrls.length) { console.error("No sourceUrls found in response"); return null; }
-
-    const ALLANIME_PROVIDERS = ['Default', 'Yt-mp4', 'S-mp4', 'Fm-mp4', 'Luf-Mp4'];
-    
-    // Concurrently resolve all
-    const promises = ALLANIME_PROVIDERS.map(async (providerName) => {
-      const entry = sourceUrls.find(s => s.sourceName === providerName);
-      if (!entry) throw new Error('not found ' + providerName);
-
-      let providerUrl = entry.sourceUrl;
-      if (providerUrl.startsWith('--')) {
-        providerUrl = aaDecodeProviderHex(providerUrl);
-      }
-      providerUrl = providerUrl.replace(/\\\//g, '/');
-
-      if (providerName === 'Default') {
-        const m3u8 = await aaResolveCdnUrl(providerUrl);
-        if (m3u8) return { url: m3u8, quality: 'Auto (m3u8)', type: 'hls', isM3U8: true, referer: ALLANIME_GRAPHQL_REFERER, provider: 'allanime' };
-      } else if (providerName === 'S-mp4' || providerName === 'Yt-mp4' || providerName === 'Luf-Mp4' || providerName === 'Fm-mp4') {
-        if (providerUrl.startsWith('http')) {
-          return { url: providerUrl, quality: providerName, type: 'mp4', isM3U8: false, referer: ALLANIME_GRAPHQL_REFERER, provider: 'allanime' };
-        }
-      }
-      throw new Error('failed');
-    });
-
-    const results = await Promise.allSettled(promises);
-    for (const res of results) {
-      if (res.status === 'fulfilled' && res.value) {
-        return res.value;
-      }
-    }
-
-    console.error("All providers failed to resolve");
-    return null;
-  } catch (e) {
-    console.error(`[allanime] Error: ${e.message}`);
-    return null;
+  const showId = await aaSearchId(title);
+  if (!showId) {
+    throw new Error(`Could not find showId on AllAnime for title: ${title}`);
   }
+
+  let epData;
+  try {
+    const params = new URLSearchParams();
+    params.set('variables', JSON.stringify({ showId, translationType: mode, episodeString: String(epNo) }));
+    params.set('extensions', JSON.stringify({ persistedQuery: { version: 1, sha256Hash: ALLANIME_EP_HASH } }));
+    epData = await aaFetchGET(params);
+    if (epData?.errors?.length) throw new Error(epData.errors[0].message);
+  } catch (e) {
+    const epGql = `query ($showId: String!, $translationType: VaildTranslationTypeEnumType!, $episodeString: String!) { episode( showId: $showId translationType: $translationType episodeString: $episodeString ) { episodeString sourceUrls }}`;
+    epData = await aaFetch({ variables: { showId, translationType: mode, episodeString: String(epNo) }, query: epGql });
+  }
+
+  const rawStr = JSON.stringify(epData);
+  let sourceUrls = [];
+
+  if (rawStr.includes('"tobeparsed"')) {
+    const tobeparsedMatch = rawStr.match(/"tobeparsed"\s*:\s*"([^"]+)"/);
+    if (!tobeparsedMatch) throw new Error("tobeparsed key present but regex failed to match value");
+    try {
+      const decrypted = aaDecrypt(tobeparsedMatch[1]);
+      const urlMatches = decrypted.matchAll(/"sourceUrl"\s*:\s*"([^"]+)".*?"sourceName"\s*:\s*"([^"]+)"/g);
+      for (const m of urlMatches) {
+        sourceUrls.push({ sourceUrl: m[1].replace(/\\/g, ''), sourceName: m[2] });
+      }
+    } catch (e) { throw new Error(`AllAnime decryption failed: ${e.message}`); }
+  } else {
+    sourceUrls = epData?.data?.episode?.sourceUrls || [];
+  }
+
+  if (!sourceUrls.length) {
+    throw new Error(`No sourceUrls found in AllAnime response for title: ${title}`);
+  }
+
+  const ALLANIME_PROVIDERS = ['Default', 'Yt-mp4', 'S-mp4', 'Fm-mp4', 'Luf-Mp4'];
+  
+  // Concurrently resolve all
+  const promises = ALLANIME_PROVIDERS.map(async (providerName) => {
+    const entry = sourceUrls.find(s => s.sourceName === providerName);
+    if (!entry) throw new Error('not found ' + providerName);
+
+    let providerUrl = entry.sourceUrl;
+    if (providerUrl.startsWith('--')) {
+      providerUrl = aaDecodeProviderHex(providerUrl);
+    }
+    providerUrl = providerUrl.replace(/\\\//g, '/');
+
+    if (providerName === 'Default') {
+      const m3u8 = await aaResolveCdnUrl(providerUrl);
+      if (m3u8) return { url: m3u8, quality: 'Auto (m3u8)', type: 'hls', isM3U8: true, referer: ALLANIME_GRAPHQL_REFERER, provider: 'allanime' };
+    } else if (providerName === 'S-mp4' || providerName === 'Yt-mp4') {
+      if (providerUrl.startsWith('http')) {
+        return { url: providerUrl, quality: providerName, type: 'mp4', isM3U8: false, referer: ALLANIME_GRAPHQL_REFERER, provider: 'allanime' };
+      }
+    } else if (providerName === 'Luf-Mp4' || providerName === 'Fm-mp4') {
+      throw new Error(`${providerName} not implemented (AES decrypt required)`);
+    }
+    throw new Error('failed');
+  });
+
+  const results = await Promise.allSettled(promises);
+  for (const res of results) {
+    if (res.status === 'fulfilled' && res.value) {
+      return res.value;
+    }
+  }
+
+  throw new Error("All resolved providers failed on AllAnime");
 }

@@ -727,7 +727,7 @@ var init_open = __esm({
 
 // cli-terminal.tsx
 import React, { useState, useEffect, useCallback } from "react";
-import { render, Box, Text, useInput, useApp } from "ink";
+import { render, Box, Text, useInput, useApp, useStdout } from "ink";
 import TextInput from "ink-text-input";
 import Picture, { TerminalInfoProvider } from "ink-picture";
 import { spawn, spawnSync, execSync } from "node:child_process";
@@ -751,7 +751,7 @@ var getFirebaseConfig = () => {
 
 // cli-terminal.tsx
 var API_BASE = process.env.NYCLI_API_BASE || "http://localhost:43201";
-var VERSION = "6.0.11";
+var VERSION = "6.1.0";
 var fbConfig = getFirebaseConfig();
 var FIREBASE_PROJECT_ID = fbConfig.projectId;
 var FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -1088,6 +1088,26 @@ function Spinner({ color = theme.purple, text = "" }) {
   }, []);
   return /* @__PURE__ */ React.createElement(Text, null, /* @__PURE__ */ React.createElement(Text, { color, bold: true }, SPINNER_FRAMES[frame]), text && /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, " ", text));
 }
+var EXIT_FRAMES = ["\u25DC ", " \u25DD", " \u25DE", "\u25DF ", "\u25DC "];
+function ExitAnimation({ onDone }) {
+  const [frame, setFrame] = useState(0);
+  useInput(() => {
+    onDone();
+  });
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setFrame((f) => {
+        if (f + 1 >= EXIT_FRAMES.length) {
+          clearInterval(timer);
+          setTimeout(onDone, 100);
+        }
+        return Math.min(f + 1, EXIT_FRAMES.length - 1);
+      });
+    }, 120);
+    return () => clearInterval(timer);
+  }, [onDone]);
+  return /* @__PURE__ */ React.createElement(Text, { color: theme.purple }, EXIT_FRAMES[frame], " Goodbye!");
+}
 function ShimmerText({ text, speed = 100 }) {
   const [offset, setOffset] = useState(0);
   useEffect(() => {
@@ -1150,15 +1170,6 @@ function ScrollingWelcome({ text, onComplete }) {
     const colorIdx = (i + Math.floor(position / 3)) % GRADIENT.length;
     return /* @__PURE__ */ React.createElement(Text, { key: i, color: GRADIENT[colorIdx], bold: true }, char);
   })));
-}
-function GoodbyeMessage({ onComplete }) {
-  const messages = [
-    "~ Sayounara! ~",
-    "\u{1F338} Mata ne! \u{1F338}",
-    "\u{1F44B} Jaa ne! \u{1F44B}"
-  ];
-  const message = messages[Math.floor(Math.random() * messages.length)];
-  return /* @__PURE__ */ React.createElement(ScrollingWelcome, { text: message, onComplete });
 }
 var imageUrlCache = /* @__PURE__ */ new Map();
 async function getAnimeImageUrl(title) {
@@ -1264,6 +1275,15 @@ function AnimeArtwork({ title, imageUrl, width = 25, height = 12 }) {
   return /* @__PURE__ */ React.createElement(Box, { width, height, borderStyle: "round", borderColor: theme.purple }, /* @__PURE__ */ React.createElement(Box, { width: Math.max(1, width - 2), height: Math.max(1, height - 2), overflow: "hidden" }, /* @__PURE__ */ React.createElement(Picture, { src: imgPath, width: Math.max(1, width - 2), height: Math.max(1, height - 2) })));
 }
 function SelectList({ items, onSelect, onBack, title, color = theme.purple, showBorder = true, showArtwork = false, showNumbers = true, enableSearch = false, onAction }) {
+  const { stdout } = useStdout();
+  const [termSize2, setTermSize] = useState({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
+  useEffect(() => {
+    const onResize = () => setTermSize({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
+    stdout.on("resize", onResize);
+    return () => {
+      stdout.off("resize", onResize);
+    };
+  }, [stdout]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [rippleIndex, setRippleIndex] = useState(-1);
   const [ripplePhase, setRipplePhase] = useState(0);
@@ -1328,7 +1348,7 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
         }, 300);
       }
     } else if (input === "q") {
-      process.exit(0);
+      setIsExiting(true);
     } else if (key.escape || input === "b" || key.leftArrow) {
       if (searchQuery) {
         setSearchQuery("");
@@ -1374,7 +1394,7 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
   if (showArtwork) {
     const artworkWidth = 30;
     const artworkHeight = 15;
-    return /* @__PURE__ */ React.createElement(Box, { flexDirection: "row" }, /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", marginRight: 2, width: artworkWidth }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement(Box, { flexDirection: termSize2.cols < 70 ? "column" : "row" }, /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", marginRight: 2, width: artworkWidth }, /* @__PURE__ */ React.createElement(
       AnimeArtwork,
       {
         title: selectedItem?.label || "",
@@ -1477,7 +1497,7 @@ function SettingsScreen({ settings, onUpdate, onBack }) {
       return;
     }
     if (input === "q") {
-      process.exit(0);
+      setIsExiting(true);
     }
     if (key.upArrow || input === "k") {
       setSelectedIndex((i) => Math.max(0, i - 1));
@@ -1510,11 +1530,22 @@ function SettingsScreen({ settings, onUpdate, onBack }) {
       onUpdate({ ...settings, anime4kMode: modes[nextIdx] });
     }
   });
-  return /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: 60 }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.cyan, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan, bold: true }, "[\u2699] Settings"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(50)), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 0 ? theme.cyan : theme.lightGray }, selectedIndex === 0 ? "\u25B8 " : "  ", "Anime4K Upscaling:", " "), anime4kInstalled ? /* @__PURE__ */ React.createElement(Text, { color: settings.anime4k ? theme.green : theme.red }, settings.anime4k ? "[ON]" : "[OFF]") : /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "[Not Installed]")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray }, selectedIndex === 1 ? "\u25B8 " : "  ", "Anime4K Mode:", " "), /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray }, "\u25C0 ", settings.anime4kMode, " \u25B6")), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 2 ? theme.cyan : theme.lightGray }, selectedIndex === 2 ? "\u25B8 " : "  ", anime4kInstalled ? "\u21BB Re-download" : "\u2193 Download", " Anime4K Shaders")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 3 ? theme.cyan : theme.lightGray }, selectedIndex === 3 ? "\u25B8 " : "  ", "\u2190 Back")), downloadStatus && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: downloadStatus.startsWith("\u2713") ? theme.green : downloadStatus.startsWith("\u2717") ? theme.red : theme.cyan }, downloadStatus))), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, anime4kInstalled ? "Anime4K shaders enhance video quality for older anime" : "Download shaders first to enable upscaling")), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "Mode A: Best for 1080p | Mode B: Soft edges | Mode C: Denoise")));
+  return /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: Math.min(60, termSize.cols - 4) }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.cyan, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan, bold: true }, "[\u2699] Settings"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(50)), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 0 ? theme.cyan : theme.lightGray }, selectedIndex === 0 ? "\u25B8 " : "  ", "Anime4K Upscaling:", " "), anime4kInstalled ? /* @__PURE__ */ React.createElement(Text, { color: settings.anime4k ? theme.green : theme.red }, settings.anime4k ? "[ON]" : "[OFF]") : /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "[Not Installed]")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray }, selectedIndex === 1 ? "\u25B8 " : "  ", "Anime4K Mode:", " "), /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray }, "\u25C0 ", settings.anime4kMode, " \u25B6")), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 2 ? theme.cyan : theme.lightGray }, selectedIndex === 2 ? "\u25B8 " : "  ", anime4kInstalled ? "\u21BB Re-download" : "\u2193 Download", " Anime4K Shaders")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 3 ? theme.cyan : theme.lightGray }, selectedIndex === 3 ? "\u25B8 " : "  ", "\u2190 Back")), downloadStatus && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: downloadStatus.startsWith("\u2713") ? theme.green : downloadStatus.startsWith("\u2717") ? theme.red : theme.cyan }, downloadStatus))), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, anime4kInstalled ? "Anime4K shaders enhance video quality for older anime" : "Download shaders first to enable upscaling")), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "Mode A: Best for 1080p | Mode B: Soft edges | Mode C: Denoise")));
 }
-var initialQuery = process.argv.slice(2).join(" ").trim();
+var rawArgs = process.argv.slice(2);
+var enableAllanime = rawArgs.includes("--enable-allanime");
+var initialQuery = rawArgs.filter((arg) => arg !== "--enable-allanime").join(" ").trim();
 function App() {
   const { exit } = useApp();
+  const { stdout } = useStdout();
+  const [termSize2, setTermSize] = useState({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
+  useEffect(() => {
+    const onResize = () => setTermSize({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
+    stdout.on("resize", onResize);
+    return () => {
+      stdout.off("resize", onResize);
+    };
+  }, [stdout]);
   const [screen, setScreen] = useState(initialQuery ? "search" : "main-menu");
   const [animes, setAnimes] = useState([]);
   const [selectedAnime, setSelectedAnime] = useState(null);
@@ -1537,7 +1568,7 @@ function App() {
   const [syncMessage, setSyncMessage] = useState("");
   const [autoPlayEpisode, setAutoPlayEpisode] = useState(null);
   const [showWelcome, setShowWelcome] = useState(!initialQuery);
-  const [isExiting, setIsExiting] = useState(false);
+  const [isExiting, setIsExiting2] = useState(false);
   const [userPhotoUrl, setUserPhotoUrl] = useState(null);
   const [playingEpisode, setPlayingEpisode] = useState(null);
   const [playingPaused, setPlayingPaused] = useState(false);
@@ -1616,10 +1647,7 @@ function App() {
   const handleMenuSelect = useCallback((item) => {
     const action = item.value;
     if (action === "exit") {
-      setIsExiting(true);
-      setTimeout(() => {
-        process.exit(0);
-      }, 2e3);
+      setIsExiting2(true);
     } else if (action === "search") {
       setScreen("search");
       setStatus({ message: "Enter anime name to search", type: "info", loading: false });
@@ -1925,7 +1953,7 @@ function App() {
       setStatus({ message: `Resolving fastest available stream...`, type: "info", loading: true });
       const [torrentResult, backendResult] = await Promise.allSettled([
         getJson(`/api/torrent?title=${encodeURIComponent(animeTitle)}&ep=${epNo}`),
-        getJson(`/api/resolve-stream?title=${encodeURIComponent(animeTitle)}&epNo=${epNo}&mode=${mode}${malId ? `&malId=${malId}` : ""}`)
+        getJson(`/api/resolve-stream?title=${encodeURIComponent(animeTitle)}&epNo=${epNo}&mode=${mode}${malId ? `&malId=${malId}` : ""}${enableAllanime ? "&enableAllanime=true" : ""}`)
       ]);
       const torrentData = torrentResult.status === "fulfilled" ? torrentResult.value : null;
       const backendStream = backendResult.status === "fulfilled" ? backendResult.value : null;
@@ -1936,11 +1964,12 @@ function App() {
       let isLocalStream = false;
       let allEmbedSources = [];
       const providers = [];
-      if (torrentData?.magnet) {
-        providers.push({ name: "Nyaa (Torrent)", type: "torrent", magnet: torrentData.magnet });
-      }
       if (backendStream && backendStream.url) {
         providers.push({ name: backendStream.quality || backendStream.provider || "Direct Stream", type: "direct", url: backendStream.url, headers: backendStream.referer ? { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin } : void 0 });
+      }
+      if (providers.length === 0 && torrentData?.magnet) {
+        setStatus({ message: `No direct stream found \u2014 falling back to torrent (this will be slower)`, type: "info", loading: true });
+        providers.push({ name: "Nyaa (Torrent)", type: "torrent", magnet: torrentData.magnet });
       }
       if (providers.length === 0) {
         setStatus({ message: "No playable source found", type: "error", loading: false });
@@ -1997,7 +2026,7 @@ function App() {
         const anilistQuery = task.anilistId ? `&anilistId=${task.anilistId}` : "";
         const [torrentResult, backendResult] = await Promise.allSettled([
           getJson(`/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`),
-          getJson(`/api/resolve-stream?title=${encodeURIComponent(task.animeTitle)}&epNo=${task.episodeNumber}&mode=${audioType}${malId ? `&malId=${malId}` : ""}`)
+          getJson(`/api/resolve-stream?title=${encodeURIComponent(task.animeTitle)}&epNo=${task.episodeNumber}&mode=${audioType}${malId ? `&malId=${malId}` : ""}${enableAllanime ? "&enableAllanime=true" : ""}`)
         ]);
         const torrentData = torrentResult.status === "fulfilled" ? torrentResult.value : null;
         const backendStream = backendResult.status === "fulfilled" ? backendResult.value : null;
@@ -2193,7 +2222,7 @@ function App() {
     }
   }, [handleLogout, goBack]);
   if (isExiting) {
-    return /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", padding: 1, alignItems: "center" }, /* @__PURE__ */ React.createElement(Banner, { phase: bannerPhase }), /* @__PURE__ */ React.createElement(Box, { marginTop: 2, justifyContent: "center" }, /* @__PURE__ */ React.createElement(GoodbyeMessage, { onComplete: () => process.exit(0) })));
+    return /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", padding: 1, alignItems: "center" }, /* @__PURE__ */ React.createElement(Banner, { phase: bannerPhase }), /* @__PURE__ */ React.createElement(Box, { marginTop: 2, justifyContent: "center" }, /* @__PURE__ */ React.createElement(ExitAnimation, { onDone: () => process.exit(0) })));
   }
   return /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", padding: 1, alignItems: "center" }, /* @__PURE__ */ React.createElement(Banner, { phase: bannerPhase }), showWelcome && screen === "main-menu" && /* @__PURE__ */ React.createElement(Box, { marginBottom: 1, justifyContent: "center", width: "100%" }, /* @__PURE__ */ React.createElement(
     ScrollingWelcome,
@@ -2238,7 +2267,7 @@ function App() {
       },
       color: theme.pink
     }
-  ))), screen === "main-menu" && !showWelcome && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: 55, alignItems: "center" }, loggedIn ? /* @__PURE__ */ React.createElement(Box, { marginBottom: 1, borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 0, width: 55 }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "Okaeri, "), /* @__PURE__ */ React.createElement(ShimmerText, { text: username, speed: 150 }), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "!")) : /* @__PURE__ */ React.createElement(Box, { marginBottom: 1, borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 0, width: 55 }, /* @__PURE__ */ React.createElement(WaveText, { text: "Irasshaimase! Sign in for all features", colors: [theme.purple, theme.blue, theme.pink, theme.cyan], speed: 150 })), /* @__PURE__ */ React.createElement(
+  ))), screen === "main-menu" && !showWelcome && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: Math.min(55, termSize2.cols - 4), alignItems: "center" }, loggedIn ? /* @__PURE__ */ React.createElement(Box, { marginBottom: 1, borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 0, width: Math.min(55, termSize2.cols - 4) }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "Okaeri, "), /* @__PURE__ */ React.createElement(ShimmerText, { text: username, speed: 150 }), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "!")) : /* @__PURE__ */ React.createElement(Box, { marginBottom: 1, borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 0, width: Math.min(55, termSize2.cols - 4) }, /* @__PURE__ */ React.createElement(WaveText, { text: "Irasshaimase! Sign in for all features", colors: [theme.purple, theme.blue, theme.pink, theme.cyan], speed: 150 })), /* @__PURE__ */ React.createElement(
     SelectList,
     {
       items: loggedIn ? loggedInMenuItems : loggedOutMenuItems,
@@ -2296,7 +2325,7 @@ function App() {
       showNumbers: false,
       enableSearch: episodeItems.length > 20
     }
-  ))), screen === "downloading" && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", paddingX: 2, paddingY: 1, borderStyle: "round", borderColor: theme.cyan, width: 70 }, /* @__PURE__ */ React.createElement(Text, { color: theme.pink, bold: true }, "\u{1F4E5} Downloads"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(60)), downloadQueue.length === 0 ? /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "Queue is empty.") : downloadQueue.map((t, idx) => {
+  ))), screen === "downloading" && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", paddingX: 2, paddingY: 1, borderStyle: "round", borderColor: theme.cyan, width: Math.min(70, termSize2.cols - 4) }, /* @__PURE__ */ React.createElement(Text, { color: theme.pink, bold: true }, "\u{1F4E5} Downloads"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(60)), downloadQueue.length === 0 ? /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "Queue is empty.") : downloadQueue.map((t, idx) => {
     const pBar = "\u2588".repeat(Math.floor(t.progress / 5)) + "\u2591".repeat(20 - Math.floor(t.progress / 5));
     let statusColor = theme.lightGray;
     let icon = "\u23F3";
@@ -2325,7 +2354,7 @@ function App() {
       showNumbers: true,
       enableSearch: false
     }
-  ))), screen === "login-waiting" && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: 55 }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.purple, bold: true }, "[L] Login to NyAnime"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(45)), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "1. Check your browser"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "2. Sign in or Authorize ny-cli"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "3. Return to terminal when done"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(45)), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "Waiting for authorization..."))), screen === "profile" && /* @__PURE__ */ React.createElement(Box, { flexDirection: "row", gap: 2 }, userPhotoUrl ? /* @__PURE__ */ React.createElement(Box, { width: 18, height: 14 }, /* @__PURE__ */ React.createElement(AnimeArtwork, { title: "", imageUrl: userPhotoUrl, width: 18, height: 14 })) : /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.purple, width: 16, height: 12, justifyContent: "center", alignItems: "center" }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "[No Photo]")), /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: 50 }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.purple, bold: true }, "[P] ", username), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(35)), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "UID: ", /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, getToken().substring(0, 12), "...")), syncMessage ? /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, syncMessage) : null), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(
+  ))), screen === "login-waiting" && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: Math.min(55, termSize2.cols - 4) }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.purple, bold: true }, "[L] Login to NyAnime"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(45)), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "1. Check your browser"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "2. Sign in or Authorize ny-cli"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "3. Return to terminal when done"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(45)), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "Waiting for authorization..."))), screen === "profile" && /* @__PURE__ */ React.createElement(Box, { flexDirection: termSize2.cols < 70 ? "column" : "row", gap: 2 }, userPhotoUrl ? /* @__PURE__ */ React.createElement(Box, { width: 18, height: 14 }, /* @__PURE__ */ React.createElement(AnimeArtwork, { title: "", imageUrl: userPhotoUrl, width: 18, height: 14 })) : /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.purple, width: 16, height: 12, justifyContent: "center", alignItems: "center" }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "[No Photo]")), /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: Math.min(50, termSize2.cols - 4) }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.purple, bold: true }, "[P] ", username), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(35)), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "UID: ", /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, getToken().substring(0, 12), "...")), syncMessage ? /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, syncMessage) : null), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(
     SelectList,
     {
       items: profileMenuItems,
@@ -2343,7 +2372,7 @@ function App() {
       },
       onBack: goBack
     }
-  ), screen === "help" && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: 55 }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.blue, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.blue, bold: true }, "[?] NY-CLI Help"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(45)), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "USAGE:"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  ny-cli              Interactive mode"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, '  ny-cli "one piece"  Quick search'), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "NAVIGATION:"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  Up/Down or j/k  Navigate"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  Enter           Select"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  b or Left       Go back"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  1-9             Quick select"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  q               Quit"), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "CLOUD SYNC:"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  Login with your nyanime.qzz.io account"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  to sync watch history across devices"), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "PLAYER (mpv):"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  Space  Play/Pause  |  f  Fullscreen"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  Left/Right   Seek  |  q  Quit")), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "Press b or Left to go back")), /* @__PURE__ */ React.createElement(HelpBackHandler, { onBack: goBack })), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(StatusBar, { ...status })));
+  ), screen === "help" && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: Math.min(55, termSize2.cols - 4) }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.blue, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.blue, bold: true }, "[?] NY-CLI Help"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(45)), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "USAGE:"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  ny-cli              Interactive mode"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, '  ny-cli "one piece"  Quick search'), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "NAVIGATION:"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  Up/Down or j/k  Navigate"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  Enter           Select"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  b or Left       Go back"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  1-9             Quick select"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  q               Quit"), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "CLOUD SYNC:"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  Login with your nyanime.qzz.io account"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  to sync watch history across devices"), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "PLAYER (mpv):"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  Space  Play/Pause  |  f  Fullscreen"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "  Left/Right   Seek  |  q  Quit")), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "Press b or Left to go back")), /* @__PURE__ */ React.createElement(HelpBackHandler, { onBack: goBack })), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(StatusBar, { ...status })));
 }
 function HelpBackHandler({ onBack }) {
   useInput((input, key) => {

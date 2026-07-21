@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import React, { useState, useEffect, useCallback } from 'react';
-import { render, Box, Text, useInput, useApp } from 'ink';
+import { render, Box, Text, useInput, useApp, useStdout } from 'ink';
 import TextInput from 'ink-text-input';
 import Picture, { TerminalInfoProvider } from 'ink-picture';
 import { spawn, spawnSync, execSync } from 'node:child_process';
@@ -10,7 +10,7 @@ import os from 'node:os';
 import http from 'node:http';
 
 const API_BASE = process.env.NYCLI_API_BASE || 'http://localhost:43201';
-const VERSION = '6.0.11';
+const VERSION = '6.1.0';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
@@ -725,6 +725,31 @@ function Spinner({ color = theme.purple, text = '' }: { color?: string; text?: s
   );
 }
 
+const EXIT_FRAMES = ['◜ ', ' ◝', ' ◞', '◟ ', '◜ '];
+function ExitAnimation({ onDone }: { onDone: () => void }) {
+  const [frame, setFrame] = useState(0);
+  
+  useInput(() => {
+    // any key press cuts it short
+    onDone();
+  });
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setFrame(f => {
+        if (f + 1 >= EXIT_FRAMES.length) {
+          clearInterval(timer);
+          setTimeout(onDone, 100);
+        }
+        return Math.min(f + 1, EXIT_FRAMES.length - 1);
+      });
+    }, 120);
+    return () => clearInterval(timer);
+  }, [onDone]);
+
+  return <Text color={theme.purple}>{EXIT_FRAMES[frame]} Goodbye!</Text>;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ANIMATED COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -969,17 +994,6 @@ function ScrollingWelcome({ text, onComplete }: { text: string; onComplete?: () 
   );
 }
 
-// Goodbye message that scrolls and fades
-function GoodbyeMessage({ onComplete }: { onComplete?: () => void }) {
-  const messages = [
-    '~ Sayounara! ~',
-    '🌸 Mata ne! 🌸',
-    '👋 Jaa ne! 👋'
-  ];
-  const message = messages[Math.floor(Math.random() * messages.length)];
-  
-  return <ScrollingWelcome text={message} onComplete={onComplete} />;
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ANIME ARTWORK DISPLAY (using ink-picture)
@@ -1158,6 +1172,15 @@ interface SelectInputProps {
 }
 
 function SelectList({ items, onSelect, onBack, title, color = theme.purple, showBorder = true, showArtwork = false, showNumbers = true, enableSearch = false, onAction }: SelectInputProps) {
+  const { stdout } = useStdout();
+  const [termSize, setTermSize] = useState({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
+  
+  useEffect(() => {
+    const onResize = () => setTermSize({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
+    stdout.on('resize', onResize);
+    return () => { stdout.off('resize', onResize); };
+  }, [stdout]);
+
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [rippleIndex, setRippleIndex] = useState(-1);
   const [ripplePhase, setRipplePhase] = useState(0);
@@ -1237,7 +1260,7 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
         }, 300);
       }
     } else if (input === 'q') {
-      process.exit(0);
+      setIsExiting(true);
     } else if (key.escape || input === 'b' || key.leftArrow) {
       if (searchQuery) {
         setSearchQuery('');
@@ -1344,7 +1367,7 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
     const artworkHeight = 15;
     
     return (
-      <Box flexDirection="row">
+      <Box flexDirection={termSize.cols < 70 ? 'column' : 'row'}>
         {/* Artwork panel on the left */}
         <Box flexDirection="column" marginRight={2} width={artworkWidth}>
           <AnimeArtwork 
@@ -1593,7 +1616,7 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
       return;
     }
     if (input === 'q') {
-      process.exit(0);
+      setIsExiting(true);
     }
     
     if (key.upArrow || input === 'k') {
@@ -1630,7 +1653,7 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
   });
   
   return (
-    <Box flexDirection="column" width={60}>
+    <Box flexDirection="column" width={Math.min(60, termSize.cols - 4)}>
       <Box borderStyle="round" borderColor={theme.cyan} paddingX={2} paddingY={1} flexDirection="column">
         <Text color={theme.cyan} bold>[⚙] Settings</Text>
         <Text color={theme.dimGray}>{'─'.repeat(50)}</Text>
@@ -1727,7 +1750,9 @@ type Screen =
   | 'help'
   | 'playing';
 
-const initialQuery = process.argv.slice(2).join(' ').trim();
+const rawArgs = process.argv.slice(2);
+const enableAllanime = rawArgs.includes('--enable-allanime');
+const initialQuery = rawArgs.filter(arg => arg !== '--enable-allanime').join(' ').trim();
 
 export interface DownloadTask {
   id: string;
@@ -1741,6 +1766,15 @@ export interface DownloadTask {
 
 function App() {
   const { exit } = useApp();
+  const { stdout } = useStdout();
+  const [termSize, setTermSize] = useState({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
+  
+  useEffect(() => {
+    const onResize = () => setTermSize({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
+    stdout.on('resize', onResize);
+    return () => { stdout.off('resize', onResize); };
+  }, [stdout]);
+
   const [screen, setScreen] = useState<Screen>(initialQuery ? 'search' : 'main-menu');
   const [animes, setAnimes] = useState<any[]>([]);
   const [selectedAnime, setSelectedAnime] = useState<any>(null);
@@ -1863,9 +1897,6 @@ function App() {
     const action = item.value;
     if (action === 'exit') {
       setIsExiting(true);
-      setTimeout(() => {
-        process.exit(0);
-      }, 2000);
     } else if (action === 'search') {
       setScreen('search');
       setStatus({ message: 'Enter anime name to search', type: 'info', loading: false });
@@ -2238,7 +2269,7 @@ function App() {
 
       const [torrentResult, backendResult] = await Promise.allSettled([
         getJson(`/api/torrent?title=${encodeURIComponent(animeTitle)}&ep=${epNo}`),
-        getJson(`/api/resolve-stream?title=${encodeURIComponent(animeTitle)}&epNo=${epNo}&mode=${mode}${malId ? `&malId=${malId}` : ''}`)
+        getJson(`/api/resolve-stream?title=${encodeURIComponent(animeTitle)}&epNo=${epNo}&mode=${mode}${malId ? `&malId=${malId}` : ''}${enableAllanime ? '&enableAllanime=true' : ''}`)
       ]);
 
       const torrentData = torrentResult.status === 'fulfilled' ? torrentResult.value : null;
@@ -2255,11 +2286,13 @@ function App() {
       // Build Providers List
       const providers: {name: string, type: 'torrent'|'direct'|'embed', url?: string, magnet?: string, headers?: any}[] = [];
       
-      if (torrentData?.magnet) {
-        providers.push({ name: 'Nyaa (Torrent)', type: 'torrent', magnet: torrentData.magnet });
-      }
       if (backendStream && backendStream.url) {
         providers.push({ name: backendStream.quality || backendStream.provider || 'Direct Stream', type: 'direct', url: backendStream.url, headers: backendStream.referer ? { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin } : undefined });
+      }
+
+      if (providers.length === 0 && torrentData?.magnet) {
+        setStatus({ message: `No direct stream found — falling back to torrent (this will be slower)`, type: 'info', loading: true });
+        providers.push({ name: 'Nyaa (Torrent)', type: 'torrent', magnet: torrentData.magnet });
       }
 
       if (providers.length === 0) {
@@ -2334,7 +2367,7 @@ function App() {
         // Fetch All Sources Concurrently for Max Speed
         const [torrentResult, backendResult] = await Promise.allSettled([
           getJson(`/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`),
-          getJson(`/api/resolve-stream?title=${encodeURIComponent(task.animeTitle)}&epNo=${task.episodeNumber}&mode=${audioType}${malId ? `&malId=${malId}` : ''}`)
+          getJson(`/api/resolve-stream?title=${encodeURIComponent(task.animeTitle)}&epNo=${task.episodeNumber}&mode=${audioType}${malId ? `&malId=${malId}` : ''}${enableAllanime ? '&enableAllanime=true' : ''}`)
         ]);
 
         const torrentData = torrentResult.status === 'fulfilled' ? torrentResult.value : null;
@@ -2586,7 +2619,7 @@ function App() {
       <Box flexDirection="column" padding={1} alignItems="center">
         <Banner phase={bannerPhase} />
         <Box marginTop={2} justifyContent="center">
-          <GoodbyeMessage onComplete={() => process.exit(0)} />
+          <ExitAnimation onDone={() => process.exit(0)} />
         </Box>
       </Box>
     );
@@ -2660,15 +2693,15 @@ function App() {
 
       {/* Main Menu */}
       {screen === 'main-menu' && !showWelcome && (
-        <Box flexDirection="column" width={55} alignItems="center">
+        <Box flexDirection="column" width={Math.min(55, termSize.cols - 4)} alignItems="center">
           {loggedIn ? (
-            <Box marginBottom={1} borderStyle="round" borderColor={theme.purple} paddingX={2} paddingY={0} width={55}>
+            <Box marginBottom={1} borderStyle="round" borderColor={theme.purple} paddingX={2} paddingY={0} width={Math.min(55, termSize.cols - 4)}>
               <Text color={theme.cyan}>Okaeri, </Text>
               <ShimmerText text={username} speed={150} />
               <Text color={theme.cyan}>!</Text>
             </Box>
           ) : (
-            <Box marginBottom={1} borderStyle="round" borderColor={theme.purple} paddingX={2} paddingY={0} width={55}>
+            <Box marginBottom={1} borderStyle="round" borderColor={theme.purple} paddingX={2} paddingY={0} width={Math.min(55, termSize.cols - 4)}>
               <WaveText text="Irasshaimase! Sign in for all features" colors={[theme.purple, theme.blue, theme.pink, theme.cyan]} speed={150} />
             </Box>
           )}
@@ -2756,7 +2789,7 @@ function App() {
 
       {/* Downloading Queue */}
       {screen === 'downloading' && (
-        <Box flexDirection="column" paddingX={2} paddingY={1} borderStyle="round" borderColor={theme.cyan} width={70}>
+        <Box flexDirection="column" paddingX={2} paddingY={1} borderStyle="round" borderColor={theme.cyan} width={Math.min(70, termSize.cols - 4)}>
           <Text color={theme.pink} bold>📥 Downloads</Text>
           <Text color={theme.dimGray}>{'─'.repeat(60)}</Text>
           {downloadQueue.length === 0 ? (
@@ -2810,7 +2843,7 @@ function App() {
 
       {/* Login - Waiting Step */}
       {screen === 'login-waiting' && (
-        <Box flexDirection="column" width={55}>
+        <Box flexDirection="column" width={Math.min(55, termSize.cols - 4)}>
           <Box borderStyle="round" borderColor={theme.purple} paddingX={2} paddingY={1} flexDirection="column">
             <Text color={theme.purple} bold>[L] Login to NyAnime</Text>
             <Text color={theme.dimGray}>{'─'.repeat(45)}</Text>
@@ -2825,7 +2858,7 @@ function App() {
 
       {/* Profile */}
       {screen === 'profile' && (
-        <Box flexDirection="row" gap={2}>
+        <Box flexDirection={termSize.cols < 70 ? 'column' : 'row'} gap={2}>
           {/* Avatar - Use ink-picture component */}
           {userPhotoUrl ? (
             <Box width={18} height={14}>
@@ -2838,7 +2871,7 @@ function App() {
           )}
           
           {/* Profile Info */}
-          <Box flexDirection="column" width={50}>
+          <Box flexDirection="column" width={Math.min(50, termSize.cols - 4)}>
             <Box borderStyle="round" borderColor={theme.purple} paddingX={2} paddingY={1} flexDirection="column">
               <Text color={theme.purple} bold>[P] {username}</Text>
               <Text color={theme.dimGray}>{'─'.repeat(35)}</Text>
@@ -2871,7 +2904,7 @@ function App() {
 
       {/* Help */}
       {screen === 'help' && (
-        <Box flexDirection="column" width={55}>
+        <Box flexDirection="column" width={Math.min(55, termSize.cols - 4)}>
           <Box borderStyle="round" borderColor={theme.blue} paddingX={2} paddingY={1} flexDirection="column">
             <Text color={theme.blue} bold>[?] NY-CLI Help</Text>
             <Text color={theme.dimGray}>{'─'.repeat(45)}</Text>

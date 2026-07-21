@@ -1,6 +1,6 @@
 {
   "name": "@anjishnusengupta/ny-cli",
-  "version": "6.0.12",
+  "version": "6.1.0",
   "type": "module",
   "description": "Beautiful terminal anime streaming CLI with Ink UI, artwork display, and cloud sync",
   "main": "backend.mjs",
@@ -8,9 +8,11 @@
     "ny-cli": "ny-cli"
   },
   "scripts": {
+    "sync-version": "node scripts/sync-version.js",
     "start": "node backend.mjs",
     "cli": "bun cli-terminal.tsx",
     "cli:fallback": "node cli-terminal-fallback.mjs",
+    "build:fallback": "esbuild cli-terminal.tsx --bundle --platform=node --format=esm --outfile=cli-terminal-fallback.mjs --external:react --external:ink --external:ink-text-input --external:ink-picture",
     "test": "node -e \"console.log('No automated tests configured')\"",
     "postinstall": "echo '\\nRun ny-cli to start watching anime!\\n'"
   },
@@ -41,6 +43,9 @@
     "linux",
     "darwin"
   ],
+  "overrides": {
+    "ip-set": "^2.2.0"
+  },
   "dependencies": {
     "ansi-regex": "^6.2.2",
     "chalk": "^5.6.2",
@@ -51,16 +56,13 @@
     "ink-text-input": "^6.0.0",
     "open": "^11.0.0",
     "react": "^18.3.1",
-    "react-devtools-core": "^4.28.5",
-    "webtorrent": "^3.0.0",
-    "webtorrent-cli": "^6.0.0"
+    "react-devtools-core": "^4.28.5"
   },
   "devDependencies": {
     "@types/node": "^25.9.2",
     "@types/react": "^19.2.14",
+    "esbuild": "^0.28.1",
+    "npm-force-resolutions": "^0.0.10",
     "typescript": "^6.0.2"
-  },
-  "overrides": {
-    "ip-set": "^2.2.0"
   }
 }

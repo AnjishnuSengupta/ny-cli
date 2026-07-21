@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 /**
- * ny-cli backend v6.0.8
+ * ny-cli backend v6.1.0
  * Provider chain: AniList GraphQL (search/meta) + Jikan (episodes) + MegaPlay embed (streaming)
  * AnimeKAI is down. AllAnime is CF-blocked. MegaPlay works reliably via iframe embed.
  */
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import WebTorrent from 'webtorrent';
 import { resolveStream } from './providers/index.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -16,7 +15,6 @@ const __dirname = path.dirname(__filename);
 const app    = express();
 const PORT   = Number(process.env.PORT || 43201);
 const HOST   = process.env.HOST || '0.0.0.0';
-const client = new WebTorrent({ maxConns: 20 });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const ok   = (res, data, ttl = 60) => {
@@ -203,7 +201,7 @@ function parseAnimeId(id) {
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.get('/', (req, res) => res.json({ status: 'ok', version: '6.0.12', providers: ['anilist', 'jikan', 'megaplay'] }));
+app.get('/', (req, res) => res.json({ status: 'ok', version: '6.1.0', providers: ['anilist', 'jikan', 'megaplay'] }));
 
 app.get('/api/aniwatch', async (req, res) => {
   const { action, q, id, episodeId, category, page, malId: qMalId, episodeNo: qEpNo } = req.query;
@@ -435,15 +433,23 @@ app.get('/api/image', async (req, res) => {
 
 // ── Provider Orchestration ────────────────────────────────────────────────────
 app.get('/api/resolve-stream', async (req, res) => {
-  const { title, epNo, mode, malId } = req.query;
-  if (!title || !epNo) return fail(res, 400, 'Missing title or epNo');
+  const { title, epNo, mode, malId, enableAllanime } = req.query;
   
+  if (!title || !epNo) {
+    return fail(res, 400, 'Missing title or epNo');
+  }
+
   try {
-    const src = await resolveStream(title, Number(epNo), mode || 'sub', malId ? Number(malId) : null);
+    const src = await resolveStream(title, Number(epNo), mode || 'sub', malId ? Number(malId) : null, {
+      enableAllanime: enableAllanime === 'true'
+    });
     if (!src) return fail(res, 404, 'No playable sources available');
     return ok(res, src, 0);
   } catch (e) {
     console.error('[/api/resolve-stream]', e.message);
+    if (e.attempts) {
+      return res.status(404).json({ success: false, error: e.message, attempts: e.attempts });
+    }
     return fail(res, 500, e.message);
   }
 });
@@ -502,34 +508,6 @@ app.get('/api/stream', async (req, res) => {
 });
 
 // ── Torrent stream ────────────────────────────────────────────────────────────
-app.get('/api/torrent-stream', (req, res) => {
-  const magnet = req.query.magnet;
-  if (!magnet) return res.status(400).send('Missing magnet');
-  try {
-    let torrent = client.get(magnet);
-    if (!torrent) torrent = client.add(magnet, { path: '/tmp/webtorrent' });
-    const serve = () => {
-      const file = torrent.files.find(f => /\.(mkv|mp4|webm)$/i.test(f.name));
-      if (!file) return res.status(404).send('No video file found');
-      const { range } = req.headers;
-      if (!range) {
-        res.writeHead(200, { 'Content-Length': file.length, 'Content-Type': 'video/mp4' });
-        return file.createReadStream().pipe(res);
-      }
-      const [s, e] = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(s, 10), end = e ? parseInt(e, 10) : file.length - 1;
-      res.writeHead(206, { 'Content-Range': `bytes ${start}-${end}/${file.length}`, 'Accept-Ranges': 'bytes', 'Content-Length': end - start + 1, 'Content-Type': 'video/mp4' });
-      const stream = file.createReadStream({ start, end });
-      stream.pipe(res);
-      res.on('close', () => stream.destroy());
-    };
-    if (torrent.ready) serve();
-    else {
-      torrent.on('ready', serve);
-      torrent.on('error', () => { if (!res.headersSent) res.status(500).send('Torrent error'); });
-    }
-  } catch { if (!res.headersSent) res.status(500).send('Server error'); }
-});
 
 // ── Auth page ─────────────────────────────────────────────────────────────────
 app.get('/api/auth/login', (req, res) => {
@@ -567,6 +545,6 @@ app.get('/api/auth/login', (req, res) => {
 });
 
 app.listen(PORT, HOST, () => {
-  console.log(`[ny-cli] backend v6.0.8 on http://${HOST}:${PORT}`);
+  console.log(`[ny-cli] backend v6.1.0 on http://${HOST}:${PORT}`);
   console.log(`[ny-cli] providers: AniList (search/info) + Jikan (episodes) + MegaPlay/Anikoto (streaming)`);
 });
