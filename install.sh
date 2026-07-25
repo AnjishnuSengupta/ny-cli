@@ -176,7 +176,14 @@ check_prerequisites() {
     else
         printf "${GREEN}✓ mpv installed${RESET}\n"
     fi
-    
+
+    # Check ffmpeg (required for episode downloads)
+    if ! command -v ffmpeg >/dev/null 2>&1; then
+        missing_optional="$missing_optional ffmpeg"
+    else
+        printf "${GREEN}✓ ffmpeg installed${RESET}\n"
+    fi
+
 
     # Check webtorrent-cli
     if ! command -v webtorrent >/dev/null 2>&1; then
@@ -231,7 +238,8 @@ check_prerequisites() {
     # Offer to install optional dependencies
     if [ -n "$missing_optional" ]; then
         printf "\n${YELLOW}Recommended optional packages:${WHITE}$missing_optional${RESET}\n"
-        printf "${DIM}  mpv   - Video player (required for playback)${RESET}\n"
+        printf "${DIM}  mpv     - Video player (required for playback)${RESET}\n"
+        printf "${DIM}  ffmpeg  - Required for episode downloads${RESET}\n"
         
         printf "\n${CYAN}Install recommended packages? [Y/n] ${RESET}"
         read -r response </dev/tty || response="y"

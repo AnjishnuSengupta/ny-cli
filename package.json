@@ -43,15 +43,12 @@
     "linux",
     "darwin"
   ],
-  "overrides": {
-    "ip-set": "^2.2.0"
-  },
   "dependencies": {
     "ansi-regex": "^6.2.2",
     "chalk": "^5.6.2",
     "express": "^5.1.0",
     "ink": "^5.2.1",
-    "ink-picture": "^1.3.5",
+    "ink-picture": "^2.1.0",
     "ink-select-input": "^6.2.0",
     "ink-text-input": "^6.0.0",
     "open": "^11.0.0",
@@ -62,7 +59,6 @@
     "@types/node": "^25.9.2",
     "@types/react": "^19.2.14",
     "esbuild": "^0.28.1",
-    "npm-force-resolutions": "^0.0.10",
     "typescript": "^6.0.2"
   }
 }

@@ -735,6 +735,7 @@ import fs6 from "node:fs";
 import path2 from "node:path";
 import os2 from "node:os";
 import http from "node:http";
+import { EventEmitter } from "node:events";
 
 // firebase-config.ts
 var getFirebaseConfig = () => {
@@ -750,6 +751,7 @@ var getFirebaseConfig = () => {
 };
 
 // cli-terminal.tsx
+var quitBus = new EventEmitter();
 var API_BASE = process.env.NYCLI_API_BASE || "http://localhost:43201";
 var VERSION = "6.1.0";
 var fbConfig = getFirebaseConfig();
@@ -788,7 +790,8 @@ try {
 }
 var defaultSettings = {
   anime4k: false,
-  anime4kMode: "A"
+  anime4kMode: "A",
+  player: "auto"
 };
 function loadSettings() {
   try {
@@ -799,9 +802,9 @@ function loadSettings() {
   }
   return defaultSettings;
 }
-function saveSettings(settings) {
+function saveSettings(settings2) {
   try {
-    fs6.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+    fs6.writeFileSync(SETTINGS_FILE, JSON.stringify(settings2, null, 2));
   } catch {
   }
 }
@@ -1458,13 +1461,58 @@ async function getJson(path3) {
   }
   return body.data;
 }
-function SettingsScreen({ settings, onUpdate, onBack }) {
+function getPlayerCommand() {
+  const candidates = ["mpv", "vlc", "iina"];
+  for (const cmd of candidates) {
+    try {
+      const result = spawnSync("which", [cmd], { encoding: "utf8" });
+      if (result.status === 0 && result.stdout.trim()) {
+        return cmd;
+      }
+    } catch {
+    }
+  }
+  return null;
+}
+function resolvePlayerCommand(settings2) {
+  if (settings2.player && settings2.player !== "auto") return settings2.player;
+  return getPlayerCommand() || "mpv";
+}
+function buildPlayerArgs(player, url, headers, title) {
+  if (player === "vlc") {
+    const args2 = [url];
+    if (headers?.Referer) {
+      args2.push(`--http-referrer=${headers.Referer}`);
+    }
+    if (headers?.["User-Agent"]) {
+      args2.push(`--http-user-agent=${headers["User-Agent"]}`);
+    }
+    if (title) {
+      args2.push(`--meta-title=${title}`);
+    }
+    args2.push("--play-and-exit");
+    return args2;
+  }
+  const args = [url];
+  if (headers) {
+    Object.entries(headers).forEach(([k, v]) => {
+      args.push(`--http-header-fields-append=${k}: ${v}`);
+    });
+  }
+  if (title) {
+    args.push(`--force-media-title=${title}`);
+  }
+  return args;
+}
+function SettingsScreen({ settings: settings2, onUpdate, onBack }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [downloading, setDownloading] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState("");
   const anime4kInstalled = isAnime4kInstalled();
   const modes = ["A", "B", "C", "A+A", "B+B", "C+A"];
+  const players = ["auto", "mpv", "vlc"];
   const menuItems = [
+    { key: "player", label: "Video Player", type: "select" },
     { key: "anime4k", label: "Anime4K Upscaling", type: "toggle" },
     { key: "anime4kMode", label: "Anime4K Mode", type: "select" },
     { key: "download", label: "Download Anime4K Shaders", type: "action" },
@@ -1505,14 +1553,18 @@ function SettingsScreen({ settings, onUpdate, onBack }) {
       setSelectedIndex((i) => Math.min(menuItems.length - 1, i + 1));
     } else if (key.return) {
       const item = menuItems[selectedIndex];
-      if (item.key === "anime4k") {
+      if (item.key === "player") {
+        const currentIdx = players.indexOf(settings2.player || "auto");
+        const nextIdx = (currentIdx + 1) % players.length;
+        onUpdate({ ...settings2, player: players[nextIdx] });
+      } else if (item.key === "anime4k") {
         if (anime4kInstalled) {
-          onUpdate({ ...settings, anime4k: !settings.anime4k });
+          onUpdate({ ...settings2, anime4k: !settings2.anime4k });
         }
       } else if (item.key === "anime4kMode") {
-        const currentIdx = modes.indexOf(settings.anime4kMode);
+        const currentIdx = modes.indexOf(settings2.anime4kMode);
         const nextIdx = (currentIdx + 1) % modes.length;
-        onUpdate({ ...settings, anime4kMode: modes[nextIdx] });
+        onUpdate({ ...settings2, anime4kMode: modes[nextIdx] });
       } else if (item.key === "download") {
         if (!downloading) {
           downloadAnime4k();
@@ -1520,17 +1572,25 @@ function SettingsScreen({ settings, onUpdate, onBack }) {
       } else if (item.key === "back") {
         onBack();
       }
+    } else if (key.leftArrow && menuItems[selectedIndex].key === "player") {
+      const currentIdx = players.indexOf(settings2.player || "auto");
+      const prevIdx = currentIdx > 0 ? currentIdx - 1 : players.length - 1;
+      onUpdate({ ...settings2, player: players[prevIdx] });
+    } else if (key.rightArrow && menuItems[selectedIndex].key === "player") {
+      const currentIdx = players.indexOf(settings2.player || "auto");
+      const nextIdx = (currentIdx + 1) % players.length;
+      onUpdate({ ...settings2, player: players[nextIdx] });
     } else if (key.leftArrow && menuItems[selectedIndex].key === "anime4kMode") {
-      const currentIdx = modes.indexOf(settings.anime4kMode);
+      const currentIdx = modes.indexOf(settings2.anime4kMode);
       const prevIdx = currentIdx > 0 ? currentIdx - 1 : modes.length - 1;
-      onUpdate({ ...settings, anime4kMode: modes[prevIdx] });
+      onUpdate({ ...settings2, anime4kMode: modes[prevIdx] });
     } else if (key.rightArrow && menuItems[selectedIndex].key === "anime4kMode") {
-      const currentIdx = modes.indexOf(settings.anime4kMode);
+      const currentIdx = modes.indexOf(settings2.anime4kMode);
       const nextIdx = (currentIdx + 1) % modes.length;
-      onUpdate({ ...settings, anime4kMode: modes[nextIdx] });
+      onUpdate({ ...settings2, anime4kMode: modes[nextIdx] });
     }
   });
-  return /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: Math.min(60, termSize.cols - 4) }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.cyan, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan, bold: true }, "[\u2699] Settings"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(50)), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 0 ? theme.cyan : theme.lightGray }, selectedIndex === 0 ? "\u25B8 " : "  ", "Anime4K Upscaling:", " "), anime4kInstalled ? /* @__PURE__ */ React.createElement(Text, { color: settings.anime4k ? theme.green : theme.red }, settings.anime4k ? "[ON]" : "[OFF]") : /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "[Not Installed]")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray }, selectedIndex === 1 ? "\u25B8 " : "  ", "Anime4K Mode:", " "), /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray }, "\u25C0 ", settings.anime4kMode, " \u25B6")), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 2 ? theme.cyan : theme.lightGray }, selectedIndex === 2 ? "\u25B8 " : "  ", anime4kInstalled ? "\u21BB Re-download" : "\u2193 Download", " Anime4K Shaders")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 3 ? theme.cyan : theme.lightGray }, selectedIndex === 3 ? "\u25B8 " : "  ", "\u2190 Back")), downloadStatus && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: downloadStatus.startsWith("\u2713") ? theme.green : downloadStatus.startsWith("\u2717") ? theme.red : theme.cyan }, downloadStatus))), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, anime4kInstalled ? "Anime4K shaders enhance video quality for older anime" : "Download shaders first to enable upscaling")), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "Mode A: Best for 1080p | Mode B: Soft edges | Mode C: Denoise")));
+  return /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: Math.min(60, termSize.cols - 4) }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.cyan, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan, bold: true }, "[\u2699] Settings"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(50)), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 0 ? theme.cyan : theme.lightGray }, selectedIndex === 0 ? "\u25B8 " : "  ", "Video Player:", " "), /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 0 ? theme.cyan : theme.lightGray }, "\u25C0 ", (settings2.player || "auto").toUpperCase(), " \u25B6")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray }, selectedIndex === 1 ? "\u25B8 " : "  ", "Anime4K Upscaling:", " "), anime4kInstalled ? /* @__PURE__ */ React.createElement(Text, { color: settings2.anime4k ? theme.green : theme.red }, settings2.anime4k ? "[ON]" : "[OFF]") : /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "[Not Installed]")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 2 ? theme.cyan : theme.lightGray }, selectedIndex === 2 ? "\u25B8 " : "  ", "Anime4K Mode:", " "), /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 2 ? theme.cyan : theme.lightGray }, "\u25C0 ", settings2.anime4kMode, " \u25B6")), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 3 ? theme.cyan : theme.lightGray }, selectedIndex === 3 ? "\u25B8 " : "  ", anime4kInstalled ? "\u21BB Re-download" : "\u2193 Download", " Anime4K Shaders")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 4 ? theme.cyan : theme.lightGray }, selectedIndex === 4 ? "\u25B8 " : "  ", "\u2190 Back")), downloadStatus && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: downloadStatus.startsWith("\u2713") ? theme.green : downloadStatus.startsWith("\u2717") ? theme.red : theme.cyan }, downloadStatus))), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, anime4kInstalled ? "Anime4K shaders enhance video quality for older anime" : "Download shaders first to enable upscaling")), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "Mode A: Best for 1080p | Mode B: Soft edges | Mode C: Denoise")));
 }
 var rawArgs = process.argv.slice(2);
 var enableAllanime = rawArgs.includes("--enable-allanime");
@@ -1576,33 +1636,55 @@ function App() {
   const [playingProviderIndex, setPlayingProviderIndex] = useState(0);
   const togglePause = () => {
     if (os2.platform() === "win32") return;
+    const cmd = resolvePlayerCommand(settings);
+    if (cmd === "vlc") {
+      setStatus({ message: "Pause via hotkey is mpv-only (VLC uses its own controls)", type: "info", loading: false });
+      return;
+    }
     if (playingPaused) {
-      spawnSync("killall", ["-CONT", "mpv"]);
+      spawnSync("killall", ["-CONT", cmd]);
       setPlayingPaused(false);
     } else {
-      spawnSync("killall", ["-STOP", "mpv"]);
+      spawnSync("killall", ["-STOP", cmd]);
       setPlayingPaused(true);
     }
   };
   const playProvider = (provider) => {
+    const cmd = resolvePlayerCommand(settings);
     if (provider.type === "torrent") {
       setStatus({ message: `Starting ${provider.name}...`, type: "success", loading: false });
       const wtCmd = os2.platform() === "win32" ? "npx.cmd" : "npx";
-      spawn(wtCmd, ["-y", "webtorrent-cli", provider.magnet, "--mpv"], { stdio: "ignore", detached: true }).unref();
+      const playerFlag = cmd === "vlc" ? "--vlc" : "--mpv";
+      const proc = spawn(wtCmd, ["-y", "webtorrent-cli", provider.magnet, playerFlag], { stdio: "ignore", detached: true });
+      proc.on("error", (err) => {
+        setStatus({ message: `Failed to launch webtorrent: ${err.message}`, type: "error", loading: false });
+      });
+      proc.unref();
     } else if (provider.type === "direct") {
-      setStatus({ message: `Starting ${provider.name} in MPV...`, type: "success", loading: false });
-      const headerArgs = [];
-      if (provider.headers) {
-        Object.entries(provider.headers).forEach(([k, v]) => {
-          headerArgs.push(`--http-header-fields-append=${k}: ${v}`);
-        });
-      }
-      spawn("mpv", [provider.url, ...headerArgs, "--force-media-title=NY-CLI Stream"], { stdio: "ignore", detached: true }).unref();
+      setStatus({ message: `Starting ${provider.name} in ${cmd.toUpperCase()}...`, type: "success", loading: false });
+      const args = buildPlayerArgs(cmd, provider.url, provider.headers, "NY-CLI Stream");
+      const proc = spawn(cmd, args, { stdio: "ignore", detached: true });
+      proc.on("error", (err) => {
+        setStatus({ message: `Failed to launch ${cmd}: ${err.message}`, type: "error", loading: false });
+      });
+      proc.unref();
     } else {
-      spawn("mpv", [provider.url, "--force-media-title=NY-CLI Stream"], { stdio: "ignore", detached: true }).unref();
-      setStatus({ message: `Opened stream in player.`, type: "success", loading: false });
+      const args = buildPlayerArgs(cmd, provider.url, void 0, "NY-CLI Stream");
+      const proc = spawn(cmd, args, { stdio: "ignore", detached: true });
+      proc.on("error", (err) => {
+        setStatus({ message: `Failed to launch ${cmd}: ${err.message}`, type: "error", loading: false });
+      });
+      proc.unref();
+      setStatus({ message: `Opened stream in ${cmd}.`, type: "success", loading: false });
     }
   };
+  useEffect(() => {
+    const onQuitRequested = () => setIsExiting2(true);
+    quitBus.on("quit", onQuitRequested);
+    return () => {
+      quitBus.off("quit", onQuitRequested);
+    };
+  }, []);
   useEffect(() => {
     const timer = setInterval(() => {
       setBannerPhase((p) => (p + 1) % 50);
@@ -2032,9 +2114,21 @@ function App() {
         const backendStream = backendResult.status === "fulfilled" ? backendResult.value : null;
         let isTorrent = false;
         let magnetLink = "";
-        if (torrentData?.magnet) {
+        let streamUrl = backendStream?.url || "";
+        let streamHeaders = {};
+        if (backendStream?.url) {
+          if (backendStream.referer) {
+            streamHeaders = { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin };
+          }
+        }
+        if (!streamUrl && torrentData?.magnet) {
           magnetLink = torrentData.magnet;
           isTorrent = true;
+          setDownloadQueue((prev) => {
+            const q = [...prev];
+            q[nextTaskIndex].message = "No direct stream \u2014 falling back to torrent...";
+            return q;
+          });
         }
         if (isTorrent && magnetLink) {
           if (!fs6.existsSync(outDir)) fs6.mkdirSync(outDir, { recursive: true });
@@ -2044,8 +2138,8 @@ function App() {
             return q;
           });
           const wtCmd = os2.platform() === "win32" ? "npx.cmd" : "npx";
-          const args2 = ["-y", "webtorrent-cli", "download", magnetLink, "-o", outDir];
-          const wtProcess = spawn(wtCmd, args2);
+          const args = ["-y", "webtorrent-cli", "download", magnetLink, "-o", outDir];
+          const wtProcess = spawn(wtCmd, args);
           wtProcess.stdout.on("data", (data) => {
             const output = data.toString();
             const progressMatch = output.match(/(\d+(?:\.\d+)?)%/);
@@ -2071,15 +2165,35 @@ function App() {
               return q;
             });
           });
+          wtProcess.on("error", (err) => {
+            setDownloadQueue((prev) => {
+              const q = [...prev];
+              q[nextTaskIndex].status = "error";
+              q[nextTaskIndex].message = `Failed to launch webtorrent: ${err.message}`;
+              return q;
+            });
+          });
+          let lastProgress = -1;
+          const stallTimer = setInterval(() => {
+            setDownloadQueue((prev) => {
+              const current = prev[nextTaskIndex];
+              if (current?.status === "completed" || current?.status === "error") {
+                clearInterval(stallTimer);
+                return prev;
+              }
+              if (current?.progress === lastProgress) {
+                clearInterval(stallTimer);
+                wtProcess.kill();
+                const q = [...prev];
+                q[nextTaskIndex].status = "error";
+                q[nextTaskIndex].message = "No seeders found \u2014 try again later or use a direct source";
+                return q;
+              }
+              lastProgress = current?.progress ?? -1;
+              return prev;
+            });
+          }, 45e3);
           return;
-        }
-        let streamUrl = "";
-        let streamHeaders = {};
-        if (backendStream?.url) {
-          streamUrl = backendStream.url;
-          if (backendStream.referer) {
-            streamHeaders = { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin };
-          }
         }
         if (!streamUrl) {
           throw new Error("No stream found");
@@ -2088,15 +2202,15 @@ function App() {
         const filename = path2.join(outDir, `${safeTitle}_Ep${task.episodeNumber}.mp4`);
         setDownloadQueue((prev) => {
           const q = [...prev];
-          q[nextTaskIndex].message = "Downloading Embed...";
+          q[nextTaskIndex].message = "Downloading via FFmpeg...";
           return q;
         });
-        const args = ["-y"];
+        const ffmpegArgs = ["-y"];
         if (streamHeaders && streamHeaders.Referer) {
-          args.push("-headers", `Referer: ${streamHeaders.Referer}\r
+          ffmpegArgs.push("-headers", `Referer: ${streamHeaders.Referer}\r
 `);
         }
-        args.push(
+        ffmpegArgs.push(
           "-i",
           streamUrl,
           "-c",
@@ -2108,9 +2222,9 @@ function App() {
           "-nostats",
           filename
         );
-        const ffmpeg = spawn("ffmpeg", args);
+        const ffmpegProc = spawn("ffmpeg", ffmpegArgs);
         let durationUs = 0;
-        ffmpeg.stderr.on("data", (data) => {
+        ffmpegProc.stderr.on("data", (data) => {
           const output = data.toString();
           if (!durationUs) {
             const durMatch = output.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
@@ -2122,7 +2236,7 @@ function App() {
             }
           }
         });
-        ffmpeg.stdout.on("data", (data) => {
+        ffmpegProc.stdout.on("data", (data) => {
           const output = data.toString();
           const timeMatch = output.match(/out_time_us=(\d+)/);
           if (timeMatch && durationUs > 0) {
@@ -2135,12 +2249,20 @@ function App() {
             });
           }
         });
-        ffmpeg.on("close", (code) => {
+        ffmpegProc.on("close", (code) => {
           setDownloadQueue((prev) => {
             const q = [...prev];
             q[nextTaskIndex].status = code === 0 ? "completed" : "error";
             q[nextTaskIndex].message = code === 0 ? "Completed" : "FFmpeg Error";
             if (code === 0) q[nextTaskIndex].progress = 100;
+            return q;
+          });
+        });
+        ffmpegProc.on("error", (err) => {
+          setDownloadQueue((prev) => {
+            const q = [...prev];
+            q[nextTaskIndex].status = "error";
+            q[nextTaskIndex].message = `Failed to launch ffmpeg: ${err.message}`;
             return q;
           });
         });
@@ -2377,7 +2499,10 @@ function App() {
 function HelpBackHandler({ onBack }) {
   useInput((input, key) => {
     if (key.escape || input === "b" || key.leftArrow || input === "q") {
-      if (input === "q") process.exit(0);
+      if (input === "q") {
+        quitBus.emit("quit");
+        return;
+      }
       onBack();
     }
   });
@@ -2391,10 +2516,19 @@ process.on("exit", () => {
   instance.clear();
 });
 process.on("SIGINT", () => {
-  instance.clear();
-  process.exit(0);
+  quitBus.emit("quit");
+  setTimeout(() => {
+    instance.clear();
+    process.exit(0);
+  }, 1500).unref();
 });
 process.on("SIGTERM", () => {
-  instance.clear();
-  process.exit(0);
+  quitBus.emit("quit");
+  setTimeout(() => {
+    instance.clear();
+    process.exit(0);
+  }, 1500).unref();
 });
+export {
+  quitBus
+};

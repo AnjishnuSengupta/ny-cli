@@ -190,6 +190,7 @@
 | **Node.js** | ✅ | Version 18+ |
 | **npm** | ✅ | Comes with Node.js |
 | **mpv** | ✅ | Video player (or VLC) |
+| **ffmpeg** | ✅ | Required for episode downloads |
 | **ink-picture** | ⬜ | Terminal image renderer (for artwork) |
 | **bun** | ⬜ | For best UI experience |
 
@@ -220,22 +221,22 @@ Then install system dependencies manually:
 
 **🐧 Ubuntu / Debian**
 ```bash
-sudo apt install mpv ink-picture
+sudo apt install mpv ffmpeg
 ```
 
 **🎩 Fedora / RHEL**
 ```bash
-sudo dnf install mpv ink-picture
+sudo dnf install mpv ffmpeg
 ```
 
 **🔷 Arch Linux**
 ```bash
-sudo pacman -S mpv ink-picture
+sudo pacman -S mpv ffmpeg
 ```
 
 **🍎 macOS**
 ```bash
-brew install mpv ink-picture
+brew install mpv ffmpeg
 ```
 
 **Optional: Install Bun for best UI**

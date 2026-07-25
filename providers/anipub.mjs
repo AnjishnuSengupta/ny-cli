@@ -24,10 +24,10 @@ export async function anipubGetSource(title, epNo, mode = 'sub') {
   }
   
   // Exact or closest match
-  let match = results.find(r => r.Name.toLowerCase() === title.toLowerCase());
+  let match = results.find(r => (r?.Name ?? r?.name ?? '').toLowerCase() === title.toLowerCase());
   if (!match) match = results[0]; // fallback to first result
 
-  const anipubId = match.Id;
+  const anipubId = match?.Id ?? match?.id;
   
   // 2. Fetch episode page to extract the video URL
   // e.g. https://anipub.xyz/AniPlayer/113/0 for ep 1

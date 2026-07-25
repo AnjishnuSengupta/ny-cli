@@ -8,6 +8,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
+import { EventEmitter } from 'node:events';
+
+// Module-level quit bus: bridges OS signals → React state
+export const quitBus = new EventEmitter();
 
 const API_BASE = process.env.NYCLI_API_BASE || 'http://localhost:43201';
 const VERSION = '6.1.0';
@@ -252,11 +256,13 @@ try {
 interface Settings {
   anime4k: boolean;
   anime4kMode: 'A' | 'B' | 'C' | 'A+A' | 'B+B' | 'C+A';
+  player: 'auto' | 'mpv' | 'vlc';
 }
 
 const defaultSettings: Settings = {
   anime4k: false,
   anime4kMode: 'A',
+  player: 'auto',
 };
 
 function loadSettings(): Settings {
@@ -1556,6 +1562,40 @@ function getPlayerCommand(): string | null {
   return null;
 }
 
+function resolvePlayerCommand(settings: Settings): string {
+  if (settings.player && settings.player !== 'auto') return settings.player;
+  return getPlayerCommand() || 'mpv'; // fall through to mpv as last resort
+}
+
+// Build player-specific arguments for streaming
+function buildPlayerArgs(player: string, url: string, headers?: Record<string, string>, title?: string): string[] {
+  if (player === 'vlc') {
+    const args = [url];
+    if (headers?.Referer) {
+      args.push(`--http-referrer=${headers.Referer}`);
+    }
+    if (headers?.['User-Agent']) {
+      args.push(`--http-user-agent=${headers['User-Agent']}`);
+    }
+    if (title) {
+      args.push(`--meta-title=${title}`);
+    }
+    args.push('--play-and-exit');
+    return args;
+  }
+  // Default: mpv / iina
+  const args = [url];
+  if (headers) {
+    Object.entries(headers).forEach(([k, v]) => {
+      args.push(`--http-header-fields-append=${k}: ${v}`);
+    });
+  }
+  if (title) {
+    args.push(`--force-media-title=${title}`);
+  }
+  return args;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SETTINGS SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1572,8 +1612,10 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
   
   const anime4kInstalled = isAnime4kInstalled();
   const modes = ['A', 'B', 'C', 'A+A', 'B+B', 'C+A'] as const;
+  const players = ['auto', 'mpv', 'vlc'] as const;
   
   const menuItems = [
+    { key: 'player', label: 'Video Player', type: 'select' },
     { key: 'anime4k', label: 'Anime4K Upscaling', type: 'toggle' },
     { key: 'anime4kMode', label: 'Anime4K Mode', type: 'select' },
     { key: 'download', label: 'Download Anime4K Shaders', type: 'action' },
@@ -1626,7 +1668,11 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
     } else if (key.return) {
       const item = menuItems[selectedIndex];
       
-      if (item.key === 'anime4k') {
+      if (item.key === 'player') {
+        const currentIdx = players.indexOf(settings.player || 'auto');
+        const nextIdx = (currentIdx + 1) % players.length;
+        onUpdate({ ...settings, player: players[nextIdx] });
+      } else if (item.key === 'anime4k') {
         if (anime4kInstalled) {
           onUpdate({ ...settings, anime4k: !settings.anime4k });
         }
@@ -1641,6 +1687,14 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
       } else if (item.key === 'back') {
         onBack();
       }
+    } else if (key.leftArrow && menuItems[selectedIndex].key === 'player') {
+      const currentIdx = players.indexOf(settings.player || 'auto');
+      const prevIdx = currentIdx > 0 ? currentIdx - 1 : players.length - 1;
+      onUpdate({ ...settings, player: players[prevIdx] });
+    } else if (key.rightArrow && menuItems[selectedIndex].key === 'player') {
+      const currentIdx = players.indexOf(settings.player || 'auto');
+      const nextIdx = (currentIdx + 1) % players.length;
+      onUpdate({ ...settings, player: players[nextIdx] });
     } else if (key.leftArrow && menuItems[selectedIndex].key === 'anime4kMode') {
       const currentIdx = modes.indexOf(settings.anime4kMode);
       const prevIdx = currentIdx > 0 ? currentIdx - 1 : modes.length - 1;
@@ -1659,10 +1713,21 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
         <Text color={theme.dimGray}>{'─'.repeat(50)}</Text>
         <Text> </Text>
         
-        {/* Anime4K Toggle */}
+        {/* Video Player */}
         <Box>
           <Text color={selectedIndex === 0 ? theme.cyan : theme.lightGray}>
             {selectedIndex === 0 ? '▸ ' : '  '}
+            Video Player:{' '}
+          </Text>
+          <Text color={selectedIndex === 0 ? theme.cyan : theme.lightGray}>
+            {'◀ '}{(settings.player || 'auto').toUpperCase()}{' ▶'}
+          </Text>
+        </Box>
+        
+        {/* Anime4K Toggle */}
+        <Box>
+          <Text color={selectedIndex === 1 ? theme.cyan : theme.lightGray}>
+            {selectedIndex === 1 ? '▸ ' : '  '}
             Anime4K Upscaling:{' '}
           </Text>
           {anime4kInstalled ? (
@@ -1676,11 +1741,11 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
         
         {/* Anime4K Mode */}
         <Box>
-          <Text color={selectedIndex === 1 ? theme.cyan : theme.lightGray}>
-            {selectedIndex === 1 ? '▸ ' : '  '}
+          <Text color={selectedIndex === 2 ? theme.cyan : theme.lightGray}>
+            {selectedIndex === 2 ? '▸ ' : '  '}
             Anime4K Mode:{' '}
           </Text>
-          <Text color={selectedIndex === 1 ? theme.cyan : theme.lightGray}>
+          <Text color={selectedIndex === 2 ? theme.cyan : theme.lightGray}>
             {'◀ '}{settings.anime4kMode}{' ▶'}
           </Text>
         </Box>
@@ -1689,16 +1754,16 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
         
         {/* Download Action */}
         <Box>
-          <Text color={selectedIndex === 2 ? theme.cyan : theme.lightGray}>
-            {selectedIndex === 2 ? '▸ ' : '  '}
+          <Text color={selectedIndex === 3 ? theme.cyan : theme.lightGray}>
+            {selectedIndex === 3 ? '▸ ' : '  '}
             {anime4kInstalled ? '↻ Re-download' : '↓ Download'} Anime4K Shaders
           </Text>
         </Box>
         
         {/* Back */}
         <Box>
-          <Text color={selectedIndex === 3 ? theme.cyan : theme.lightGray}>
-            {selectedIndex === 3 ? '▸ ' : '  '}
+          <Text color={selectedIndex === 4 ? theme.cyan : theme.lightGray}>
+            {selectedIndex === 4 ? '▸ ' : '  '}
             ← Back
           </Text>
         </Box>
@@ -1807,36 +1872,59 @@ function App() {
   // Expose these for the PlayingScreen
   const togglePause = () => {
     if (os.platform() === 'win32') return;
+    const cmd = resolvePlayerCommand(settings);
+    if (cmd === 'vlc') {
+      setStatus({ message: 'Pause via hotkey is mpv-only (VLC uses its own controls)', type: 'info', loading: false });
+      return;
+    }
     if (playingPaused) {
-      spawnSync('killall', ['-CONT', 'mpv']);
+      spawnSync('killall', ['-CONT', cmd]);
       setPlayingPaused(false);
     } else {
-      spawnSync('killall', ['-STOP', 'mpv']);
+      spawnSync('killall', ['-STOP', cmd]);
       setPlayingPaused(true);
     }
   };
 
   const playProvider = (provider: any) => {
+    const cmd = resolvePlayerCommand(settings);
+    
     if (provider.type === 'torrent') {
       setStatus({ message: `Starting ${provider.name}...`, type: 'success', loading: false });
       const wtCmd = os.platform() === 'win32' ? 'npx.cmd' : 'npx';
-      spawn(wtCmd, ['-y', 'webtorrent-cli', provider.magnet!, '--mpv'], { stdio: 'ignore', detached: true }).unref();
+      const playerFlag = cmd === 'vlc' ? '--vlc' : '--mpv';
+      const proc = spawn(wtCmd, ['-y', 'webtorrent-cli', provider.magnet!, playerFlag], { stdio: 'ignore', detached: true });
+      proc.on('error', (err: any) => {
+        setStatus({ message: `Failed to launch webtorrent: ${err.message}`, type: 'error', loading: false });
+      });
+      proc.unref();
     } else if (provider.type === 'direct') {
-      setStatus({ message: `Starting ${provider.name} in MPV...`, type: 'success', loading: false });
-      const headerArgs: string[] = [];
-      if (provider.headers) {
-         Object.entries(provider.headers).forEach(([k, v]) => {
-           headerArgs.push(`--http-header-fields-append=${k}: ${v}`);
-         });
-      }
-      spawn('mpv', [provider.url, ...headerArgs, '--force-media-title=NY-CLI Stream'], { stdio: 'ignore', detached: true }).unref();
+      setStatus({ message: `Starting ${provider.name} in ${cmd.toUpperCase()}...`, type: 'success', loading: false });
+      const args = buildPlayerArgs(cmd, provider.url, provider.headers, 'NY-CLI Stream');
+      const proc = spawn(cmd, args, { stdio: 'ignore', detached: true });
+      proc.on('error', (err: any) => {
+        setStatus({ message: `Failed to launch ${cmd}: ${err.message}`, type: 'error', loading: false });
+      });
+      proc.unref();
     } else {
-      // Fallback for anything else (if it ever happens) is just to throw it to mpv
-      spawn('mpv', [provider.url!, '--force-media-title=NY-CLI Stream'], { stdio: 'ignore', detached: true }).unref();
-      setStatus({ message: `Opened stream in player.`, type: 'success', loading: false });
+      // Fallback for anything else
+      const args = buildPlayerArgs(cmd, provider.url!, undefined, 'NY-CLI Stream');
+      const proc = spawn(cmd, args, { stdio: 'ignore', detached: true });
+      proc.on('error', (err: any) => {
+        setStatus({ message: `Failed to launch ${cmd}: ${err.message}`, type: 'error', loading: false });
+      });
+      proc.unref();
+      setStatus({ message: `Opened stream in ${cmd}.`, type: 'success', loading: false });
     }
   };
 
+
+  // Listen for quit requests from SIGINT/SIGTERM via quitBus
+  useEffect(() => {
+    const onQuitRequested = () => setIsExiting(true);
+    quitBus.on('quit', onQuitRequested);
+    return () => { quitBus.off('quit', onQuitRequested); };
+  }, []);
 
   // Banner animation
   useEffect(() => {
@@ -2373,12 +2461,26 @@ function App() {
         const torrentData = torrentResult.status === 'fulfilled' ? torrentResult.value : null;
         const backendStream = backendResult.status === 'fulfilled' ? backendResult.value : null;
 
-        // Try Torrent first for downloading (most robust)
+        // Prefer direct stream; fall back to torrent only if no direct source
         let isTorrent = false;
         let magnetLink = '';
-        if (torrentData?.magnet) {
+        let streamUrl = backendStream?.url || '';
+        let streamHeaders: any = {};
+
+        if (backendStream?.url) {
+          if (backendStream.referer) {
+             streamHeaders = { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin };
+          }
+        }
+
+        if (!streamUrl && torrentData?.magnet) {
           magnetLink = torrentData.magnet;
           isTorrent = true;
+          setDownloadQueue(prev => {
+            const q = [...prev];
+            q[nextTaskIndex].message = 'No direct stream — falling back to torrent...';
+            return q;
+          });
         }
 
         if (isTorrent && magnetLink) {
@@ -2422,20 +2524,42 @@ function App() {
                 return q;
              });
           });
+
+          wtProcess.on('error', (err: any) => {
+             setDownloadQueue(prev => {
+                const q = [...prev];
+                q[nextTaskIndex].status = 'error';
+                q[nextTaskIndex].message = `Failed to launch webtorrent: ${err.message}`;
+                return q;
+             });
+          });
+
+          // Stall detector: if no progress change in 45s, mark as error
+          let lastProgress = -1;
+          const stallTimer = setInterval(() => {
+            setDownloadQueue(prev => {
+              const current = prev[nextTaskIndex];
+              if (current?.status === 'completed' || current?.status === 'error') {
+                clearInterval(stallTimer);
+                return prev;
+              }
+              if (current?.progress === lastProgress) {
+                clearInterval(stallTimer);
+                wtProcess.kill();
+                const q = [...prev];
+                q[nextTaskIndex].status = 'error';
+                q[nextTaskIndex].message = 'No seeders found — try again later or use a direct source';
+                return q;
+              }
+              lastProgress = current?.progress ?? -1;
+              return prev;
+            });
+          }, 45000);
+
           return;
         }
 
-        // Fallback: Direct stream with FFMpeg (AllAnime > Embeds)
-        let streamUrl = '';
-        let streamHeaders: any = {};
-
-        if (backendStream?.url) {
-          streamUrl = backendStream.url;
-          if (backendStream.referer) {
-             streamHeaders = { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin };
-          }
-        }
-
+        // Direct stream download with FFMpeg
         if (!streamUrl) {
           throw new Error('No stream found');
         }
@@ -2445,15 +2569,15 @@ function App() {
         
         setDownloadQueue(prev => {
            const q = [...prev];
-           q[nextTaskIndex].message = 'Downloading Embed...';
+           q[nextTaskIndex].message = 'Downloading via FFmpeg...';
            return q;
         });
 
-        const args = ['-y'];
+        const ffmpegArgs = ['-y'];
         if (streamHeaders && streamHeaders.Referer) {
-          args.push('-headers', `Referer: ${streamHeaders.Referer}\r\n`);
+          ffmpegArgs.push('-headers', `Referer: ${streamHeaders.Referer}\r\n`);
         }
-        args.push(
+        ffmpegArgs.push(
           '-i', streamUrl,
           '-c', 'copy',
           '-bsf:a', 'aac_adtstoasc',
@@ -2462,11 +2586,11 @@ function App() {
           filename
         );
 
-        const ffmpeg = spawn('ffmpeg', args);
+        const ffmpegProc = spawn('ffmpeg', ffmpegArgs);
 
         let durationUs = 0;
 
-        ffmpeg.stderr.on('data', (data: any) => {
+        ffmpegProc.stderr.on('data', (data: any) => {
            const output = data.toString();
            if (!durationUs) {
               const durMatch = output.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
@@ -2479,7 +2603,7 @@ function App() {
            }
         });
 
-        ffmpeg.stdout.on('data', (data: any) => {
+        ffmpegProc.stdout.on('data', (data: any) => {
           const output = data.toString();
           const timeMatch = output.match(/out_time_us=(\d+)/);
           if (timeMatch && durationUs > 0) {
@@ -2493,12 +2617,21 @@ function App() {
           }
         });
 
-        ffmpeg.on('close', (code) => {
+        ffmpegProc.on('close', (code) => {
            setDownloadQueue(prev => {
               const q = [...prev];
               q[nextTaskIndex].status = code === 0 ? 'completed' : 'error';
               q[nextTaskIndex].message = code === 0 ? 'Completed' : 'FFmpeg Error';
               if (code === 0) q[nextTaskIndex].progress = 100;
+              return q;
+           });
+        });
+
+        ffmpegProc.on('error', (err: any) => {
+           setDownloadQueue(prev => {
+              const q = [...prev];
+              q[nextTaskIndex].status = 'error';
+              q[nextTaskIndex].message = `Failed to launch ffmpeg: ${err.message}`;
               return q;
            });
         });
@@ -2947,7 +3080,7 @@ function App() {
 function HelpBackHandler({ onBack }: { onBack: () => void }) {
   useInput((input, key) => {
     if (key.escape || input === 'b' || key.leftArrow || input === 'q') {
-      if (input === 'q') process.exit(0);
+      if (input === 'q') { quitBus.emit('quit'); return; }
       onBack();
     }
   });
@@ -2972,11 +3105,12 @@ process.on('exit', () => {
 });
 
 process.on('SIGINT', () => {
-  instance.clear();
-  process.exit(0);
+  quitBus.emit('quit');
+  // Safety fallback: if Ink doesn't exit within 1.5s, force-exit
+  setTimeout(() => { instance.clear(); process.exit(0); }, 1500).unref();
 });
 
 process.on('SIGTERM', () => {
-  instance.clear();
-  process.exit(0);
+  quitBus.emit('quit');
+  setTimeout(() => { instance.clear(); process.exit(0); }, 1500).unref();
 });
