@@ -4,6 +4,7 @@
  * Provider chain: AniList GraphQL (search/meta) + Jikan (episodes) + MegaPlay embed (streaming)
  * AnimeKAI is down. AllAnime is CF-blocked. MegaPlay works reliably via iframe embed.
  */
+import './dns-agent.mjs';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
