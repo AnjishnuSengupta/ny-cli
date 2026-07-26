@@ -30,17 +30,13 @@ export async function resolveStream(title, epNo, mode = 'sub', malId = null, { e
     attempts.push({ provider: 'anipub', error: e.message });
   }
   
-  // 3. Fallback: AllAnime (opt-in)
-  if (enableAllanime) {
-    console.log(`[providers] falling back to allanime for ${title}`);
-    try {
-      const src = await allanimeGetSource(title, epNo, mode, malId);
-      if (src) return src;
-    } catch (e) {
-      attempts.push({ provider: 'allanime', error: e.message });
-    }
-  } else {
-    attempts.push({ provider: 'allanime', error: 'Skipped (enableAllanime=false)' });
+  // 3. Fallback: AllAnime (default enabled now)
+  console.log(`[providers] falling back to allanime for ${title}`);
+  try {
+    const src = await allanimeGetSource(title, epNo, mode, malId);
+    if (src) return src;
+  } catch (e) {
+    attempts.push({ provider: 'allanime', error: e.message });
   }
   
   // All failed

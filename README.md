@@ -6,7 +6,7 @@
 
 <br/>
 
-[![Version](https://img.shields.io/badge/v6.1.0-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
+[![Version](https://img.shields.io/badge/v6.2.0-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
 [![npm](https://img.shields.io/npm/v/@anjishnusengupta/ny-cli?style=flat-square&color=22c55e&label=npm)](https://www.npmjs.com/package/@anjishnusengupta/ny-cli)
 [![License](https://img.shields.io/badge/MIT-3b82f6?style=flat-square&label=license)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/AnjishnuSengupta/ny-cli?style=flat-square&color=fbbf24)](https://github.com/AnjishnuSengupta/ny-cli/stargazers)
@@ -25,6 +25,12 @@
 ---
 
 <br/>
+
+## 🎯 What's New in v6.2.0
+- **Custom DNS Resolver**: Successfully bypasses ISP blockages (e.g. Cloudflare issues) using Undici's custom resolver and 1.1.1.1 fallback.
+- **Dependency Compatibility**: Fixed a bug where `ink-picture` was pulling incompatible React/Ink dependencies, stabilizing the CLI.
+- **Regex & HLS fixes**: Fixed `resolveWixmp` breaking edge-case M3U8 paths on certain providers.
+- **Installer fixes**: Added missing provider directory and configuration paths to the automated installer script.
 
 ## 🎯 What's New in v6.1.0
 

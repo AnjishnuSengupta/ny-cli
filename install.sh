@@ -1,5 +1,5 @@
 #!/bin/sh
-# NY-CLI v6.1.0 Installation Script
+# NY-CLI v6.2.0 Installation Script
 # Universal installer for Linux (Arch, Fedora, Ubuntu/Debian) and macOS
 # Usage: curl -fsSL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.sh | sh
 
@@ -31,10 +31,10 @@ printf "  ╚═╝  ╚═══╝   ╚═╝          ╚═════╝�
 printf "${RESET}\n"
 printf "${DIM}${CYAN}       ⟨ Your Gateway to Anime Streaming ⟩${RESET}\n"
 printf "${DIM}       ─────────────────────────────────────${RESET}\n"
-printf "${DIM}            v6.1.0 • nyanime.qzz.io${RESET}\n"
+printf "${DIM}            v6.2.0 • nyanime.qzz.io${RESET}\n"
 printf "\n"
 
-VERSION="6.1.0"
+VERSION="6.2.0"
 REPO_URL="https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main"
 GITHUB_REPO="https://github.com/AnjishnuSengupta/ny-cli"
 
@@ -312,10 +312,17 @@ main() {
     # Download core files
     download "$REPO_URL/ny-cli" "$INSTALL_DIR/ny-cli"
     download "$REPO_URL/backend.mjs" "$INSTALL_DIR/backend.mjs"
+    download "$REPO_URL/dns-agent.mjs" "$INSTALL_DIR/dns-agent.mjs"
     download "$REPO_URL/cli-terminal.tsx" "$INSTALL_DIR/cli-terminal.tsx"
     download "$REPO_URL/cli-terminal-fallback.mjs" "$INSTALL_DIR/cli-terminal-fallback.mjs"
     download "$REPO_URL/firebase-config.ts" "$INSTALL_DIR/firebase-config.ts"
     download "$REPO_URL/package.json" "$INSTALL_DIR/package.json"
+    
+    mkdir -p "$INSTALL_DIR/providers"
+    download "$REPO_URL/providers/index.mjs" "$INSTALL_DIR/providers/index.mjs"
+    download "$REPO_URL/providers/allanime.mjs" "$INSTALL_DIR/providers/allanime.mjs"
+    download "$REPO_URL/providers/anipub.mjs" "$INSTALL_DIR/providers/anipub.mjs"
+    download "$REPO_URL/providers/senshi.mjs" "$INSTALL_DIR/providers/senshi.mjs"
     
     chmod +x "$INSTALL_DIR/ny-cli"
     

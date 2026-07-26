@@ -1,11 +1,63 @@
-import { createDecipheriv, createHash } from 'node:crypto';
+import { createDecipheriv, createCipheriv, createHash } from 'node:crypto';
 
-const ALLANIME_API = 'https://api.allanime.day/api';
+const ALLANIME_API = 'https://api.mkissa.net/api';
 const ALLANIME_BASE = 'allanime.day';
-const ALLANIME_PERSISTED_REFERER = 'https://youtu-chan.com';
-const ALLANIME_GRAPHQL_REFERER = 'https://allanime.to';
+const ALLANIME_REFERER = 'https://mkissa.to';
 const ALLANIME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0';
-const ALLANIME_EP_HASH = 'd405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec';
+const ALLANIME_EP_HASH = 'f4662f4b7510b26795dd53ef824a0bf1740fbbc5d1273fab18222ac831bca8d0';
+
+let cachedAaConfig = null;
+
+async function getAaConfig() {
+  if (cachedAaConfig && Date.now() - cachedAaConfig.timestamp < 3600000) {
+    return cachedAaConfig;
+  }
+  
+  const cdn = "https://cdn.mkissa.net/all/mk/_app/immutable";
+  const pageRes = await fetch(ALLANIME_REFERER, { headers: { 'User-Agent': ALLANIME_UA } });
+  const pageText = await pageRes.text();
+  
+  const epochMatch = pageText.match(/"epoch":(\d+)/);
+  const partBMatch = pageText.match(/"partB":"([^"]*)"/);
+  const appUrlMatch = pageText.match(new RegExp(`${cdn.replace(/\//g, '\\/')}\\/entry\\/app\\.[A-Za-z0-9_.-]+\\.js`));
+  
+  if (!epochMatch || !partBMatch || !appUrlMatch) {
+    throw new Error("Failed to parse mkissa.to for dynamic keys");
+  }
+  
+  const epoch = parseInt(epochMatch[1], 10);
+  const partBBuf = Buffer.from(partBMatch[1], 'base64');
+  const appUrl = appUrlMatch[0];
+  
+  const appRes = await fetch(appUrl, { headers: { 'User-Agent': ALLANIME_UA } });
+  const appText = await appRes.text();
+  
+  const chunkMatches = [...appText.matchAll(/"\.\.\/chunks\/([A-Za-z0-9_.-]+\.js)"/g)].slice(0, 5);
+  let maskHex = null;
+  for (const m of chunkMatches) {
+    const chunkRes = await fetch(`${cdn}/chunks/${m[1]}`, { headers: { 'User-Agent': ALLANIME_UA } });
+    const hexMatch = (await chunkRes.text()).match(/[0-9a-f]{64}/);
+    if (hexMatch) { maskHex = hexMatch[0]; break; }
+  }
+  
+  if (!maskHex) throw new Error("Failed to find mask hex in chunks");
+  
+  const maskBuf = Buffer.from(maskHex, 'hex');
+  const key = Buffer.alloc(32);
+  for (let i = 0; i < 32; i++) key[i] = maskBuf[i] ^ partBBuf[i];
+  
+  cachedAaConfig = { key, epoch, timestamp: Date.now() };
+  return cachedAaConfig;
+}
+
+function getAaReq(epoch) {
+  const ts = Math.floor(Date.now() / 300000) * 300000;
+  const iv = createHash('sha256').update(`${epoch}:${ALLANIME_EP_HASH}:${ts}`).digest().subarray(0, 12);
+  const payload = JSON.stringify({ v: 1, ts, epoch, qh: ALLANIME_EP_HASH });
+  const cipher = createCipheriv('aes-256-gcm', cachedAaConfig.key, iv);
+  const ct = Buffer.concat([cipher.update(payload, 'utf8'), cipher.final()]);
+  return Buffer.concat([Buffer.from([1]), iv, ct, cipher.getAuthTag()]).toString('base64');
+}
 
 async function aaFetch(body) {
   const res = await fetch(ALLANIME_API, {
@@ -13,8 +65,8 @@ async function aaFetch(body) {
     headers: {
       'Content-Type': 'application/json',
       'User-Agent': ALLANIME_UA,
-      'Referer': ALLANIME_GRAPHQL_REFERER,
-      'Origin': ALLANIME_GRAPHQL_REFERER,
+      'Referer': ALLANIME_REFERER,
+      'Origin': ALLANIME_REFERER,
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(8000),
@@ -28,8 +80,8 @@ async function aaFetchGET(params) {
   const res = await fetch(url, {
     headers: {
       'User-Agent': ALLANIME_UA,
-      'Referer': ALLANIME_PERSISTED_REFERER,
-      'Origin': ALLANIME_PERSISTED_REFERER,
+      'Referer': ALLANIME_REFERER,
+      'Origin': ALLANIME_REFERER,
     },
     signal: AbortSignal.timeout(8000),
   });
@@ -70,24 +122,21 @@ function aaDecodeProviderHex(raw) {
   return result.replace('/clock', '/clock.json');
 }
 
-function aaDecrypt(tobeparsed) {
-  const key = createHash('sha256').update('Xot36i3lK3:v1').digest();
+function aaDecrypt(tobeparsed, key) {
   const buf = Buffer.from(tobeparsed, 'base64');
-  const ivBytes = buf.subarray(1, 13);
-  const iv = Buffer.concat([ivBytes, Buffer.from([0, 0, 0, 2])]);
-  const ciphertext = buf.subarray(13, buf.length - 16);
-  const decipher = createDecipheriv('aes-256-ctr', key, iv);
-  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+  const iv = buf.subarray(1, 13);
+  const tag = buf.subarray(buf.length - 16);
+  const ct = buf.subarray(13, buf.length - 16);
+  const decipher = createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8');
 }
 
 async function resolveWixmp(url) {
-  // If the URL ends with .urlset and has a comma-separated list of resolutions,
-  // we can reconstruct the direct mp4 url for the highest resolution (first after comma)
   if (url.includes('.urlset')) {
     const match = url.match(/,(.+?),/);
     if (match) {
-       // e.g. .../video/xxx,720p,480p,/mp4/file.mp4.urlset -> .../video/xxx/720p/mp4/file.mp4
-       return url.replace(/,.*\.urlset$/, '').replace(/,[^/]+/, '') + '/' + match[1] + url.match(/(\/[^/]+\/[^/]+)\.urlset$/)[1];
+      return url.replace(/,.*\.urlset.*?$/, '').replace(/,[^/]+/, '') + '/' + match[1] + url.match(/(\/[^/]+\/[^/]+)\.urlset/)[1];
     }
   }
   return url;
@@ -97,7 +146,7 @@ async function aaResolveCdnUrl(cdnPath) {
   try {
     const url = `https://${ALLANIME_BASE}${cdnPath}`;
     const res = await fetch(url, {
-      headers: { 'User-Agent': ALLANIME_UA, 'Referer': ALLANIME_GRAPHQL_REFERER },
+      headers: { 'User-Agent': ALLANIME_UA, 'Referer': ALLANIME_REFERER },
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return null;
@@ -127,11 +176,15 @@ export async function allanimeGetSource(title, epNo, mode = 'sub', malId = null)
     throw new Error(`Could not find showId on AllAnime for title: ${title}`);
   }
 
+  const config = await getAaConfig();
   let epData;
   try {
     const params = new URLSearchParams();
     params.set('variables', JSON.stringify({ showId, translationType: mode, episodeString: String(epNo) }));
-    params.set('extensions', JSON.stringify({ persistedQuery: { version: 1, sha256Hash: ALLANIME_EP_HASH } }));
+    params.set('extensions', JSON.stringify({ 
+      persistedQuery: { version: 1, sha256Hash: ALLANIME_EP_HASH },
+      aaReq: getAaReq(config.epoch)
+    }));
     epData = await aaFetchGET(params);
     if (epData?.errors?.length) throw new Error(epData.errors[0].message);
   } catch (e) {
@@ -146,7 +199,7 @@ export async function allanimeGetSource(title, epNo, mode = 'sub', malId = null)
     const tobeparsedMatch = rawStr.match(/"tobeparsed"\s*:\s*"([^"]+)"/);
     if (!tobeparsedMatch) throw new Error("tobeparsed key present but regex failed to match value");
     try {
-      const decrypted = aaDecrypt(tobeparsedMatch[1]);
+      const decrypted = aaDecrypt(tobeparsedMatch[1], config.key);
       const urlMatches = decrypted.matchAll(/"sourceUrl"\s*:\s*"([^"]+)".*?"sourceName"\s*:\s*"([^"]+)"/g);
       for (const m of urlMatches) {
         sourceUrls.push({ sourceUrl: m[1].replace(/\\/g, ''), sourceName: m[2] });
@@ -160,7 +213,8 @@ export async function allanimeGetSource(title, epNo, mode = 'sub', malId = null)
     throw new Error(`No sourceUrls found in AllAnime response for title: ${title}`);
   }
 
-  const ALLANIME_PROVIDERS = ['Default', 'Yt-mp4', 'S-mp4', 'Fm-mp4', 'Luf-Mp4'];
+  // Luf-Mp4 and Fm-mp4 dropped per ani-cli upstream removal
+  const ALLANIME_PROVIDERS = ['Default', 'Yt-mp4', 'S-mp4', 'Mp4'];
   
   // Concurrently resolve all
   const promises = ALLANIME_PROVIDERS.map(async (providerName) => {
@@ -175,13 +229,21 @@ export async function allanimeGetSource(title, epNo, mode = 'sub', malId = null)
 
     if (providerName === 'Default') {
       const m3u8 = await aaResolveCdnUrl(providerUrl);
-      if (m3u8) return { url: m3u8, quality: 'Auto (m3u8)', type: 'hls', isM3U8: true, referer: ALLANIME_GRAPHQL_REFERER, provider: 'allanime' };
+      if (m3u8) return { url: m3u8, quality: 'Auto (m3u8)', type: 'hls', isM3U8: true, referer: ALLANIME_REFERER, provider: 'allanime' };
     } else if (providerName === 'S-mp4' || providerName === 'Yt-mp4') {
       if (providerUrl.startsWith('http')) {
-        return { url: providerUrl, quality: providerName, type: 'mp4', isM3U8: false, referer: ALLANIME_GRAPHQL_REFERER, provider: 'allanime' };
+        return { url: providerUrl, quality: providerName, type: 'mp4', isM3U8: false, referer: ALLANIME_REFERER, provider: 'allanime' };
       }
-    } else if (providerName === 'Luf-Mp4' || providerName === 'Fm-mp4') {
-      throw new Error(`${providerName} not implemented (AES decrypt required)`);
+    } else if (providerName === 'Mp4') {
+      if (!providerUrl.startsWith('http')) throw new Error('mp4upload url not absolute');
+      const res = await fetch(providerUrl, {
+        headers: { 'User-Agent': ALLANIME_UA, 'Referer': ALLANIME_REFERER },
+        signal: AbortSignal.timeout(8000),
+      });
+      const html = await res.text();
+      const m = html.match(/src:\s*"([^"]+)"/);
+      if (!m) throw new Error('mp4upload src not found in embed page');
+      return { url: m[1], quality: 'Mp4Upload', type: 'mp4', isM3U8: false, referer: 'https://www.mp4upload.com', provider: 'allanime' };
     }
     throw new Error('failed');
   });
@@ -191,6 +253,26 @@ export async function allanimeGetSource(title, epNo, mode = 'sub', malId = null)
     if (res.status === 'fulfilled' && res.value) {
       return res.value;
     }
+  }
+
+  // Fallback regex (matches ani-cli's get_links regex fallback)
+  let fallbackStr = rawStr;
+  if (rawStr.includes('"tobeparsed"')) {
+    try {
+      const match = rawStr.match(/"tobeparsed"\s*:\s*"([^"]+)"/);
+      if (match) fallbackStr = aaDecrypt(match[1], config.key);
+    } catch {}
+  }
+  
+  const fallbackMatch = fallbackStr.match(/hls","url":"([^"]*)".*"hardsub_lang":"en-US"/);
+  if (fallbackMatch && fallbackMatch[1]) {
+    let fallbackUrl = fallbackMatch[1].replace(/\\/g, '');
+    if (fallbackUrl.startsWith('--')) fallbackUrl = aaDecodeProviderHex(fallbackUrl);
+    if (!fallbackUrl.startsWith('http')) {
+      const cdnUrl = await aaResolveCdnUrl(fallbackUrl);
+      if (cdnUrl) fallbackUrl = cdnUrl;
+    }
+    return { url: fallbackUrl, quality: 'Auto (Fallback)', type: 'hls', isM3U8: true, referer: ALLANIME_REFERER, provider: 'allanime' };
   }
 
   throw new Error("All resolved providers failed on AllAnime");

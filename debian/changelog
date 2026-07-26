@@ -1,3 +1,10 @@
+ny-cli (6.2.0-1) unstable; urgency=medium
+  * Added custom Undici DNS resolver for bypass
+  * Fixed ink-picture dependency conflicts
+  * Fixed install.sh missing providers
+
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Sun, 26 Jul 2026 00:00:00 +0000
+
 ny-cli (6.1.0-1) unstable; urgency=medium
 
   * Self-hosted scraping via AllAnime adapter backend

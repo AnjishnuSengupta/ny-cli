@@ -14,7 +14,7 @@ import { EventEmitter } from 'node:events';
 export const quitBus = new EventEmitter();
 
 const API_BASE = process.env.NYCLI_API_BASE || 'http://localhost:43201';
-const VERSION = '6.1.0';
+const VERSION = '6.2.0';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
@@ -1266,7 +1266,7 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
         }, 300);
       }
     } else if (input === 'q') {
-      setIsExiting(true);
+      quitBus.emit('quit');
     } else if (key.escape || input === 'b' || key.leftArrow) {
       if (searchQuery) {
         setSearchQuery('');
@@ -1606,6 +1606,15 @@ interface SettingsScreenProps {
 }
 
 function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
+  const { stdout } = useStdout();
+  const [termSize, setTermSize] = useState({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
+
+  useEffect(() => {
+    const onResize = () => setTermSize({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
+    stdout.on('resize', onResize);
+    return () => { stdout.off('resize', onResize); };
+  }, [stdout]);
+
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [downloading, setDownloading] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState('');
@@ -1658,7 +1667,7 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
       return;
     }
     if (input === 'q') {
-      setIsExiting(true);
+      quitBus.emit('quit');
     }
     
     if (key.upArrow || input === 'k') {
@@ -1872,7 +1881,7 @@ function App() {
   // Expose these for the PlayingScreen
   const togglePause = () => {
     if (os.platform() === 'win32') return;
-    const cmd = resolvePlayerCommand(settings);
+    const cmd = resolvePlayerCommand(appSettings);
     if (cmd === 'vlc') {
       setStatus({ message: 'Pause via hotkey is mpv-only (VLC uses its own controls)', type: 'info', loading: false });
       return;
@@ -1887,7 +1896,7 @@ function App() {
   };
 
   const playProvider = (provider: any) => {
-    const cmd = resolvePlayerCommand(settings);
+    const cmd = resolvePlayerCommand(appSettings);
     
     if (provider.type === 'torrent') {
       setStatus({ message: `Starting ${provider.name}...`, type: 'success', loading: false });
