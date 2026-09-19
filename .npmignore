@@ -26,6 +26,14 @@ LICENSE
 .ny-cli-backend.log
 *.log
 
+# Caches and media
+cache/
+.cache/
+screenshots/
+scratch/
+scripts/
+relay/
+
 # Copilot/AI skills (local only)
 .agents/
 .claude/
