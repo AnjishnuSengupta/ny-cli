@@ -1,0 +1,6 @@
+name = "ny-cli-relay"
+main = "worker.mjs"
+compatibility_date = "2024-01-01"
+
+[triggers]
+routes = []

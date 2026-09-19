@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * ny-cli backend v6.2.0
- * Provider chain: AniList GraphQL (search/meta) + Jikan (episodes) + MegaPlay embed (streaming)
+ * ny-cli backend v6.3.0
+ * Provider chain: AniList GraphQL (search/meta) + Jikan (fallback search/meta + episodes) + MegaPlay embed (streaming)
+ * AniList is primary for search/info/trending; Jikan is fallback when AniList is unreachable (regional CF blocks, outages).
  * AnimeKAI is down. AllAnime is CF-blocked. MegaPlay works reliably via iframe embed.
  */
 import './dns-agent.mjs';
@@ -16,6 +17,7 @@ const __dirname = path.dirname(__filename);
 const app    = express();
 const PORT   = Number(process.env.PORT || 43201);
 const HOST   = process.env.HOST || '0.0.0.0';
+const RELAY_URL = process.env.NY_RELAY_URL || '';  // e.g. https://ny-cli-relay.your-subdomain.workers.dev
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const ok   = (res, data, ttl = 60) => {
@@ -24,9 +26,31 @@ const ok   = (res, data, ttl = 60) => {
 };
 const fail = (res, code, err) => res.status(code).json({ success: false, error: err });
 
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
 async function fetchJson(url, opts = {}) {
-  const r = await fetch(url, { signal: AbortSignal.timeout(8000), ...opts });
-  if (!r.ok) throw new Error(`HTTP ${r.status}: ${url}`);
+  let r;
+  try {
+    r = await fetch(url, { signal: AbortSignal.timeout(8000), ...opts });
+  } catch (netErr) {
+    // Network-level failure: DNS, connection refused, timeout, etc.
+    const msg = netErr?.cause?.code || netErr.message || 'unknown network error';
+    const err = new Error(`Network error (${msg}): could not reach ${url}`);
+    err.isNetworkError = true;
+    throw err;
+  }
+  if (!r.ok) {
+    // HTTP-level failure: we reached the host but it returned an error status
+    let bodySnippet = '';
+    try {
+      const text = await r.text();
+      bodySnippet = text.slice(0, 512);
+    } catch {}
+    const err = new Error(`HTTP ${r.status} from ${url}${bodySnippet ? ': ' + bodySnippet : ''}`);
+    err.httpStatus = r.status;
+    err.responseBody = bodySnippet;
+    throw err;
+  }
   return r.json();
 }
 
@@ -43,11 +67,25 @@ app.use((req, res, next) => {
 const ANILIST = 'https://graphql.anilist.co';
 
 async function anilistGQL(query, variables) {
-  return fetchJson(ANILIST, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ query, variables }),
-  });
+  const body = JSON.stringify({ query, variables });
+  const hdrs = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    'User-Agent': UA,
+  };
+
+  try {
+    return await fetchJson(ANILIST, { method: 'POST', headers: hdrs, body });
+  } catch (directErr) {
+    if (!RELAY_URL) throw directErr;
+    console.log('[anilistGQL] Direct request failed, trying relay:', directErr.message);
+    try {
+      return await fetchJson(`${RELAY_URL}/anilist`, { method: 'POST', headers: hdrs, body });
+    } catch (relayErr) {
+      console.error('[anilistGQL] Relay also failed:', relayErr.message);
+      throw directErr; // throw original error for better diagnostics
+    }
+  }
 }
 
 const AL_SEARCH_Q = `query($q:String,$page:Int){Page(page:$page,perPage:20){
@@ -94,7 +132,91 @@ async function jikanFetch(endpoint) {
   const wait = 400 - (now - jikanLast);
   if (wait > 0) await new Promise(r => setTimeout(r, wait));
   jikanLast = Date.now();
-  return fetchJson(`${JIKAN}${endpoint}`);
+
+  const hdrs = { 'User-Agent': UA };
+  try {
+    return await fetchJson(`${JIKAN}${endpoint}`, { headers: hdrs });
+  } catch (directErr) {
+    if (!RELAY_URL) throw directErr;
+    console.log('[jikanFetch] Direct request failed, trying relay:', directErr.message);
+    try {
+      // /anime/12345/episodes → relay at /jikan/anime/12345/episodes
+      return await fetchJson(`${RELAY_URL}/jikan${endpoint}`, { headers: hdrs });
+    } catch (relayErr) {
+      console.error('[jikanFetch] Relay also failed:', relayErr.message);
+      throw directErr;
+    }
+  }
+}
+
+// ── Jikan Fallback Functions ──────────────────────────────────────────────────
+
+function mapJikanAnime(d) {
+  const name = d.title_english || d.title || '';
+  const epCount = d.episodes || 0;
+  return {
+    id: d.mal_id ? `mal::${d.mal_id}` : `jikan::${d.mal_id}`,
+    malId: d.mal_id || null,
+    name,
+    jname: d.title_japanese || d.title || name,
+    poster: d.images?.jpg?.large_image_url || d.images?.jpg?.image_url || '',
+    type: d.type || 'TV',
+    episodes: { sub: epCount, dub: 0 },
+    status: d.status || 'Unknown',
+    genres: (d.genres || []).map(g => g.name),
+  };
+}
+
+async function jikanSearch(q, page = 1) {
+  const data = await jikanFetch(`/anime?q=${encodeURIComponent(q)}&page=${page}&limit=20&order_by=popularity&sort=asc&sfw=true`);
+  const animes = (data?.data || []).map(mapJikanAnime);
+  const pagination = data?.pagination || {};
+  return {
+    currentPage: page,
+    totalPages: pagination.last_visible_page || page,
+    hasNextPage: !!pagination.has_next_page,
+    animes,
+    provider: 'jikan',
+  };
+}
+
+async function jikanTrending() {
+  const data = await jikanFetch('/top/anime?filter=airing&limit=10&sfw=true');
+  const trending = (data?.data || []).map(mapJikanAnime);
+  return {
+    spotlightAnimes: trending.slice(0, 5),
+    trendingAnimes: trending,
+    latestEpisodeAnimes: [],
+    provider: 'jikan',
+  };
+}
+
+async function jikanInfo(malId) {
+  const data = await jikanFetch(`/anime/${malId}/full`);
+  const d = data?.data;
+  if (!d) return null;
+
+  const name = d.title_english || d.title || '';
+  const epCount = d.episodes || 0;
+  const episodes = await getEpisodesForMal(malId, epCount);
+
+  return {
+    id: `mal::${d.mal_id}`,
+    malId: d.mal_id,
+    name,
+    jname: d.title_japanese || d.title || name,
+    poster: d.images?.jpg?.large_image_url || d.images?.jpg?.image_url || '',
+    description: d.synopsis || '',
+    stats: {
+      type: d.type || 'TV',
+      status: d.status || 'Unknown',
+      episodes: { sub: epCount, dub: 0 },
+      score: d.score ? `${d.score}/10` : '',
+    },
+    genres: (d.genres || []).map(g => g.name),
+    episodes: { sub: episodes, dub: [] },
+    provider: 'jikan',
+  };
 }
 
 // cache: malId → episode list
@@ -159,26 +281,6 @@ async function getEpisodesForMal(malId, totalEps = 0) {
   }
 }
 
-// ── Source Verification ───────────────────────────────────────────────────────
-async function verifyEmbed(src) {
-  if (!src || !src.url) return false;
-  try {
-    const res = await fetch(src.url, { signal: AbortSignal.timeout(4000) });
-    if (!res.ok) return false;
-    const text = await res.text();
-    // Catch fake 200 HTTP responses that are actually error pages
-    if (text.includes("We can't find the file you are looking for") || 
-        text.includes("Oops! Something went wrong") || 
-        text.includes("<title>Error")) {
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// ── MegaPlay & Anikoto removed in favor of provider orchestration ──────────────
 
 // ── Decode episodeId → malId + epNo ──────────────────────────────────────────
 // Format: "ep::malId::epNo"  or  "anilist::anilistId" (info only)
@@ -195,6 +297,8 @@ function parseAnimeId(id) {
   const parts = s.split('::');
   // Standard format: "anilist::12345"
   if (parts[0] === 'anilist' && parts[1]) return { anilistId: Number(parts[1]) };
+  // Jikan fallback format: "mal::12345"
+  if (parts[0] === 'mal' && parts[1]) return { malId: Number(parts[1]) };
   // Backward compat: bare numeric ID — treat as AniList ID
   // (older history entries stored raw AniList IDs before the anilist:: prefix was added)
   if (/^\d+$/.test(s)) return { anilistId: Number(s) };
@@ -202,7 +306,7 @@ function parseAnimeId(id) {
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.get('/', (req, res) => res.json({ status: 'ok', version: '6.2.0', providers: ['anilist', 'jikan', 'megaplay'] }));
+app.get('/', (req, res) => res.json({ status: 'ok', version: '6.3.0', providers: ['anilist', 'jikan', 'megaplay'] }));
 
 app.get('/api/aniwatch', async (req, res) => {
   const { action, q, id, episodeId, category, page, malId: qMalId, episodeNo: qEpNo } = req.query;
@@ -213,17 +317,31 @@ app.get('/api/aniwatch', async (req, res) => {
     // ── search ──────────────────────────────────────────────────────────────
     if (action === 'search' || action === 'suggestions') {
       if (!q) return fail(res, 400, 'Missing q');
-      const data = await anilistGQL(AL_SEARCH_Q, { q, page: pageNum });
-      const media = data?.data?.Page?.media || [];
-      const animes = media.map(mapALAnime);
-      if (action === 'suggestions') return ok(res, animes.slice(0, 8), 120);
-      return ok(res, {
-        currentPage: pageNum,
-        totalPages: data?.data?.Page?.pageInfo?.hasNextPage ? pageNum + 1 : pageNum,
-        hasNextPage: !!data?.data?.Page?.pageInfo?.hasNextPage,
-        animes,
-        provider: 'anilist',
-      }, 120);
+
+      let searchResult;
+      try {
+        const data = await anilistGQL(AL_SEARCH_Q, { q, page: pageNum });
+        const media = data?.data?.Page?.media || [];
+        const animes = media.map(mapALAnime);
+        searchResult = {
+          currentPage: pageNum,
+          totalPages: data?.data?.Page?.pageInfo?.hasNextPage ? pageNum + 1 : pageNum,
+          hasNextPage: !!data?.data?.Page?.pageInfo?.hasNextPage,
+          animes,
+          provider: 'anilist',
+        };
+      } catch (alErr) {
+        console.error('[search] AniList failed, falling back to Jikan:', alErr.message);
+        try {
+          searchResult = await jikanSearch(q, pageNum);
+        } catch (jkErr) {
+          console.error('[search] Jikan fallback also failed:', jkErr.message);
+          throw alErr; // re-throw original AniList error
+        }
+      }
+
+      if (action === 'suggestions') return ok(res, searchResult.animes.slice(0, 8), 120);
+      return ok(res, searchResult, 120);
     }
 
     // ── home / random ────────────────────────────────────────────────────────
@@ -232,8 +350,15 @@ app.get('/api/aniwatch', async (req, res) => {
         const data = await anilistGQL(`query{Page(page:1,perPage:10){media(type:ANIME,sort:TRENDING_DESC,status:RELEASING){id idMal title{english romaji}episodes nextAiringEpisode{episode airingAt} coverImage{large}format status genres}}}`, {});
         const trending = (data?.data?.Page?.media || []).map(mapALAnime);
         return ok(res, { spotlightAnimes: trending.slice(0, 5), trendingAnimes: trending, latestEpisodeAnimes: [], provider: 'anilist' }, 300);
-      } catch (e) {
-        return ok(res, { spotlightAnimes: [], trendingAnimes: [], latestEpisodeAnimes: [], provider: 'anilist' }, 60);
+      } catch (alErr) {
+        console.error('[home] AniList failed, falling back to Jikan:', alErr.message);
+        try {
+          const jikanHome = await jikanTrending();
+          return ok(res, jikanHome, 300);
+        } catch (jkErr) {
+          console.error('[home] Jikan fallback also failed:', jkErr.message);
+          return ok(res, { spotlightAnimes: [], trendingAnimes: [], latestEpisodeAnimes: [], provider: 'none' }, 60);
+        }
       }
     }
 
@@ -241,76 +366,80 @@ app.get('/api/aniwatch', async (req, res) => {
     if (action === 'info' || action === 'episodes') {
       if (!id) return fail(res, 400, 'Missing id');
       const parsed = parseAnimeId(id);
-      if (!parsed) return fail(res, 400, 'Invalid id format — expected anilist::ID');
+      if (!parsed) return fail(res, 400, 'Invalid id format — expected anilist::ID or mal::ID');
 
-      const data = await anilistGQL(AL_INFO_Q, { id: parsed.anilistId });
-      const m = data?.data?.Media;
-      if (!m) return fail(res, 404, 'Anime not found');
-
-      const epCount = m.episodes || (m.nextAiringEpisode ? m.nextAiringEpisode.episode - 1 : 0) || 0;
-      const malId   = m.idMal;
-
-      const episodes = await getEpisodesForMal(malId, epCount);
-
-      if (action === 'episodes') {
-        return ok(res, {
-          totalEpisodes: episodes.length,
-          episodes: { sub: episodes, dub: [] },
-          provider: 'jikan',
-        }, 300);
+      // If the ID came from Jikan fallback search, it will be mal::12345 instead of anilist::12345
+      // In that case we skip AniList and go straight to Jikan info
+      if (parsed.malId) {
+        // Direct Jikan path for mal:: IDs
+        try {
+          const info = await jikanInfo(parsed.malId);
+          if (!info) return fail(res, 404, 'Anime not found on Jikan');
+          if (action === 'episodes') {
+            return ok(res, {
+              totalEpisodes: info.episodes.sub.length,
+              episodes: info.episodes,
+              provider: 'jikan',
+            }, 300);
+          }
+          return ok(res, info, 300);
+        } catch (jkErr) {
+          return fail(res, 500, `Jikan info failed: ${jkErr.message}`);
+        }
       }
 
-      const name = m.title?.english || m.title?.romaji || '';
-      return ok(res, {
-        id: `anilist::${m.id}`,
-        malId,
-        name,
-        jname: m.title?.romaji || name,
-        poster: m.coverImage?.extraLarge || m.coverImage?.large || '',
-        description: (m.description || '').replace(/<[^>]*>/g, ''),
-        stats: {
-          type: m.format || 'TV',
-          status: m.status || 'Unknown',
-          episodes: { sub: epCount, dub: 0 },
-          score: m.averageScore ? `${m.averageScore / 10}/10` : '',
-        },
-        genres: m.genres || [],
-        episodes: { sub: episodes, dub: [] },
-        provider: 'anilist+jikan',
-      }, 300);
+      // AniList path (primary) with Jikan fallback
+      let infoResult;
+      try {
+        const data = await anilistGQL(AL_INFO_Q, { id: parsed.anilistId });
+        const m = data?.data?.Media;
+        if (!m) return fail(res, 404, 'Anime not found');
+
+        const epCount = m.episodes || (m.nextAiringEpisode ? m.nextAiringEpisode.episode - 1 : 0) || 0;
+        const malId   = m.idMal;
+
+        const episodes = await getEpisodesForMal(malId, epCount);
+
+        if (action === 'episodes') {
+          return ok(res, {
+            totalEpisodes: episodes.length,
+            episodes: { sub: episodes, dub: [] },
+            provider: 'jikan',
+          }, 300);
+        }
+
+        const name = m.title?.english || m.title?.romaji || '';
+        infoResult = {
+          id: `anilist::${m.id}`,
+          malId,
+          name,
+          jname: m.title?.romaji || name,
+          poster: m.coverImage?.extraLarge || m.coverImage?.large || '',
+          description: (m.description || '').replace(/<[^>]*>/g, ''),
+          stats: {
+            type: m.format || 'TV',
+            status: m.status || 'Unknown',
+            episodes: { sub: epCount, dub: 0 },
+            score: m.averageScore ? `${m.averageScore / 10}/10` : '',
+          },
+          genres: m.genres || [],
+          episodes: { sub: episodes, dub: [] },
+          provider: 'anilist+jikan',
+        };
+      } catch (alErr) {
+        console.error('[info] AniList failed, falling back to Jikan:', alErr.message);
+        // We need a MAL ID to use Jikan. Try to extract it from a search.
+        // The anilistId might not be a MAL ID, so we can't directly use it.
+        // For now, fail gracefully — the user would need to re-search (which would use Jikan fallback and produce mal:: IDs)
+        return fail(res, 502, `AniList unreachable and no MAL ID available for Jikan fallback. Try searching again.`);
+      }
+
+      return ok(res, infoResult, 300);
     }
 
-    // ── sources ──────────────────────────────────────────────────────────────
+    // ── sources (deprecated — use /api/resolve-stream instead) ────────────
     if (action === 'sources') {
-      if (!episodeId && !qMalId) return fail(res, 400, 'Missing episodeId');
-
-      let malId  = qMalId ? Number(qMalId) : null;
-      let epNo   = qEpNo  ? Number(qEpNo)  : null;
-
-      // Parse from episodeId
-      const ep = parseEpId(episodeId);
-      if (ep) { malId = malId || ep.malId; epNo = epNo || ep.epNo; }
-
-      if (!malId || !epNo) return fail(res, 400, 'Cannot resolve malId/epNo from episodeId');
-
-      // Since the new providers handle their own orchestration via /api/resolve-stream,
-      // the old /api/aniwatch?action=sources array approach is deprecated for actual playback.
-      // We will leave candidateSources empty here as it's no longer used for iframe resolution.
-      candidateSources = candidateSources.filter(Boolean);
-
-      // Verify all candidate sources concurrently to filter out fake 200 error pages
-      const verificationResults = await Promise.all(candidateSources.map(src => verifyEmbed(src)));
-      const sources = candidateSources.filter((_, i) => verificationResults[i]);
-
-      if (!sources.length) return fail(res, 404, 'No playable sources available');
-
-      return ok(res, {
-        sources,
-        tracks: [],
-        headers: {},
-        embedUrls: sources.filter(s => s.embedUrl).map(s => s.embedUrl),
-        provider: 'megaplay',
-      }, 0);
+      return fail(res, 410, 'action=sources is deprecated. Use /api/resolve-stream instead.');
     }
 
     // ── servers ──────────────────────────────────────────────────────────────
@@ -434,17 +563,16 @@ app.get('/api/image', async (req, res) => {
 
 // ── Provider Orchestration ────────────────────────────────────────────────────
 app.get('/api/resolve-stream', async (req, res) => {
-  const { title, epNo, mode, malId, enableAllanime } = req.query;
+  const { title, epNo, mode, malId } = req.query;
   
   if (!title || !epNo) {
     return fail(res, 400, 'Missing title or epNo');
   }
 
   try {
-    const src = await resolveStream(title, Number(epNo), mode || 'sub', malId ? Number(malId) : null, {
-      enableAllanime: enableAllanime === 'true'
-    });
+    const src = await resolveStream(title, Number(epNo), mode || 'sub', malId ? Number(malId) : null);
     if (!src) return fail(res, 404, 'No playable sources available');
+
     return ok(res, src, 0);
   } catch (e) {
     console.error('[/api/resolve-stream]', e.message);
@@ -546,6 +674,7 @@ app.get('/api/auth/login', (req, res) => {
 });
 
 app.listen(PORT, HOST, () => {
-  console.log(`[ny-cli] backend v6.2.0 on http://${HOST}:${PORT}`);
-  console.log(`[ny-cli] providers: AniList (search/info) + Jikan (episodes) + MegaPlay/Anikoto (streaming)`);
+  console.log(`\x1b[36m[ny-cli] backend v6.4.0 on http://${HOST}:${PORT}\x1b[0m`);
+  console.log(`[ny-cli] providers: AniList (search/info, primary) + Jikan (fallback search/info + episodes) + MegaPlay/Anikoto (streaming)`);
+  if (RELAY_URL) console.log(`[ny-cli] relay fallback: ${RELAY_URL}`);
 });

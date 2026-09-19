@@ -26,6 +26,20 @@
 
 <br/>
 
+## 🎯 What's New in v6.4.0
+- **⚡ Concurrent Provider Racing**: Built a highly optimized `Promise.any()` waterfall that runs multiple providers simultaneously and pipes the fastest resolver back to the user, ensuring instant video playback.
+- **✨ Native HiAnime Provider**: Implemented a pure JavaScript decoder to bypass HiAnime's (ZokoAnime) stream obfuscation, pulling raw `.m3u8` video streams and `.vtt` subtitles directly into the terminal!
+- **🗑️ AllAnime Deprecation**: Removed the heavily obfuscated and defunct AllAnime provider.
+- **🏎️ Ultra-Fast Speed**: Streaming latency heavily reduced, typically resolving within 1-2 seconds with almost a 100% success rate for the entire catalog without needing browser fallbacks.
+
+## 🎯 What's New in v6.3.0
+- **🔄 Jikan Fallback**: Search, trending, and info now automatically fall back to Jikan (MyAnimeList) when AniList is unreachable due to regional Cloudflare blocks or outages.
+- **🌐 Proxy Support**: Set `NY_PROXY`, `HTTPS_PROXY`, or `HTTP_PROXY` environment variables to route requests through your own proxy or VPN endpoint. Useful for bypassing ISP/regional blocks.
+- **☁️ Cloudflare Worker Relay**: Optional self-hosted relay (`relay/` directory) that routes AniList/Jikan requests through Cloudflare's network, bypassing regional blocks. Set `NY_RELAY_URL` to activate.
+- **🔍 Better Error Diagnostics**: The fetch helper now distinguishes network-level failures (DNS, timeout) from HTTP errors (403, 500), and includes the actual response body in error messages for easier debugging.
+- **🧹 Dead Code Cleanup**: Removed the broken `action=sources` endpoint (undeclared variable crash), removed unused `enableAllanime` option, removed orphaned `verifyEmbed` function.
+- **🛡️ User-Agent Headers**: All AniList and Jikan requests now include a proper browser User-Agent header, reducing false positive bot detection by Cloudflare.
+
 ## 🎯 What's New in v6.2.0
 - **Custom DNS Resolver**: Successfully bypasses ISP blockages (e.g. Cloudflare issues) using Undici's custom resolver and 1.1.1.1 fallback.
 - **Dependency Compatibility**: Fixed a bug where `ink-picture` was pulling incompatible React/Ink dependencies, stabilizing the CLI.
@@ -298,6 +312,47 @@ ny-cli
 # For help
 ny-cli -h
 ```
+
+<br/>
+
+---
+
+<br/>
+
+## 🌐 Proxy & Relay Configuration
+
+If you're experiencing issues connecting to AniList or Jikan (common in India and other regions where Cloudflare applies regional blocks), you have several options:
+
+### Option 1: Proxy via Environment Variable
+
+Point ny-cli at any HTTP/HTTPS proxy you trust (commercial VPN's proxy endpoint, personal relay, etc.):
+
+```bash
+# Dedicated ny-cli proxy (highest priority)
+NY_PROXY=http://your-proxy:8080 ny-cli
+
+# Or use standard proxy environment variables
+HTTPS_PROXY=http://your-proxy:8080 ny-cli
+HTTP_PROXY=http://your-proxy:8080 ny-cli
+```
+
+When a proxy is set, it takes precedence over the built-in Cloudflare DNS override.
+
+### Option 2: Self-Hosted Cloudflare Worker Relay
+
+The `relay/` directory contains a Cloudflare Worker that relays AniList and Jikan requests through Cloudflare's own network, bypassing regional blocks. It's narrowly scoped — it only relays to AniList and Jikan, not a general open proxy.
+
+```bash
+# Deploy (requires a free Cloudflare account + wrangler CLI)
+cd relay && npx wrangler deploy
+
+# Then set the relay URL
+NY_RELAY_URL=https://ny-cli-relay.your-subdomain.workers.dev ny-cli
+```
+
+The relay is a safety net: ny-cli always tries the direct request first and only falls back to the relay if the direct request fails.
+
+> **Important**: Do not share your relay URL publicly. If many users share the same relay endpoint, it will itself get blocked. Each user/team should deploy their own.
 
 <br/>
 

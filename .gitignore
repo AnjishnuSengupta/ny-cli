@@ -8,6 +8,8 @@ user.json
 
 # Ignore cache
 *.cache
+cache/
+.cache/
 
 # Ignore local config
 .env

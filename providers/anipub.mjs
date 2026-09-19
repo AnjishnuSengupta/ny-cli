@@ -34,28 +34,37 @@ export async function anipubGetSource(title, epNo, mode = 'sub') {
   const epIndex = epNo - 1;
   const playerPageHtml = await anipubFetchText(`${ANIPUB_BASE}/AniPlayer/${anipubId}/${epIndex}`, `${ANIPUB_BASE}/`);
   
-  const iframeMatch = playerPageHtml.match(/<iframe\s+src=['"]?(https:\/\/(www\.)?anipub\.xyz\/[Vv]ideo\/\d+\/(sub|dub))['"]?/i);
+  const iframeMatch = playerPageHtml.match(/<iframe\s+src=['"]?([^'"\s>]+)['"]?/i);
   if (!iframeMatch) {
     throw new Error(`Anipub nested iframe not found for title: ${title} (Anipub ID: ${anipubId}, epIndex: ${epIndex})`);
   }
   
   let videoLink = iframeMatch[1];
   
-  // Override sub/dub if mode differs
-  if (mode === 'dub') {
-    videoLink = videoLink.replace(/\/sub$/, '/dub');
-  } else {
-    videoLink = videoLink.replace(/\/dub$/, '/sub');
+  if (videoLink.includes('anipub.xyz/video/') || videoLink.includes('anipub.xyz/Video/')) {
+    // Override sub/dub if mode differs
+    if (mode === 'dub') {
+      videoLink = videoLink.replace(/\/sub$/, '/dub');
+    } else {
+      videoLink = videoLink.replace(/\/dub$/, '/sub');
+    }
+    return await resolveMegaplayDataId(videoLink, mode);
   }
 
-  return await resolveMegaplayDataId(videoLink, mode);
+  // Otherwise, it's a direct embed (like gogoanime)
+  return {
+    url: videoLink,
+    embedUrl: videoLink,
+    quality: 'Anipub (Embed)',
+    type: 'embed',
+    isM3U8: false,
+    provider: 'anipub'
+  };
 }
 
 export async function resolveMegaplayDataId(videoLink, mode = 'sub') {
   const m = videoLink.match(/\/[Vv]ideo\/(\d+)\/(sub|dub)/);
   if (!m) throw new Error(`unsupported anipub video link: ${videoLink}`);
-  const [, embedId] = m;
-  const linkMode = mode === 'dub' ? 'dub' : 'sub';
 
   // Fetch intermediate page (anipub.xyz/video/...)
   const intermediateHtml = await anipubFetchText(videoLink, `${ANIPUB_BASE}/`);
@@ -63,33 +72,18 @@ export async function resolveMegaplayDataId(videoLink, mode = 'sub') {
   if (!embedMatch) throw new Error(`megaplay/anikoto iframe not found in intermediate page ${videoLink}`);
   
   const streamPage = embedMatch[1];
-  const html = await anipubFetchText(streamPage, videoLink);
-
-  const dataIdMatch = html.match(/data-id="(\d+)"/);
-  if (!dataIdMatch) throw new Error('megaplay data-id not found');
-
-  const sourcesUrl = `${MEGAPLAY_BASE}/stream/getSources?id=${dataIdMatch[1]}`;
-  const payload = await anipubFetchJson(sourcesUrl, streamPage);
-
-  const streamUrl = payload?.sources?.file;
-  if (!streamUrl) throw new Error('megaplay stream url missing');
-
-  let subtitle = '';
-  if (mode !== 'dub' && Array.isArray(payload.tracks)) {
-    const englishTrack = payload.tracks.find(t =>
-      (t.kind || '').toLowerCase() === 'captions' &&
-      (t.default || /english/i.test(t.label || ''))
-    );
-    subtitle = englishTrack?.file || payload.tracks.find(t => (t.kind || '').toLowerCase() === 'captions')?.file || '';
-  }
-
+  
+  // Megaplay recently encrypted their getSources response, meaning we can no longer
+  // easily extract the raw m3u8 link. However, ny-cli supports embeds, so we can 
+  // just return the Megaplay stream page itself as an embed.
+  
   return { 
-    url: streamUrl, 
+    url: streamPage, 
     embedUrl: streamPage,
-    quality: `Anipub (HLS)`,
-    type: 'hls',
-    isM3U8: true,
-    subtitle, 
+    quality: `Anipub (Embed)`,
+    type: 'embed',
+    isM3U8: false,
+    subtitle: '', 
     referer: `${MEGAPLAY_BASE}/`,
     provider: 'anipub' 
   };
