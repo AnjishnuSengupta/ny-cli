@@ -32,27 +32,6 @@
 - **🗑️ AllAnime Deprecation**: Removed the heavily obfuscated and defunct AllAnime provider.
 - **🏎️ Ultra-Fast Speed**: Streaming latency heavily reduced, typically resolving within 1-2 seconds with almost a 100% success rate for the entire catalog without needing browser fallbacks.
 
-## 🎯 What's New in v6.3.0
-- **🔄 Jikan Fallback**: Search, trending, and info now automatically fall back to Jikan (MyAnimeList) when AniList is unreachable due to regional Cloudflare blocks or outages.
-- **🌐 Proxy Support**: Set `NY_PROXY`, `HTTPS_PROXY`, or `HTTP_PROXY` environment variables to route requests through your own proxy or VPN endpoint. Useful for bypassing ISP/regional blocks.
-- **☁️ Cloudflare Worker Relay**: Optional self-hosted relay (`relay/` directory) that routes AniList/Jikan requests through Cloudflare's network, bypassing regional blocks. Set `NY_RELAY_URL` to activate.
-- **🔍 Better Error Diagnostics**: The fetch helper now distinguishes network-level failures (DNS, timeout) from HTTP errors (403, 500), and includes the actual response body in error messages for easier debugging.
-- **🧹 Dead Code Cleanup**: Removed the broken `action=sources` endpoint (undeclared variable crash), removed unused `enableAllanime` option, removed orphaned `verifyEmbed` function.
-- **🛡️ User-Agent Headers**: All AniList and Jikan requests now include a proper browser User-Agent header, reducing false positive bot detection by Cloudflare.
-
-## 🎯 What's New in v6.2.0
-- **Custom DNS Resolver**: Successfully bypasses ISP blockages (e.g. Cloudflare issues) using Undici's custom resolver and 1.1.1.1 fallback.
-- **Dependency Compatibility**: Fixed a bug where `ink-picture` was pulling incompatible React/Ink dependencies, stabilizing the CLI.
-- **Regex & HLS fixes**: Fixed `resolveWixmp` breaking edge-case M3U8 paths on certain providers.
-- **Installer fixes**: Added missing provider directory and configuration paths to the automated installer script.
-
-## 🎯 What's New in v6.1.0
-
-- **🛡️ Fail-Fast Providers**: Improved error surfacing for faster issue diagnosis when providers fail to load.
-- **🔄 Torrent Fallback**: Intelligently switches to torrent streaming (Nyaa) only as a last resort if direct sources fail.
-- **📱 Responsive UI**: The terminal interface now elegantly stacks its layout when viewing on narrower terminal windows (under 70 columns).
-- **💫 Graceful Exit**: New animated exit sequence instead of abruptly terminating the CLI.
-- **🔒 Security Pass**: Cleaned up dependencies and removed `webtorrent` module to achieve zero known vulnerabilities in `npm audit`.
 
 <table>
 <tr>
