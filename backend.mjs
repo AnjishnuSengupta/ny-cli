@@ -75,12 +75,16 @@ async function anilistGQL(query, variables) {
   };
 
   try {
-    return await fetchJson(ANILIST, { method: 'POST', headers: hdrs, body });
+    const result = await fetchJson(ANILIST, { method: 'POST', headers: hdrs, body });
+    result._source = 'direct';
+    return result;
   } catch (directErr) {
     if (!RELAY_URL) throw directErr;
     console.log('[anilistGQL] Direct request failed, trying relay:', directErr.message);
     try {
-      return await fetchJson(`${RELAY_URL}/anilist`, { method: 'POST', headers: hdrs, body });
+      const result = await fetchJson(`${RELAY_URL}/anilist`, { method: 'POST', headers: hdrs, body });
+      result._source = 'relay';
+      return result;
     } catch (relayErr) {
       console.error('[anilistGQL] Relay also failed:', relayErr.message);
       throw directErr; // throw original error for better diagnostics
@@ -135,13 +139,17 @@ async function jikanFetch(endpoint) {
 
   const hdrs = { 'User-Agent': UA };
   try {
-    return await fetchJson(`${JIKAN}${endpoint}`, { headers: hdrs });
+    const result = await fetchJson(`${JIKAN}${endpoint}`, { headers: hdrs });
+    result._source = 'direct';
+    return result;
   } catch (directErr) {
     if (!RELAY_URL) throw directErr;
     console.log('[jikanFetch] Direct request failed, trying relay:', directErr.message);
     try {
       // /anime/12345/episodes → relay at /jikan/anime/12345/episodes
-      return await fetchJson(`${RELAY_URL}/jikan${endpoint}`, { headers: hdrs });
+      const result = await fetchJson(`${RELAY_URL}/jikan${endpoint}`, { headers: hdrs });
+      result._source = 'relay';
+      return result;
     } catch (relayErr) {
       console.error('[jikanFetch] Relay also failed:', relayErr.message);
       throw directErr;
@@ -306,7 +314,7 @@ function parseAnimeId(id) {
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.get('/', (req, res) => res.json({ status: 'ok', version: '6.3.0', providers: ['anilist', 'jikan', 'megaplay'] }));
+app.get('/', (req, res) => res.json({ status: 'ok', version: '6.4.0', providers: ['anilist', 'jikan', 'megaplay'], relay: RELAY_URL || null }));
 
 app.get('/api/aniwatch', async (req, res) => {
   const { action, q, id, episodeId, category, page, malId: qMalId, episodeNo: qEpNo } = req.query;
@@ -323,12 +331,13 @@ app.get('/api/aniwatch', async (req, res) => {
         const data = await anilistGQL(AL_SEARCH_Q, { q, page: pageNum });
         const media = data?.data?.Page?.media || [];
         const animes = media.map(mapALAnime);
+        const source = data._source === 'relay' ? 'anilist (relay)' : 'anilist';
         searchResult = {
           currentPage: pageNum,
           totalPages: data?.data?.Page?.pageInfo?.hasNextPage ? pageNum + 1 : pageNum,
           hasNextPage: !!data?.data?.Page?.pageInfo?.hasNextPage,
           animes,
-          provider: 'anilist',
+          provider: source,
         };
       } catch (alErr) {
         console.error('[search] AniList failed, falling back to Jikan:', alErr.message);
@@ -349,7 +358,8 @@ app.get('/api/aniwatch', async (req, res) => {
       try {
         const data = await anilistGQL(`query{Page(page:1,perPage:10){media(type:ANIME,sort:TRENDING_DESC,status:RELEASING){id idMal title{english romaji}episodes nextAiringEpisode{episode airingAt} coverImage{large}format status genres}}}`, {});
         const trending = (data?.data?.Page?.media || []).map(mapALAnime);
-        return ok(res, { spotlightAnimes: trending.slice(0, 5), trendingAnimes: trending, latestEpisodeAnimes: [], provider: 'anilist' }, 300);
+        const source = data._source === 'relay' ? 'anilist (relay)' : 'anilist';
+        return ok(res, { spotlightAnimes: trending.slice(0, 5), trendingAnimes: trending, latestEpisodeAnimes: [], provider: source }, 300);
       } catch (alErr) {
         console.error('[home] AniList failed, falling back to Jikan:', alErr.message);
         try {
@@ -424,7 +434,7 @@ app.get('/api/aniwatch', async (req, res) => {
           },
           genres: m.genres || [],
           episodes: { sub: episodes, dub: [] },
-          provider: 'anilist+jikan',
+          provider: data._source === 'relay' ? 'anilist+jikan (relay)' : 'anilist+jikan',
         };
       } catch (alErr) {
         console.error('[info] AniList failed, falling back to Jikan:', alErr.message);
