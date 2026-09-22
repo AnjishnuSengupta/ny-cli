@@ -1478,7 +1478,7 @@ function resolvePlayerCommand(settings) {
   if (settings.player && settings.player !== "auto") return settings.player;
   return getPlayerCommand() || "mpv";
 }
-function buildPlayerArgs(player, url, headers, title) {
+function buildPlayerArgs(player, url, headers, title, subtitle) {
   if (player === "vlc") {
     const args2 = [url];
     if (headers?.Referer) {
@@ -1489,6 +1489,9 @@ function buildPlayerArgs(player, url, headers, title) {
     }
     if (title) {
       args2.push(`--meta-title=${title}`);
+    }
+    if (subtitle) {
+      args2.push(`--sub-file=${subtitle}`);
     }
     args2.push("--play-and-exit");
     return args2;
@@ -1501,6 +1504,9 @@ function buildPlayerArgs(player, url, headers, title) {
   }
   if (title) {
     args.push(`--force-media-title=${title}`);
+  }
+  if (subtitle) {
+    args.push(`--sub-file=${subtitle}`);
   }
   return args;
 }
@@ -1669,16 +1675,16 @@ function App() {
         setStatus({ message: `Failed to launch webtorrent: ${err.message}`, type: "error", loading: false });
       });
       proc.unref();
-    } else if (provider.type === "direct") {
+    } else if (provider.type === "direct" || provider.type === "hls") {
       setStatus({ message: `Starting ${provider.name} in ${cmd.toUpperCase()}...`, type: "success", loading: false });
-      const args = buildPlayerArgs(cmd, provider.url, provider.headers, "NY-CLI Stream");
+      const args = buildPlayerArgs(cmd, provider.url, provider.headers, "NY-CLI Stream", provider.subtitle);
       const proc = spawn(cmd, args, { stdio: "ignore", detached: true });
       proc.on("error", (err) => {
         setStatus({ message: `Failed to launch ${cmd}: ${err.message}`, type: "error", loading: false });
       });
       proc.unref();
     } else {
-      const args = buildPlayerArgs(cmd, provider.url, void 0, "NY-CLI Stream");
+      const args = buildPlayerArgs(cmd, provider.url, void 0, "NY-CLI Stream", provider.subtitle);
       const proc = spawn(cmd, args, { stdio: "ignore", detached: true });
       proc.on("error", (err) => {
         setStatus({ message: `Failed to launch ${cmd}: ${err.message}`, type: "error", loading: false });
@@ -2056,7 +2062,7 @@ function App() {
       let allEmbedSources = [];
       const providers = [];
       if (backendStream && backendStream.url) {
-        providers.push({ name: backendStream.quality || backendStream.provider || "Direct Stream", type: "direct", url: backendStream.url, headers: backendStream.referer ? { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin } : void 0 });
+        providers.push({ name: backendStream.quality || backendStream.provider || "Direct Stream", type: backendStream.type || "direct", url: backendStream.url, subtitle: backendStream.subtitle, headers: backendStream.referer ? { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin } : void 0 });
       }
       if (providers.length === 0 && torrentData?.magnet) {
         setStatus({ message: `No direct stream found \u2014 falling back to torrent (this will be slower)`, type: "info", loading: true });

@@ -6,7 +6,7 @@
 
 <br/>
 
-[![Version](https://img.shields.io/badge/v6.2.0-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
+[![Version](https://img.shields.io/badge/v6.4.1-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
 [![npm](https://img.shields.io/npm/v/@anjishnusengupta/ny-cli?style=flat-square&color=22c55e&label=npm)](https://www.npmjs.com/package/@anjishnusengupta/ny-cli)
 [![License](https://img.shields.io/badge/MIT-3b82f6?style=flat-square&label=license)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/AnjishnuSengupta/ny-cli?style=flat-square&color=fbbf24)](https://github.com/AnjishnuSengupta/ny-cli/stargazers)
@@ -26,11 +26,13 @@
 
 <br/>
 
-## 🎯 What's New in v6.4.0
+## 🎯 What's New in v6.4.1
+- **🛡️ Bulletproof Stream Retries**: Implemented aggressive, fast-failing network retries across all scrapers to punch through Cloudflare blocks and keep streams flowing without dropping to torrents.
+- **✨ Third Provider (Owais)**: Integrated the Owais API as a third concurrent direct streaming provider alongside HiAnime and Anipub.
+- **📝 MPV Subtitle Fix**: Fixed a bug where MPV failed to load subtitle files for direct streams. Subtitles now pass through cleanly.
 - **⚡ Concurrent Provider Racing**: Built a highly optimized `Promise.any()` waterfall that runs multiple providers simultaneously and pipes the fastest resolver back to the user, ensuring instant video playback.
 - **✨ Native HiAnime Provider**: Implemented a pure JavaScript decoder to bypass HiAnime's (ZokoAnime) stream obfuscation, pulling raw `.m3u8` video streams and `.vtt` subtitles directly into the terminal!
 - **🗑️ AllAnime Deprecation**: Removed the heavily obfuscated and defunct AllAnime provider.
-- **🏎️ Ultra-Fast Speed**: Streaming latency heavily reduced, typically resolving within 1-2 seconds with almost a 100% success rate for the entire catalog without needing browser fallbacks.
 
 
 <table>

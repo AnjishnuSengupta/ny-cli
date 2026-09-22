@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ny-cli backend v6.3.0
+ * ny-cli backend v6.4.0
  * Provider chain: AniList GraphQL (search/meta) + Jikan (fallback search/meta + episodes) + MegaPlay embed (streaming)
  * AniList is primary for search/info/trending; Jikan is fallback when AniList is unreachable (regional CF blocks, outages).
  * AnimeKAI is down. AllAnime is CF-blocked. MegaPlay works reliably via iframe embed.
@@ -10,6 +10,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveStream } from './providers/index.mjs';
+import { SWRCache } from './swr-cache.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +19,40 @@ const app    = express();
 const PORT   = Number(process.env.PORT || 43201);
 const HOST   = process.env.HOST || '0.0.0.0';
 const RELAY_URL = process.env.NY_RELAY_URL || '';  // e.g. https://ny-cli-relay.your-subdomain.workers.dev
+
+// ── SWR Cache instances ─────────────────────────────────────────────────────
+const swrCache = {
+  search: new SWRCache({ freshTTL: 10 * 60_000, staleTTL: 6 * 3600_000, maxEntries: 500 }),
+  home:   new SWRCache({ freshTTL: 10 * 60_000, staleTTL: 6 * 3600_000 }),
+  info:   new SWRCache({ freshTTL:  5 * 60_000, staleTTL: 6 * 3600_000 }),
+};
+
+// ── Retry helper (ported from nyanime) ──────────────────────────────────────
+const TRANSIENT_CODES = new Set([
+  'ENETUNREACH', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT',
+  'EHOSTUNREACH', 'EAI_AGAIN', 'EPIPE', 'ERR_SOCKET_CONNECTION_TIMEOUT',
+  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET', 'ENOTFOUND',
+]);
+
+async function withRetry(fn, { retries = 2, delay = 800, label = '' } = {}) {
+  let lastErr;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const code = err?.cause?.code || err.code;
+      const isTransient = TRANSIENT_CODES.has(code) ||
+        /timeout|ENETUNREACH|ECONNR|socket/i.test(err.message);
+      if (i < retries) {
+        const backoff = isTransient ? delay * (i + 1) : delay;
+        if (label) console.log(`[retry] ${label} attempt ${i+1} failed (${code || err.message?.substring(0,40)}), retrying in ${backoff}ms...`);
+        await new Promise(r => setTimeout(r, backoff));
+      }
+    }
+  }
+  throw lastErr;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const ok   = (res, data, ttl = 60) => {
@@ -75,12 +110,15 @@ async function anilistGQL(query, variables) {
   };
 
   try {
-    const result = await fetchJson(ANILIST, { method: 'POST', headers: hdrs, body });
+    const result = await withRetry(
+      () => fetchJson(ANILIST, { method: 'POST', headers: hdrs, body }),
+      { retries: 2, delay: 800, label: 'anilistGQL' }
+    );
     result._source = 'direct';
     return result;
   } catch (directErr) {
     if (!RELAY_URL) throw directErr;
-    console.log('[anilistGQL] Direct request failed, trying relay:', directErr.message);
+    console.log('[anilistGQL] Direct request failed after retries, trying relay:', directErr.message);
     try {
       const result = await fetchJson(`${RELAY_URL}/anilist`, { method: 'POST', headers: hdrs, body });
       result._source = 'relay';
@@ -139,12 +177,15 @@ async function jikanFetch(endpoint) {
 
   const hdrs = { 'User-Agent': UA };
   try {
-    const result = await fetchJson(`${JIKAN}${endpoint}`, { headers: hdrs });
+    const result = await withRetry(
+      () => fetchJson(`${JIKAN}${endpoint}`, { headers: hdrs }),
+      { retries: 2, delay: 800, label: `jikanFetch ${endpoint}` }
+    );
     result._source = 'direct';
     return result;
   } catch (directErr) {
     if (!RELAY_URL) throw directErr;
-    console.log('[jikanFetch] Direct request failed, trying relay:', directErr.message);
+    console.log('[jikanFetch] Direct request failed after retries, trying relay:', directErr.message);
     try {
       // /anime/12345/episodes → relay at /jikan/anime/12345/episodes
       const result = await fetchJson(`${RELAY_URL}/jikan${endpoint}`, { headers: hdrs });
@@ -326,6 +367,18 @@ app.get('/api/aniwatch', async (req, res) => {
     if (action === 'search' || action === 'suggestions') {
       if (!q) return fail(res, 400, 'Missing q');
 
+      const cacheKey = `search:${q}:${pageNum}`;
+
+      // Check cache first
+      const cached = swrCache.search.get(cacheKey);
+      if (cached && !cached.stale) {
+        console.log(`[search] cache hit (fresh) for "${q}"`);
+        const result = cached.data;
+        if (action === 'suggestions') return ok(res, result.animes.slice(0, 8), 120);
+        return ok(res, result, 120);
+      }
+
+      // Try live fetch
       let searchResult;
       try {
         const data = await anilistGQL(AL_SEARCH_Q, { q, page: pageNum });
@@ -339,12 +392,22 @@ app.get('/api/aniwatch', async (req, res) => {
           animes,
           provider: source,
         };
+        swrCache.search.set(cacheKey, searchResult);
       } catch (alErr) {
         console.error('[search] AniList failed, falling back to Jikan:', alErr.message);
         try {
           searchResult = await jikanSearch(q, pageNum);
+          swrCache.search.set(cacheKey, searchResult);
         } catch (jkErr) {
           console.error('[search] Jikan fallback also failed:', jkErr.message);
+          // Try stale cache as last resort
+          const staleData = swrCache.search.getStaleOrNull(cacheKey);
+          if (staleData) {
+            console.log(`[search] serving stale cache for "${q}"`);
+            staleData.provider = (staleData.provider || '') + ' (stale cache)';
+            if (action === 'suggestions') return ok(res, staleData.animes.slice(0, 8), 30);
+            return ok(res, staleData, 30);
+          }
           throw alErr; // re-throw original AniList error
         }
       }
@@ -355,18 +418,37 @@ app.get('/api/aniwatch', async (req, res) => {
 
     // ── home / random ────────────────────────────────────────────────────────
     if (action === 'home' || action === 'random') {
+      const cacheKey = 'home';
+
+      // Check cache first
+      const cached = swrCache.home.get(cacheKey);
+      if (cached && !cached.stale) {
+        console.log('[home] cache hit (fresh)');
+        return ok(res, cached.data, 300);
+      }
+
       try {
         const data = await anilistGQL(`query{Page(page:1,perPage:10){media(type:ANIME,sort:TRENDING_DESC,status:RELEASING){id idMal title{english romaji}episodes nextAiringEpisode{episode airingAt} coverImage{large}format status genres}}}`, {});
         const trending = (data?.data?.Page?.media || []).map(mapALAnime);
         const source = data._source === 'relay' ? 'anilist (relay)' : 'anilist';
-        return ok(res, { spotlightAnimes: trending.slice(0, 5), trendingAnimes: trending, latestEpisodeAnimes: [], provider: source }, 300);
+        const homeResult = { spotlightAnimes: trending.slice(0, 5), trendingAnimes: trending, latestEpisodeAnimes: [], provider: source };
+        swrCache.home.set(cacheKey, homeResult);
+        return ok(res, homeResult, 300);
       } catch (alErr) {
         console.error('[home] AniList failed, falling back to Jikan:', alErr.message);
         try {
           const jikanHome = await jikanTrending();
+          swrCache.home.set(cacheKey, jikanHome);
           return ok(res, jikanHome, 300);
         } catch (jkErr) {
           console.error('[home] Jikan fallback also failed:', jkErr.message);
+          // Try stale cache
+          const staleData = swrCache.home.getStaleOrNull(cacheKey);
+          if (staleData) {
+            console.log('[home] serving stale cache');
+            staleData.provider = (staleData.provider || '') + ' (stale cache)';
+            return ok(res, staleData, 60);
+          }
           return ok(res, { spotlightAnimes: [], trendingAnimes: [], latestEpisodeAnimes: [], provider: 'none' }, 60);
         }
       }
@@ -378,13 +460,26 @@ app.get('/api/aniwatch', async (req, res) => {
       const parsed = parseAnimeId(id);
       if (!parsed) return fail(res, 400, 'Invalid id format — expected anilist::ID or mal::ID');
 
+      const cacheKey = `info:${id}`;
+
       // If the ID came from Jikan fallback search, it will be mal::12345 instead of anilist::12345
       // In that case we skip AniList and go straight to Jikan info
       if (parsed.malId) {
+        // Check cache first
+        const cached = swrCache.info.get(cacheKey);
+        if (cached && !cached.stale) {
+          console.log(`[info] cache hit (fresh) for ${id}`);
+          if (action === 'episodes') {
+            return ok(res, { totalEpisodes: cached.data.episodes.sub.length, episodes: cached.data.episodes, provider: 'jikan' }, 300);
+          }
+          return ok(res, cached.data, 300);
+        }
+
         // Direct Jikan path for mal:: IDs
         try {
           const info = await jikanInfo(parsed.malId);
           if (!info) return fail(res, 404, 'Anime not found on Jikan');
+          swrCache.info.set(cacheKey, info);
           if (action === 'episodes') {
             return ok(res, {
               totalEpisodes: info.episodes.sub.length,
@@ -394,8 +489,27 @@ app.get('/api/aniwatch', async (req, res) => {
           }
           return ok(res, info, 300);
         } catch (jkErr) {
+          // Try stale cache
+          const staleData = swrCache.info.getStaleOrNull(cacheKey);
+          if (staleData) {
+            console.log(`[info] serving stale cache for ${id}`);
+            if (action === 'episodes') {
+              return ok(res, { totalEpisodes: staleData.episodes.sub.length, episodes: staleData.episodes, provider: 'jikan (stale cache)' }, 60);
+            }
+            return ok(res, { ...staleData, provider: (staleData.provider || '') + ' (stale cache)' }, 60);
+          }
           return fail(res, 500, `Jikan info failed: ${jkErr.message}`);
         }
+      }
+
+      // Check cache first for AniList path too
+      const cached = swrCache.info.get(cacheKey);
+      if (cached && !cached.stale) {
+        console.log(`[info] cache hit (fresh) for ${id}`);
+        if (action === 'episodes') {
+          return ok(res, { totalEpisodes: cached.data.episodes?.sub?.length || 0, episodes: cached.data.episodes, provider: cached.data.provider }, 300);
+        }
+        return ok(res, cached.data, 300);
       }
 
       // AniList path (primary) with Jikan fallback
@@ -436,11 +550,18 @@ app.get('/api/aniwatch', async (req, res) => {
           episodes: { sub: episodes, dub: [] },
           provider: data._source === 'relay' ? 'anilist+jikan (relay)' : 'anilist+jikan',
         };
+        swrCache.info.set(cacheKey, infoResult);
       } catch (alErr) {
         console.error('[info] AniList failed, falling back to Jikan:', alErr.message);
-        // We need a MAL ID to use Jikan. Try to extract it from a search.
-        // The anilistId might not be a MAL ID, so we can't directly use it.
-        // For now, fail gracefully — the user would need to re-search (which would use Jikan fallback and produce mal:: IDs)
+        // Try stale cache before giving up
+        const staleData = swrCache.info.getStaleOrNull(cacheKey);
+        if (staleData) {
+          console.log(`[info] serving stale cache for ${id}`);
+          if (action === 'episodes') {
+            return ok(res, { totalEpisodes: staleData.episodes?.sub?.length || 0, episodes: staleData.episodes, provider: (staleData.provider || '') + ' (stale cache)' }, 60);
+          }
+          return ok(res, { ...staleData, provider: (staleData.provider || '') + ' (stale cache)' }, 60);
+        }
         return fail(res, 502, `AniList unreachable and no MAL ID available for Jikan fallback. Try searching again.`);
       }
 

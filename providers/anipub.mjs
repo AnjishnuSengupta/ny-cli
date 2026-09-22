@@ -3,7 +3,7 @@ const MEGAPLAY_BASE = 'https://megaplay.buzz';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 async function anipubFetchText(url, referer) {
-  const res = await fetch(url, { headers: { 'User-Agent': UA, Referer: referer }, signal: AbortSignal.timeout(8000) });
+  const res = await fetch(url, { headers: { 'User-Agent': UA, Referer: referer }, signal: AbortSignal.timeout(5000) });
   if (!res.ok) throw new Error(`anipub HTTP ${res.status}`);
   return res.text();
 }

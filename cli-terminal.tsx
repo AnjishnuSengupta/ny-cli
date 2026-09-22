@@ -1568,7 +1568,7 @@ function resolvePlayerCommand(settings: Settings): string {
 }
 
 // Build player-specific arguments for streaming
-function buildPlayerArgs(player: string, url: string, headers?: Record<string, string>, title?: string): string[] {
+function buildPlayerArgs(player: string, url: string, headers?: Record<string, string>, title?: string, subtitle?: string): string[] {
   if (player === 'vlc') {
     const args = [url];
     if (headers?.Referer) {
@@ -1579,6 +1579,9 @@ function buildPlayerArgs(player: string, url: string, headers?: Record<string, s
     }
     if (title) {
       args.push(`--meta-title=${title}`);
+    }
+    if (subtitle) {
+      args.push(`--sub-file=${subtitle}`);
     }
     args.push('--play-and-exit');
     return args;
@@ -1592,6 +1595,9 @@ function buildPlayerArgs(player: string, url: string, headers?: Record<string, s
   }
   if (title) {
     args.push(`--force-media-title=${title}`);
+  }
+  if (subtitle) {
+    args.push(`--sub-file=${subtitle}`);
   }
   return args;
 }
@@ -1875,7 +1881,7 @@ function App() {
   const [userPhotoUrl, setUserPhotoUrl] = useState<string | null>(null);
   const [playingEpisode, setPlayingEpisode] = useState<any>(null);
   const [playingPaused, setPlayingPaused] = useState(false);
-  const [playingProviders, setPlayingProviders] = useState<{name: string, type: 'torrent'|'direct'|'embed', url?: string, magnet?: string, headers?: any}[]>([]);
+  const [playingProviders, setPlayingProviders] = useState<{name: string, type: 'torrent'|'direct'|'embed'|'hls', url?: string, magnet?: string, headers?: any, subtitle?: string}[]>([]);
   const [playingProviderIndex, setPlayingProviderIndex] = useState(0);
 
   // Expose these for the PlayingScreen
@@ -1907,9 +1913,9 @@ function App() {
         setStatus({ message: `Failed to launch webtorrent: ${err.message}`, type: 'error', loading: false });
       });
       proc.unref();
-    } else if (provider.type === 'direct') {
+    } else if (provider.type === 'direct' || provider.type === 'hls') {
       setStatus({ message: `Starting ${provider.name} in ${cmd.toUpperCase()}...`, type: 'success', loading: false });
-      const args = buildPlayerArgs(cmd, provider.url, provider.headers, 'NY-CLI Stream');
+      const args = buildPlayerArgs(cmd, provider.url, provider.headers, 'NY-CLI Stream', provider.subtitle);
       const proc = spawn(cmd, args, { stdio: 'ignore', detached: true });
       proc.on('error', (err: any) => {
         setStatus({ message: `Failed to launch ${cmd}: ${err.message}`, type: 'error', loading: false });
@@ -1917,7 +1923,7 @@ function App() {
       proc.unref();
     } else {
       // Fallback for anything else
-      const args = buildPlayerArgs(cmd, provider.url!, undefined, 'NY-CLI Stream');
+      const args = buildPlayerArgs(cmd, provider.url!, undefined, 'NY-CLI Stream', provider.subtitle);
       const proc = spawn(cmd, args, { stdio: 'ignore', detached: true });
       proc.on('error', (err: any) => {
         setStatus({ message: `Failed to launch ${cmd}: ${err.message}`, type: 'error', loading: false });
@@ -2381,10 +2387,10 @@ function App() {
 
       
       // Build Providers List
-      const providers: {name: string, type: 'torrent'|'direct'|'embed', url?: string, magnet?: string, headers?: any}[] = [];
+      const providers: {name: string, type: 'torrent'|'direct'|'embed'|'hls', url?: string, magnet?: string, headers?: any, subtitle?: string}[] = [];
       
       if (backendStream && backendStream.url) {
-        providers.push({ name: backendStream.quality || backendStream.provider || 'Direct Stream', type: 'direct', url: backendStream.url, headers: backendStream.referer ? { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin } : undefined });
+        providers.push({ name: backendStream.quality || backendStream.provider || 'Direct Stream', type: backendStream.type || 'direct', url: backendStream.url, subtitle: backendStream.subtitle, headers: backendStream.referer ? { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin } : undefined });
       }
 
       if (providers.length === 0 && torrentData?.magnet) {

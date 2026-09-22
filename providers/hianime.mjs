@@ -8,7 +8,7 @@ async function fetchHtml(url, referer) {
       'Referer': referer || BASE_URL,
       'X-Requested-With': 'XMLHttpRequest'
     },
-    signal: AbortSignal.timeout(10000)
+    signal: AbortSignal.timeout(5000)
   });
   if (!res.ok) throw new Error(`HiAnime HTTP ${res.status}`);
   return res.text();
@@ -21,7 +21,7 @@ async function fetchJson(url, referer) {
       'Referer': referer || BASE_URL,
       'X-Requested-With': 'XMLHttpRequest'
     },
-    signal: AbortSignal.timeout(10000)
+    signal: AbortSignal.timeout(5000)
   });
   if (!res.ok) throw new Error(`HiAnime HTTP ${res.status}`);
   return res.json();
