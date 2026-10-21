@@ -1,4 +1,9 @@
 import { createDecipheriv, createCipheriv, createHash } from 'node:crypto';
+import { httpFetch } from '../net.mjs';
+import { findBestMatch } from './match.mjs';
+
+export const name = 'allanime';
+export const tier = 1;
 
 const ALLANIME_API = 'https://api.mkissa.net/api';
 const ALLANIME_BASE = 'allanime.day';
@@ -14,7 +19,7 @@ async function getAaConfig() {
   }
   
   const cdn = "https://cdn.mkissa.net/all/mk/_app/immutable";
-  const pageRes = await fetch(ALLANIME_REFERER, { headers: { 'User-Agent': ALLANIME_UA } });
+  const pageRes = await httpFetch(ALLANIME_REFERER, { headers: { 'User-Agent': ALLANIME_UA } });
   const pageText = await pageRes.text();
   
   const epochMatch = pageText.match(/"epoch":(\d+)/);
@@ -29,13 +34,13 @@ async function getAaConfig() {
   const partBBuf = Buffer.from(partBMatch[1], 'base64');
   const appUrl = appUrlMatch[0];
   
-  const appRes = await fetch(appUrl, { headers: { 'User-Agent': ALLANIME_UA } });
+  const appRes = await httpFetch(appUrl, { headers: { 'User-Agent': ALLANIME_UA } });
   const appText = await appRes.text();
   
   const chunkMatches = [...appText.matchAll(/"\.\.\/chunks\/([A-Za-z0-9_.-]+\.js)"/g)].slice(0, 5);
   let maskHex = null;
   for (const m of chunkMatches) {
-    const chunkRes = await fetch(`${cdn}/chunks/${m[1]}`, { headers: { 'User-Agent': ALLANIME_UA } });
+    const chunkRes = await httpFetch(`${cdn}/chunks/${m[1]}`, { headers: { 'User-Agent': ALLANIME_UA } });
     const hexMatch = (await chunkRes.text()).match(/[0-9a-f]{64}/);
     if (hexMatch) { maskHex = hexMatch[0]; break; }
   }
@@ -60,7 +65,7 @@ function getAaReq(epoch) {
 }
 
 async function aaFetch(body) {
-  const res = await fetch(ALLANIME_API, {
+  const res = await httpFetch(ALLANIME_API, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -77,7 +82,7 @@ async function aaFetch(body) {
 
 async function aaFetchGET(params) {
   const url = `${ALLANIME_API}?${params.toString()}`;
-  const res = await fetch(url, {
+  const res = await httpFetch(url, {
     headers: {
       'User-Agent': ALLANIME_UA,
       'Referer': ALLANIME_REFERER,
@@ -89,7 +94,7 @@ async function aaFetchGET(params) {
   return res.json();
 }
 
-export async function aaSearchId(title) {
+export async function aaSearchId(title, context = null) {
   const searchGql = `query($search:SearchInput $limit:Int $page:Int $translationType:VaildTranslationTypeEnumType $countryOrigin:VaildCountryOriginEnumType){shows(search:$search limit:$limit page:$page translationType:$translationType countryOrigin:$countryOrigin){edges{_id name availableEpisodes}}}`;
   const body = {
     variables: { search: { allowAdult: false, allowUnknown: false, query: title }, limit: 10, page: 1, translationType: 'sub', countryOrigin: 'ALL' },
@@ -98,8 +103,23 @@ export async function aaSearchId(title) {
   const data = await aaFetch(body);
   const edges = data?.data?.shows?.edges || [];
   if (!edges.length) return null;
+
+  if (context) {
+    const matchResult = findBestMatch(edges, context, {
+      extractors: {
+        getTitle: (e) => e.name,
+        getEpCount: (e) => e.availableEpisodes?.sub || e.availableEpisodes?.dub,
+      },
+    });
+    if (!matchResult.match) {
+      throw new Error(matchResult.reason || 'no confident match');
+    }
+    return matchResult.match._id;
+  }
+
   return edges[0]._id;
 }
+
 
 function aaDecodeProviderHex(raw) {
   if (!raw.startsWith('--')) return raw;
@@ -145,7 +165,7 @@ async function resolveWixmp(url) {
 async function aaResolveCdnUrl(cdnPath) {
   try {
     const url = `https://${ALLANIME_BASE}${cdnPath}`;
-    const res = await fetch(url, {
+    const res = await httpFetch(url, {
       headers: { 'User-Agent': ALLANIME_UA, 'Referer': ALLANIME_REFERER },
       signal: AbortSignal.timeout(8000),
     });
@@ -170,8 +190,8 @@ async function aaResolveCdnUrl(cdnPath) {
   }
 }
 
-export async function allanimeGetSource(title, epNo, mode = 'sub', malId = null) {
-  const showId = await aaSearchId(title);
+export async function allanimeGetSource(title, epNo, mode = 'sub', malId = null, context = null) {
+  const showId = await aaSearchId(title, context);
   if (!showId) {
     throw new Error(`Could not find showId on AllAnime for title: ${title}`);
   }
@@ -236,7 +256,7 @@ export async function allanimeGetSource(title, epNo, mode = 'sub', malId = null)
       }
     } else if (providerName === 'Mp4') {
       if (!providerUrl.startsWith('http')) throw new Error('mp4upload url not absolute');
-      const res = await fetch(providerUrl, {
+      const res = await httpFetch(providerUrl, {
         headers: { 'User-Agent': ALLANIME_UA, 'Referer': ALLANIME_REFERER },
         signal: AbortSignal.timeout(8000),
       });
@@ -276,4 +296,34 @@ export async function allanimeGetSource(title, epNo, mode = 'sub', malId = null)
   }
 
   throw new Error("All resolved providers failed on AllAnime");
+}
+
+export async function resolve(context) {
+  const { titles = {}, episodeNumber, audioKind = 'sub', malId = null } = context;
+  const title = titles.english || titles.romaji || titles.native;
+  if (!title) {
+    throw new Error('Title required for AllAnime');
+  }
+
+  const src = await allanimeGetSource(title, episodeNumber, audioKind, malId, context);
+  if (!src || !src.url) {
+    throw new Error('No playable stream found on AllAnime');
+  }
+
+  return [
+    {
+      url: src.url,
+      type: src.type || (src.isM3U8 ? 'hls' : 'mp4'),
+      referer: src.referer || ALLANIME_REFERER,
+      headers: {
+        'User-Agent': ALLANIME_UA,
+        'Referer': src.referer || ALLANIME_REFERER,
+      },
+      subtitleTracks: [],
+      audioKind,
+      quality: src.quality || 'AllAnime',
+      provider: name,
+      tier,
+    },
+  ];
 }

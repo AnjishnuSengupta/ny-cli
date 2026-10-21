@@ -1,5 +1,5 @@
-// Obfuscated Firebase configuration to prevent simple scraping
-// The config is Base64 encoded.
+// Public client Firebase web configuration (standard client-side SDK credentials)
+// Note: restrict allowed domains/APIs in Google Cloud Console
 
 export const getFirebaseConfig = () => {
   return {

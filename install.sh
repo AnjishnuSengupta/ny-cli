@@ -1,12 +1,12 @@
 #!/bin/sh
-# NY-CLI v6.2.0 Installation Script
-# Universal installer for Linux (Arch, Fedora, Ubuntu/Debian) and macOS
+# NY-CLI Installation Script
+# Universal installer for Linux and macOS
 # Usage: curl -fsSL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.sh | sh
 
 set -e
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# COLORS
+# COLORS & BANNER
 # ═══════════════════════════════════════════════════════════════════════════════
 RED='\033[1;31m'
 GREEN='\033[1;32m'
@@ -17,9 +17,6 @@ WHITE='\033[1;37m'
 DIM='\033[2m'
 RESET='\033[0m'
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# BANNER
-# ═══════════════════════════════════════════════════════════════════════════════
 printf "\n"
 printf "${MAGENTA}"
 printf "  ███╗   ██╗██╗   ██╗       ██████╗██╗     ██╗\n"
@@ -31,344 +28,247 @@ printf "  ╚═╝  ╚═══╝   ╚═╝          ╚═════╝�
 printf "${RESET}\n"
 printf "${DIM}${CYAN}       ⟨ Your Gateway to Anime Streaming ⟩${RESET}\n"
 printf "${DIM}       ─────────────────────────────────────${RESET}\n"
-printf "${DIM}            v6.2.0 • nyanime.qzz.io${RESET}\n"
+printf "${DIM}            nyanime.qzz.io${RESET}\n"
 printf "\n"
 
-VERSION="6.2.0"
-REPO_URL="https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main"
-GITHUB_REPO="https://github.com/AnjishnuSengupta/ny-cli"
+TARGET="${1:-latest}"
+
+# Determine npm package specifier
+if [ "$TARGET" = "latest" ] && [ -f "./package.json" ] && grep -q '"@anjishnusengupta/ny-cli"' ./package.json 2>/dev/null; then
+    PKG_SPEC="."
+else
+    case "$TARGET" in
+        */*|*.tgz|*.tar.gz)
+            PKG_SPEC="$TARGET"
+            ;;
+        @anjishnusengupta/ny-cli*)
+            PKG_SPEC="$TARGET"
+            ;;
+        v*)
+            PKG_SPEC="@anjishnusengupta/ny-cli@${TARGET#v}"
+            ;;
+        latest)
+            PKG_SPEC="@anjishnusengupta/ny-cli@latest"
+            ;;
+        *)
+            PKG_SPEC="@anjishnusengupta/ny-cli@$TARGET"
+            ;;
+    esac
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ELEVATION HELPER
+# ═══════════════════════════════════════════════════════════════════════════════
+run_elevated() {
+    if [ "$(id -u 2>/dev/null || echo 1)" -eq 0 ]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        "$@"
+    fi
+}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DETECT OS AND PACKAGE MANAGER
 # ═══════════════════════════════════════════════════════════════════════════════
-detect_os() {
-    OS="unknown"
-    PKG_MANAGER="unknown"
-    
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        case "$ID" in
-            arch|manjaro|endeavouros|garuda)
-                OS="arch"
-                PKG_MANAGER="pacman"
-                ;;
-            fedora|rhel|centos|rocky|alma)
-                OS="fedora"
-                PKG_MANAGER="dnf"
-                ;;
-            debian|ubuntu|linuxmint|pop|elementary|zorin)
-                OS="debian"
-                PKG_MANAGER="apt"
-                ;;
-            opensuse*|suse*)
-                OS="suse"
-                PKG_MANAGER="zypper"
-                ;;
-            alpine)
-                OS="alpine"
-                PKG_MANAGER="apk"
-                ;;
-            *)
-                # Try to detect from ID_LIKE
-                case "$ID_LIKE" in
-                    *arch*) OS="arch"; PKG_MANAGER="pacman" ;;
-                    *fedora*|*rhel*) OS="fedora"; PKG_MANAGER="dnf" ;;
-                    *debian*|*ubuntu*) OS="debian"; PKG_MANAGER="apt" ;;
-                esac
-                ;;
-        esac
-    elif [ "$(uname)" = "Darwin" ]; then
-        OS="macos"
-        PKG_MANAGER="brew"
-    fi
-    
-    printf "${DIM}Detected: ${OS} (${PKG_MANAGER})${RESET}\n"
-}
+OS="unknown"
+PKG_MANAGER="unknown"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# INSTALL SYSTEM DEPENDENCIES
-# ═══════════════════════════════════════════════════════════════════════════════
-install_dependencies() {
-    local deps="$1"
-    
-    if [ -z "$deps" ]; then
-        return 0
-    fi
-    
-    printf "${CYAN}Installing system dependencies: ${WHITE}$deps${RESET}\n"
-    
-    case "$PKG_MANAGER" in
-        pacman)
-            sudo pacman -S --noconfirm --needed $deps 2>/dev/null || {
-                printf "${YELLOW}⚠ Some packages may need manual installation${RESET}\n"
-            }
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    case "$ID" in
+        arch|manjaro|endeavouros|garuda)
+            OS="arch"
+            PKG_MANAGER="pacman"
             ;;
-        dnf)
-            sudo dnf install -y $deps 2>/dev/null || {
-                printf "${YELLOW}⚠ Some packages may need manual installation${RESET}\n"
-            }
+        fedora|rhel|centos|rocky|alma)
+            OS="fedora"
+            PKG_MANAGER="dnf"
             ;;
-        apt)
-            sudo apt-get update -qq 2>/dev/null
-            sudo apt-get install -y $deps 2>/dev/null || {
-                printf "${YELLOW}⚠ Some packages may need manual installation${RESET}\n"
-            }
+        debian|ubuntu|linuxmint|pop|elementary|zorin)
+            OS="debian"
+            PKG_MANAGER="apt"
             ;;
-        zypper)
-            sudo zypper install -y $deps 2>/dev/null || {
-                printf "${YELLOW}⚠ Some packages may need manual installation${RESET}\n"
-            }
+        opensuse*|suse*)
+            OS="suse"
+            PKG_MANAGER="zypper"
             ;;
-        apk)
-            sudo apk add $deps 2>/dev/null || {
-                printf "${YELLOW}⚠ Some packages may need manual installation${RESET}\n"
-            }
-            ;;
-        brew)
-            brew install $deps 2>/dev/null || {
-                printf "${YELLOW}⚠ Some packages may need manual installation${RESET}\n"
-            }
+        alpine)
+            OS="alpine"
+            PKG_MANAGER="apk"
             ;;
         *)
-            printf "${RED}Unknown package manager. Please install manually: $deps${RESET}\n"
+            case "$ID_LIKE" in
+                *arch*) OS="arch"; PKG_MANAGER="pacman" ;;
+                *fedora*|*rhel*) OS="fedora"; PKG_MANAGER="dnf" ;;
+                *debian*|*ubuntu*) OS="debian"; PKG_MANAGER="apt" ;;
+            esac
+            ;;
+    esac
+elif [ "$(uname)" = "Darwin" ]; then
+    OS="macos"
+    PKG_MANAGER="brew"
+fi
+
+printf "${DIM}Detected OS: ${OS} (${PKG_MANAGER})${RESET}\n"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PREREQUISITES: Node >= 20.18.0 and npm
+# ═══════════════════════════════════════════════════════════════════════════════
+printf "${CYAN}Checking Node.js & npm...${RESET}\n"
+
+if ! command -v node >/dev/null 2>&1; then
+    printf "${RED}✗ Node.js is not installed.${RESET}\n"
+    printf "  ny-cli requires Node.js >= 20.18.0. Please install Node.js first.\n"
+    exit 1
+fi
+
+if ! node -e '
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  if (major < 20 || (major === 20 && minor < 18)) process.exit(1);
+' 2>/dev/null; then
+    printf "${RED}✗ Node.js >= 20.18.0 required (found $(node -v))${RESET}\n"
+    printf "  Please upgrade Node.js first.\n"
+    exit 1
+fi
+printf "${GREEN}✓ Node.js $(node -v)${RESET}\n"
+
+if ! command -v npm >/dev/null 2>&1; then
+    printf "${RED}✗ npm is not installed.${RESET}\n"
+    exit 1
+fi
+printf "${GREEN}✓ npm $(npm -v)${RESET}\n"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INSTALL MEDIA DEPENDENCIES (SEPARATE CALLS)
+# ═══════════════════════════════════════════════════════════════════════════════
+install_system_pkg() {
+    pkg="$1"
+    case "$PKG_MANAGER" in
+        pacman)
+            run_elevated pacman -S --noconfirm --needed "$pkg" 2>/dev/null
+            ;;
+        dnf)
+            run_elevated dnf install -y "$pkg" 2>/dev/null
+            ;;
+        apt)
+            run_elevated apt-get update -qq 2>/dev/null || true
+            run_elevated apt-get install -y "$pkg" 2>/dev/null
+            ;;
+        zypper)
+            run_elevated zypper install -y "$pkg" 2>/dev/null
+            ;;
+        apk)
+            run_elevated apk add "$pkg" 2>/dev/null
+            ;;
+        brew)
+            brew install "$pkg" 2>/dev/null
+            ;;
+        *)
             return 1
             ;;
     esac
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CHECK AND INSTALL PREREQUISITES
-# ═══════════════════════════════════════════════════════════════════════════════
-check_prerequisites() {
-    printf "${CYAN}Checking prerequisites...${RESET}\n"
-    
-    local missing_required=""
-    local missing_optional=""
-    
-    # Check Node.js
-    if ! command -v node >/dev/null 2>&1; then
-        missing_required="$missing_required nodejs"
+# Install mpv
+if command -v mpv >/dev/null 2>&1; then
+    printf "${GREEN}✓ mpv is already installed${RESET}\n"
+    MPV_STATUS="already installed"
+else
+    printf "${CYAN}Installing mpv...${RESET}\n"
+    if install_system_pkg "mpv"; then
+        printf "${GREEN}✓ mpv installed successfully${RESET}\n"
+        MPV_STATUS="installed"
     else
-        node_ver=$(node -v 2>/dev/null | sed 's/v//' | cut -d. -f1)
-        if [ -n "$node_ver" ] && [ "$node_ver" -lt 18 ] 2>/dev/null; then
-            printf "${RED}✗ Node.js 18+ required (found v$(node -v))${RESET}\n"
-            printf "  Please upgrade Node.js first.\n"
-            exit 1
-        fi
-        printf "${GREEN}✓ Node.js $(node -v)${RESET}\n"
+        printf "${YELLOW}⚠ mpv installation failed or skipped (install manually for video playback)${RESET}\n"
+        MPV_STATUS="not installed"
     fi
-    
-    # Check npm
-    if ! command -v npm >/dev/null 2>&1; then
-        missing_required="$missing_required npm"
-    else
-        printf "${GREEN}✓ npm $(npm -v 2>/dev/null)${RESET}\n"
-    fi
-    
-    # Check curl or wget
-    if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
-        missing_required="$missing_required curl"
-    fi
-    
-    # Check mpv (recommended player)
-    if ! command -v mpv >/dev/null 2>&1; then
-        missing_optional="$missing_optional mpv"
-    else
-        printf "${GREEN}✓ mpv installed${RESET}\n"
-    fi
+fi
 
-    # Check ffmpeg (required for episode downloads)
-    if ! command -v ffmpeg >/dev/null 2>&1; then
-        missing_optional="$missing_optional ffmpeg"
+# Install ffmpeg
+if command -v ffmpeg >/dev/null 2>&1; then
+    printf "${GREEN}✓ ffmpeg is already installed${RESET}\n"
+    FFMPEG_STATUS="already installed"
+else
+    printf "${CYAN}Installing ffmpeg...${RESET}\n"
+    if install_system_pkg "ffmpeg"; then
+        printf "${GREEN}✓ ffmpeg installed successfully${RESET}\n"
+        FFMPEG_STATUS="installed"
     else
-        printf "${GREEN}✓ ffmpeg installed${RESET}\n"
+        printf "${YELLOW}⚠ ffmpeg installation failed or skipped (install manually for downloads)${RESET}\n"
+        FFMPEG_STATUS="not installed"
     fi
-
-
-    # Check webtorrent-cli
-    if ! command -v webtorrent >/dev/null 2>&1; then
-        missing_optional="$missing_optional webtorrent-cli"
-    else
-        printf "${GREEN}✓ webtorrent-cli installed${RESET}\n"
-    fi
-    
-    # Check bun (optional, for best experience)
-    if ! command -v bun >/dev/null 2>&1; then
-        printf "${DIM}ℹ Bun not found (optional, enhances UI)${RESET}\n"
-    else
-        printf "${GREEN}✓ Bun $(bun -v 2>/dev/null)${RESET}\n"
-    fi
-    
-    # Install missing required dependencies
-    if [ -n "$missing_required" ]; then
-        printf "\n${YELLOW}Missing required dependencies:${WHITE}$missing_required${RESET}\n"
-        
-        # Map package names per distro
-        case "$PKG_MANAGER" in
-            pacman)
-                pkg_names=$(echo "$missing_required" | sed 's/nodejs/nodejs npm/')
-                ;;
-            dnf)
-                pkg_names=$(echo "$missing_required" | sed 's/nodejs/nodejs npm/')
-                ;;
-            apt)
-                pkg_names=$(echo "$missing_required" | sed 's/nodejs/nodejs npm/')
-                ;;
-            brew)
-                pkg_names=$(echo "$missing_required" | sed 's/nodejs/node/')
-                ;;
-            *)
-                pkg_names="$missing_required"
-                ;;
-        esac
-        
-        printf "\n${CYAN}Would you like to install them now? [Y/n] ${RESET}"
-        read -r response </dev/tty || response="y"
-        case "$response" in
-            [nN]*)
-                printf "${RED}Cannot continue without required dependencies.${RESET}\n"
-                exit 1
-                ;;
-            *)
-                install_dependencies "$pkg_names"
-                ;;
-        esac
-    fi
-    
-    # Offer to install optional dependencies
-    if [ -n "$missing_optional" ]; then
-        printf "\n${YELLOW}Recommended optional packages:${WHITE}$missing_optional${RESET}\n"
-        printf "${DIM}  mpv     - Video player (required for playback)${RESET}\n"
-        printf "${DIM}  ffmpeg  - Required for episode downloads${RESET}\n"
-        
-        printf "\n${CYAN}Install recommended packages? [Y/n] ${RESET}"
-        read -r response </dev/tty || response="y"
-        case "$response" in
-            [nN]*)
-                printf "${DIM}Skipping optional packages${RESET}\n"
-                ;;
-            *)
-        # Map package names per distro
-        case "$PKG_MANAGER" in
-            pacman)
-                opt_pkgs="$missing_optional"
-                ;;
-            dnf)
-                opt_pkgs="$missing_optional"
-                ;;
-            apt)
-                opt_pkgs="$missing_optional"
-                ;;
-            brew)
-                opt_pkgs="$missing_optional"
-                ;;
-            *)
-                opt_pkgs="$missing_optional"
-                ;;
-        esac
-        install_dependencies "$opt_pkgs"
-        ;;
-esac
-    fi
-}
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# DOWNLOAD HELPER
+# INSTALL NY-CLI VIA NPM
 # ═══════════════════════════════════════════════════════════════════════════════
-download() {
-    local url="$1" dest="$2"
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$url" -o "$dest"
-    elif command -v wget >/dev/null 2>&1; then
-        wget -qO "$dest" "$url"
+printf "\n${CYAN}Installing ${PKG_SPEC} via npm...${RESET}\n"
+
+if run_elevated npm install -g "$PKG_SPEC"; then
+    printf "${GREEN}✓ ny-cli package installed successfully${RESET}\n"
+else
+    # Retry without elevation in case user npm prefix is configured
+    if npm install -g "$PKG_SPEC"; then
+        printf "${GREEN}✓ ny-cli package installed successfully${RESET}\n"
     else
-        printf "${RED}Neither curl nor wget found${RESET}\n"
-        return 1
+        printf "${RED}✗ npm install -g failed${RESET}\n"
+        exit 1
     fi
-}
+fi
+
+# Summary of installation results
+printf "\n${CYAN}════════════════ Installation Summary ════════════════${RESET}\n"
+printf "  ${WHITE}ny-cli:${RESET}  ${GREEN}installed${RESET} (${PKG_SPEC})\n"
+printf "  ${WHITE}mpv:${RESET}     ${DIM}${MPV_STATUS}${RESET}\n"
+printf "  ${WHITE}ffmpeg:${RESET}  ${DIM}${FFMPEG_STATUS}${RESET}\n"
+printf "${CYAN}═══════════════════════════════════════════════════════${RESET}\n\n"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MAIN INSTALLATION
+# ENSURE NY-CLI ACCESSIBLE IN PATH ACROSS ALL DISTRIBUTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
-main() {
-    detect_os
-    check_prerequisites
-    
-    printf "\n"
-    
-    # Determine install locations
-    if [ "$(id -u 2>/dev/null || echo 1)" -eq 0 ]; then
-        INSTALL_DIR="${PREFIX:-/usr/local}/lib/ny-cli"
-        BIN_DIR="${PREFIX:-/usr/local}/bin"
-    else
-        INSTALL_DIR="${PREFIX:-$HOME/.local}/lib/ny-cli"
-        BIN_DIR="${PREFIX:-$HOME/.local}/bin"
-    fi
-    
-    mkdir -p "$INSTALL_DIR" "$BIN_DIR"
-    
-    printf "${CYAN}⟳ Downloading ny-cli v${VERSION}...${RESET}\n"
-    
-    # Download core files
-    download "$REPO_URL/ny-cli" "$INSTALL_DIR/ny-cli"
-    download "$REPO_URL/backend.mjs" "$INSTALL_DIR/backend.mjs"
-    download "$REPO_URL/dns-agent.mjs" "$INSTALL_DIR/dns-agent.mjs"
-    download "$REPO_URL/cli-terminal.tsx" "$INSTALL_DIR/cli-terminal.tsx"
-    download "$REPO_URL/cli-terminal-fallback.mjs" "$INSTALL_DIR/cli-terminal-fallback.mjs"
-    download "$REPO_URL/firebase-config.ts" "$INSTALL_DIR/firebase-config.ts"
-    download "$REPO_URL/package.json" "$INSTALL_DIR/package.json"
-    
-    mkdir -p "$INSTALL_DIR/providers"
-    download "$REPO_URL/providers/index.mjs" "$INSTALL_DIR/providers/index.mjs"
-    download "$REPO_URL/providers/allanime.mjs" "$INSTALL_DIR/providers/allanime.mjs"
-    download "$REPO_URL/providers/anipub.mjs" "$INSTALL_DIR/providers/anipub.mjs"
-    download "$REPO_URL/providers/senshi.mjs" "$INSTALL_DIR/providers/senshi.mjs"
-    
-    chmod +x "$INSTALL_DIR/ny-cli"
-    
-    printf "${GREEN}✓ Files downloaded${RESET}\n"
-    
-    # Install npm dependencies
-    printf "${CYAN}⟳ Installing npm dependencies...${RESET}\n"
-    
-    (cd "$INSTALL_DIR" && npm install --silent --omit=dev --legacy-peer-deps 2>/dev/null) || {
-        printf "${YELLOW}⚠ npm install had warnings, continuing...${RESET}\n"
-        (cd "$INSTALL_DIR" && npm install --omit=dev --legacy-peer-deps 2>&1 | tail -3)
-    }
-    
-    printf "${GREEN}✓ Dependencies installed${RESET}\n"
-    
-    # Create symlink
-    ln -sf "$INSTALL_DIR/ny-cli" "$BIN_DIR/ny-cli"
-    
-    printf "${GREEN}✓ Symlinked to $BIN_DIR/ny-cli${RESET}\n"
-    
-    # Check PATH
-    case ":$PATH:" in
-        *":$BIN_DIR:"*) ;;
-        *)
-            printf "\n"
-            printf "${YELLOW}⚠ $BIN_DIR is not in your PATH${RESET}\n"
-            printf "  Add this to your shell config (~/.bashrc, ~/.zshrc, etc.):\n"
-            printf "\n"
-            printf "    ${WHITE}export PATH=\"\$PATH:$BIN_DIR\"${RESET}\n"
-            printf "\n"
-            ;;
-    esac
-    
-    # Success message
-    printf "\n"
-    printf "${GREEN}╭─────────────────────────────────────────────╮${RESET}\n"
-    printf "${GREEN}│${RESET}  ${WHITE}✨ NY-CLI v${VERSION} installed!${RESET}              ${GREEN}│${RESET}\n"
-    printf "${GREEN}├─────────────────────────────────────────────┤${RESET}\n"
-    printf "${GREEN}│${RESET}  Run ${CYAN}ny-cli${RESET} to start watching anime       ${GREEN}│${RESET}\n"
-    printf "${GREEN}│${RESET}  Run ${CYAN}ny-cli -h${RESET} for help                   ${GREEN}│${RESET}\n"
-    printf "${GREEN}╰─────────────────────────────────────────────╯${RESET}\n"
-    printf "\n"
-    printf "${DIM}Tip: Install Bun for the best UI experience:${RESET}\n"
-    printf "${DIM}  curl -fsSL https://bun.sh/install | bash${RESET}\n"
-    printf "\n"
-}
+NPM_PREFIX="$(npm prefix -g 2>/dev/null || true)"
+NPM_BIN="$NPM_PREFIX/bin"
+if [ -d "$NPM_BIN" ]; then
+    export PATH="$NPM_BIN:$PATH"
+fi
 
-# Run main installation
-main "$@"
+# Locate the installed ny-cli binary
+INSTALLED_BIN=""
+if command -v ny-cli >/dev/null 2>&1; then
+    INSTALLED_BIN="$(command -v ny-cli)"
+elif [ -x "$NPM_BIN/ny-cli" ]; then
+    INSTALLED_BIN="$NPM_BIN/ny-cli"
+elif [ -x "/usr/local/bin/ny-cli" ]; then
+    INSTALLED_BIN="/usr/local/bin/ny-cli"
+elif [ -x "/usr/bin/ny-cli" ]; then
+    INSTALLED_BIN="/usr/bin/ny-cli"
+elif [ -x "$HOME/.local/bin/ny-cli" ]; then
+    INSTALLED_BIN="$HOME/.local/bin/ny-cli"
+fi
+
+# If command -v ny-cli is not already resolving from standard PATH, create symlinks
+if [ -n "$INSTALLED_BIN" ]; then
+    # Link into /usr/local/bin if /usr/local/bin exists
+    if [ "$INSTALLED_BIN" != "/usr/local/bin/ny-cli" ] && [ -d "/usr/local/bin" ]; then
+        run_elevated ln -sf "$INSTALLED_BIN" /usr/local/bin/ny-cli 2>/dev/null || true
+    fi
+    # Also link into ~/.local/bin as a per-user fallback
+    if [ "$INSTALLED_BIN" != "$HOME/.local/bin/ny-cli" ]; then
+        mkdir -p "$HOME/.local/bin" 2>/dev/null || true
+        ln -sf "$INSTALLED_BIN" "$HOME/.local/bin/ny-cli" 2>/dev/null || true
+    fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RUN DOCTOR
+# ═══════════════════════════════════════════════════════════════════════════════
+printf "${CYAN}Running diagnostics (ny-cli --doctor)...${RESET}\n"
+if command -v ny-cli >/dev/null 2>&1; then
+    ny-cli --doctor || true
+elif [ -n "$INSTALLED_BIN" ] && [ -x "$INSTALLED_BIN" ]; then
+    "$INSTALLED_BIN" --doctor || true
+else
+    printf "${YELLOW}⚠ ny-cli binary not in current PATH. You may need to add $NPM_BIN to your PATH.${RESET}\n"
+fi

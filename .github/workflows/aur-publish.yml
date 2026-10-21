@@ -41,7 +41,7 @@ jobs:
           	url = https://github.com/AnjishnuSengupta/ny-cli
           	arch = any
           	license = MIT
-          	depends = nodejs>=18
+          	depends = nodejs>=20.18.0
           	depends = npm
           	optdepends = mpv: recommended video player with IPC support
           	optdepends = vlc: alternative video player

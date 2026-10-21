@@ -2,12 +2,13 @@
 
 # ✦ NY-CLI
 
-<samp>ネコアニメ CLI — Watch Anime from Your Terminal</samp>
+<samp>ネコアニメ CLI — Watch and Download Anime from Your Terminal</samp>
 
 <br/>
 
-[![Version](https://img.shields.io/badge/v6.4.1-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
+[![Version](https://img.shields.io/badge/v7.0.0-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
 [![npm](https://img.shields.io/npm/v/@anjishnusengupta/ny-cli?style=flat-square&color=22c55e&label=npm)](https://www.npmjs.com/package/@anjishnusengupta/ny-cli)
+[![Node](https://img.shields.io/badge/node-%3E%3D20.18.0-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/MIT-3b82f6?style=flat-square&label=license)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/AnjishnuSengupta/ny-cli?style=flat-square&color=fbbf24)](https://github.com/AnjishnuSengupta/ny-cli/stargazers)
 [![Instagram](https://img.shields.io/badge/anjishnu.prolly-E4405F?style=flat-square&logo=instagram&logoColor=white)](https://www.instagram.com/anjishnu.prolly)
@@ -26,37 +27,13 @@
 
 <br/>
 
-## 🎯 What's New in v6.4.1
-- **🛡️ Bulletproof Stream Retries**: Implemented aggressive, fast-failing network retries across all scrapers to punch through Cloudflare blocks and keep streams flowing without dropping to torrents.
-- **✨ Third Provider (Owais)**: Integrated the Owais API as a third concurrent direct streaming provider alongside HiAnime and Anipub.
-- **📝 MPV Subtitle Fix**: Fixed a bug where MPV failed to load subtitle files for direct streams. Subtitles now pass through cleanly.
-- **⚡ Concurrent Provider Racing**: Built a highly optimized `Promise.any()` waterfall that runs multiple providers simultaneously and pipes the fastest resolver back to the user, ensuring instant video playback.
-- **✨ Native HiAnime Provider**: Implemented a pure JavaScript decoder to bypass HiAnime's (ZokoAnime) stream obfuscation, pulling raw `.m3u8` video streams and `.vtt` subtitles directly into the terminal!
-- **🗑️ AllAnime Deprecation**: Removed the heavily obfuscated and defunct AllAnime provider.
-
-
-<table>
-<tr>
-<td>🔄</td>
-<td><b>Backend Rewrite</b></td>
-<td>Fully rewritten streaming chain utilizing AniList, Jikan, MegaPlay, and AllAnime fallback.</td>
-</tr>
-<tr>
-<td>🌐</td>
-<td><b>Browser Fallback</b></td>
-<td>Detects embed-type streaming sources and securely opens them via <code>xdg-open</code> in your default browser.</td>
-</tr>
-<tr>
-<td>🖼️</td>
-<td><b>Picture Layout Fixes</b></td>
-<td>Fixed <code>ink-picture</code> component dimensions for reliable artwork rendering in terminal.</td>
-</tr>
-<tr>
-<td>🔐</td>
-<td><b>Auth Improvements</b></td>
-<td>Bypassed Firebase OAuth whitelisting limits and implemented reliable token delivery.</td>
-</tr>
-</table>
+## 🎯 What's New in v7.0.0
+- **🚀 High-Speed Direct Anime Downloads**: One-click download of single episodes (<kbd>d</kbd> / <kbd>Enter</kbd>) or full seasons (<kbd>a</kbd>) using FFmpeg with HLS segment unmasking (`-allowed_segment_extensions ALL`) and automatic `yt-dlp` fallback.
+- **⚡ Offline Local Playback Auto-Detection**: Instant playback of downloaded episodes without buffering or internet access. When you choose to watch an episode, NY-CLI automatically checks your local downloads folder first.
+- **📥 Interactive Download Queue & Manager**: Live progress bars, transfer speeds (`speed=...x`), and keyboard controls (<kbd>b</kbd> to return, <kbd>c</kbd> to clear finished tasks), with a dedicated **Downloads** menu shortcut.
+- **⛩️ AniKoto & Kitsu Resilient Metadata Engine**: Recovers canonical episode counts (e.g. all 1,180+ One Piece episodes) with 0% overlap between Trending, Airing, and Seasonal releases.
+- **🖥️ Universal Cross-Platform Installers**: Automated one-line curl installers for Linux, macOS, and Windows PowerShell with automated dependency resolution (mpv, ffmpeg).
+- **🩺 Doctor Suite Diagnostics**: Upgraded `ny-cli --doctor` verifying node runtime, UI environment, DoH DNS layers, media tools, and network endpoints.
 
 <br/>
 
@@ -74,12 +51,12 @@
 │   🎬  STREAMING          👤  EXPERIENCE        🔧  TECHNICAL    │
 │   ───────────────        ───────────────       ───────────────  │
 │                                                                 │
-│   ▸ HLS Streaming        ▸ User Accounts       ▸ React/Ink UI   │
-│   ▸ Multi-Server         ▸ Watch History       ▸ Node.js 18+    │
-│   ▸ Sub/Dub Select       ▸ Cloud Sync          ▸ AllAnime API   │
-│   ▸ Artwork Display      ▸ Continue Watch      ▸ Jikan API      │
-│   ▸ Progress Tracking    ▸ 97% Auto-Skip       ▸ mpv IPC        │
-│   ▸ MPV/VLC Support      ▸ Profile System      ▸ Firebase       │
+│   ▸ HLS & Embed Streams  ▸ User Accounts       ▸ React/Ink UI   │
+│   ▸ Multi-Provider       ▸ Watch History       ▸ Node >=20.18   │
+│   ▸ Episode Downloader   ▸ Cloud Sync          ▸ AniList GQL    │
+│   ▸ Offline Playback     ▸ Continue Watching   ▸ Kitsu & AniKoto│
+│   ▸ Artwork Display      ▸ 97% Auto-Advance    ▸ mpv IPC & VLC  │
+│   ▸ Sub/Dub Selection    ▸ Profile System      ▸ Firebase Auth  │
 │                                                                 │
 ╰─────────────────────────────────────────────────────────────────╯
 ```
@@ -89,18 +66,20 @@
 <br/>
 
 <details>
-<summary><b>📺 Streaming Highlights</b></summary>
+<summary><b>📺 Streaming & Download Highlights</b></summary>
 
 <br/>
 
 | Feature | Description |
 |:--------|:------------|
+| **📥 High-Speed Downloads** | Download episodes directly as MP4 via FFmpeg or yt-dlp |
+| **⚡ Instant Local Playback** | Plays downloaded episodes locally from disk with zero network latency |
 | **🎙️ Sub/Dub Selection** | Choose sub or dub per anime — preference saved and synced to cloud |
 | **🖼️ Anime Artwork** | Cover art displayed in terminal via ink-picture while browsing |
 | **⏱️ Watch Progress** | mpv IPC tracks your position to the second |
 | **✨ 97% Auto-Advance** | Episode 97%+ watched? Next episode auto-loads |
-| **🔄 Multi-Server** | Races HD-1, HD-2, StreamTape sources in parallel |
-| **🎚️ Player Support** | MPV (recommended), VLC — auto-detected |
+| **🔄 Multi-Provider** | Resolves across Senshi, HiAnime, AniPub, Owais, and Allanime |
+| **🎚️ Player Support** | MPV (recommended) or VLC — auto-detected |
 
 </details>
 
@@ -111,12 +90,12 @@
 
 | Feature | Description |
 |:--------|:------------|
-| **🔐 Browser Auth** | Fully automated OAuth-style login via nyanime.qzz.io — secure and seamless! |
+| **🔐 Browser Auth** | Automated OAuth login via nyanime.qzz.io with strict loopback state validation |
 | **📜 Watch History** | Track all watched episodes with timestamps and progress |
 | **☁️ Cloud Sync** | Seamless sync with watch time to nyanime.qzz.io |
 | **📍 Continue Watching** | Resume exactly where you left off |
-| **📚 Trending** | Browse currently trending anime |
-| **🔍 Quick Search** | Fast anime search with artwork preview |
+| **📚 Trending & Airing** | Browse trending, airing, and seasonal anime with distinct catalogs |
+| **🔍 Fast Search** | Instant anime search with SWR caching and fallback to Kitsu / AniKoto |
 
 </details>
 
@@ -143,36 +122,19 @@
 
 <br/>
 
-## 🖥️ Terminal Demo
+## 📡 Metadata & Streaming Architecture
 
-<div align="center">
-
-```
-╔════════════════════════════════════════════════════════════════╗
-║                                                                ║
-║     ███╗   ██╗██╗   ██╗       ██████╗██╗     ██╗               ║
-║     ████╗  ██║╚██╗ ██╔╝      ██╔════╝██║     ██║               ║
-║     ██╔██╗ ██║ ╚████╔╝ █████╗██║     ██║     ██║               ║
-║     ██║╚██╗██║  ╚██╔╝  ╚════╝██║     ██║     ██║               ║
-║     ██║ ╚████║   ██║         ╚██████╗███████╗██║               ║
-║     ╚═╝  ╚═══╝   ╚═╝          ╚═════╝╚══════╝╚═╝               ║
-║              ⟨ Your Gateway to Anime Streaming ⟩               ║
-║                                                                ║
-║  ╭──────────────────────────────────────────╮                  ║
-║  │ Welcome, Anjishnu!                       │                  ║
-║  ├──────────────────────────────────────────┤                  ║
-║  │ ▸ 1) [S] Search                          │                  ║
-║  │   2) [T] Trending                        │                  ║
-║  │   3) [>] Continue Watching               │                  ║
-║  │   4) [P] Profile                         │                  ║
-║  │   5) [?] Help                            │                  ║
-║  │   6) [X] Exit                            │                  ║
-║  ╰──────────────────────────────────────────╯                  ║
-║                                                                ║
-╚════════════════════════════════════════════════════════════════╝
-```
-
-</div>
+| Component | Service | Role | Status |
+|:----------|:--------|:-----|:------:|
+| **Primary Metadata** | **AniList GraphQL** | Search, trending, synopsis, genres, artwork | ✅ Active |
+| **Secondary Metadata** | **AniKoto API** | High-accuracy episode lists, search, trending fallback | ✅ Active |
+| **Tertiary Metadata** | **Kitsu API** | Fallback search, episode metadata, multi-season counts | ✅ Active |
+| **Quaternary Metadata** | **Jikan API v4** | Fallback search, anime details | ⚠️ Secondary |
+| **Stream: HiAnime** | HLS Resolver | Direct HLS stream & subtitle extraction | ✅ Active |
+| **Stream: Senshi** | Stream Resolver | Direct MAL ID HLS stream resolution | ✅ Active |
+| **Stream: AniPub** | Embed / HLS Resolver | Secondary embed & stream playback | ✅ Active |
+| **Stream: Owais** | Stream Resolver | Direct embed stream resolver | ⚠️ Secondary |
+| **Stream: Allanime** | Stream Resolver | Dynamic key multi-source mirror resolution | ⚠️ Optional |
 
 <br/>
 
@@ -180,118 +142,119 @@
 
 <br/>
 
-## 🚀 Quick Start
-
-<br/>
+## 🚀 Installation & Quick Start
 
 ### Prerequisites
 
 | Dependency | Required | Description |
 |:-----------|:--------:|:------------|
-| **Node.js** | ✅ | Version 18+ |
-| **npm** | ✅ | Comes with Node.js |
-| **mpv** | ✅ | Video player (or VLC) |
-| **ffmpeg** | ✅ | Required for episode downloads |
-| **ink-picture** | ⬜ | Terminal image renderer (for artwork) |
-| **bun** | ⬜ | For best UI experience |
+| **Node.js** | ✅ | Version **>= 20.18.0** |
+| **npm** | ✅ | Package manager |
+| **mpv** | ✅ | Video player (recommended) or VLC |
+| **ffmpeg** | ✅ | Stream downloader and muxer (recommended) |
+| **yt-dlp** | ⬜ | Optional fallback downloader |
 
 <br/>
 
-### One-Line Install (Recommended)
+### 🐧 Linux Installation
+
+#### Method 1: One-Line Direct Install (Recommended)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.sh | sh
 ```
+*The installer automatically detects your distribution (`apt`, `dnf`, `pacman`, `zypper`, `apk`), installs `mpv` and `ffmpeg`, installs `ny-cli` globally, ensures the binary is symlinked to your PATH, and runs a diagnostic health check.*
 
-This auto-detects your OS and offers to install all dependencies!
-
-<br/>
-
-### Install via npm
+#### Method 2: Via npm
 
 ```bash
 npm install -g @anjishnusengupta/ny-cli
 ```
 
-Then install system dependencies manually:
+Install system media tools using your package manager:
+```bash
+# Ubuntu / Debian / Mint / Pop!_OS
+sudo apt install mpv ffmpeg
 
-<details>
-<summary><b>📦 System Dependencies by OS</b></summary>
+# Fedora / RHEL
+sudo dnf install mpv ffmpeg
+
+# Arch Linux / Manjaro
+sudo pacman -S mpv ffmpeg
+
+# openSUSE
+sudo zypper install mpv ffmpeg
+
+# Alpine
+sudo apk add mpv ffmpeg
+```
 
 <br/>
 
-**🐧 Ubuntu / Debian**
-```bash
-sudo apt install mpv ffmpeg
-```
+### 🍎 macOS Installation
 
-**🎩 Fedora / RHEL**
-```bash
-sudo dnf install mpv ffmpeg
-```
+#### Method 1: One-Line Direct Install (Recommended)
 
-**🔷 Arch Linux**
 ```bash
-sudo pacman -S mpv ffmpeg
+curl -fsSL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.sh | sh
 ```
+*Installs `mpv` and `ffmpeg` via Homebrew, installs `ny-cli` globally via npm, and runs diagnostics.*
 
-**🍎 macOS**
+#### Method 2: Via npm & Homebrew
+
 ```bash
 brew install mpv ffmpeg
+npm install -g @anjishnusengupta/ny-cli
 ```
-
-**Optional: Install Bun for best UI**
-```bash
-curl -fsSL https://bun.sh/install | bash
-```
-
-</details>
 
 <br/>
 
-<details>
-<summary><b>📥 Manual Install</b></summary>
+### 🪟 Windows Installation
 
-<br/>
+#### Method 1: One-Line Direct Install via PowerShell (Recommended)
 
-```bash
-# Clone the repository
-git clone https://github.com/AnjishnuSengupta/ny-cli.git
-cd ny-cli
+Open **PowerShell** as Administrator or standard user and run:
 
-# Install dependencies
-npm install
-
-# Make executable and install
-chmod +x ny-cli
-sudo ln -sf "$(pwd)/ny-cli" /usr/local/bin/ny-cli
+```powershell
+irm https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.ps1 | iex
 ```
 
-</details>
+Or using `curl`:
+```cmd
+curl -fsSL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.ps1 -o install.ps1 && powershell -ExecutionPolicy Bypass -File install.ps1
+```
+*The Windows installer checks Node.js, installs `mpv` and `ffmpeg` via `winget`, installs `ny-cli` globally, configures environment PATH, and runs the diagnostics check.*
 
-<details>
-<summary><b>🐧 Arch Linux (AUR)</b></summary>
+#### Method 2: Via npm & winget
 
-<br/>
+```cmd
+# 1. Install media dependencies
+winget install mpv.mpv Gyan.FFmpeg
 
-```bash
-yay -S ny-cli
-# or
-paru -S ny-cli
+# 2. Install ny-cli globally
+npm install -g @anjishnusengupta/ny-cli
 ```
 
-</details>
+<br/>
+
+---
 
 <br/>
 
-### Usage
+## 💻 Usage & CLI Commands
 
 ```bash
-# Interactive mode (recommended)
+# Start interactive terminal UI
 ny-cli
 
-# For help
-ny-cli -h
+# Run system, media player & network diagnostics
+ny-cli --doctor
+
+# Check installed version
+ny-cli --version
+
+# Stop running background backend process
+ny-cli --stop
 ```
 
 <br/>
@@ -300,59 +263,34 @@ ny-cli -h
 
 <br/>
 
-## 🌐 Proxy & Relay Configuration
+## 🎮 Controls & Shortcuts
 
-If you're experiencing issues connecting to AniList or Jikan (common in India and other regions where Cloudflare applies regional blocks), you have several options:
-
-### Option 1: Proxy via Environment Variable
-
-Point ny-cli at any HTTP/HTTPS proxy you trust (commercial VPN's proxy endpoint, personal relay, etc.):
-
-```bash
-# Dedicated ny-cli proxy (highest priority)
-NY_PROXY=http://your-proxy:8080 ny-cli
-
-# Or use standard proxy environment variables
-HTTPS_PROXY=http://your-proxy:8080 ny-cli
-HTTP_PROXY=http://your-proxy:8080 ny-cli
-```
-
-When a proxy is set, it takes precedence over the built-in Cloudflare DNS override.
-
-### Option 2: Self-Hosted Cloudflare Worker Relay
-
-The `relay/` directory contains a Cloudflare Worker that relays AniList and Jikan requests through Cloudflare's own network, bypassing regional blocks. It's narrowly scoped — it only relays to AniList and Jikan, not a general open proxy.
-
-```bash
-# Deploy (requires a free Cloudflare account + wrangler CLI)
-cd relay && npx wrangler deploy
-
-# Then set the relay URL
-NY_RELAY_URL=https://ny-cli-relay.your-subdomain.workers.dev ny-cli
-```
-
-The relay is a safety net: ny-cli always tries the direct request first and only falls back to the relay if the direct request fails.
-
-> **Important**: Do not share your relay URL publicly. If many users share the same relay endpoint, it will itself get blocked. Each user/team should deploy their own.
-
-<br/>
-
----
-
-<br/>
-
-## 🎮 Controls
-
-### Menu Navigation
+### Menu & Search Navigation
 
 | Key | Action |
 |:---:|:-------|
 | `↑` / `k` | Move up |
 | `↓` / `j` | Move down |
-| `Enter` | Select |
+| `Enter` | Select / Confirm |
 | `b` / `←` / `Esc` | Go back |
-| `1-9` | Quick select (when shown) |
+| `1-9` | Quick select item number |
 | `q` | Quit |
+
+### Episode Selection & Downloading
+
+| Key | Action |
+|:---:|:-------|
+| `Enter` | Stream selected episode (or download in download mode) |
+| `d` | Download selected episode |
+| `a` | Download **all** episodes in queue |
+| `b` / `Esc` | Return to anime details |
+
+### Download Queue Screen
+
+| Key | Action |
+|:---:|:-------|
+| `b` / `Esc` | Return to previous screen (downloads continue in background) |
+| `c` | Clear completed and failed downloads |
 
 ### During Playback (mpv)
 
@@ -361,10 +299,87 @@ The relay is a safety net: ny-cli always tries the direct request first and only
 | `Space` | Play / Pause |
 | `←` / `→` | Seek ±5s |
 | `↑` / `↓` | Seek ±60s |
-| `f` | Fullscreen |
+| `f` | Fullscreen toggle |
 | `v` | Toggle subtitles |
-| `m` | Mute |
-| `q` | Quit |
+| `m` | Mute audio |
+| `q` | Quit player and save watch progress |
+
+<br/>
+
+---
+
+<br/>
+
+## ⚙️ Configuration & Diagnostics
+
+### Configuration File (`config.json`)
+
+ny-cli stores user settings in standard XDG directories:
+- **Linux**: `~/.config/ny-cli/config.json`
+- **macOS**: `~/Library/Application Support/ny-cli/config.json`
+- **Windows**: `%APPDATA%\ny-cli\config.json`
+
+Example `config.json`:
+```json
+{
+  "relayUrl": "https://ny-cli-relay.your-subdomain.workers.dev",
+  "proxyUrl": "http://127.0.0.1:8080",
+  "dnsMode": "cloudflare-doh",
+  "port": 43201,
+  "host": "127.0.0.1"
+}
+```
+
+### Supported Settings & Environment Variables
+
+| Config Field | Environment Variable | Default | Description |
+|:-------------|:---------------------|:--------|:------------|
+| `relayUrl` | `NY_RELAY_URL` | *(none)* | URL of self-hosted Cloudflare Worker relay for AniList/Jikan |
+| `proxyUrl` | `NY_PROXY` / `HTTPS_PROXY` | *(none)* | HTTP/HTTPS proxy to route backend requests through |
+| `dnsMode` | `NY_DNS` | `cloudflare-doh` | DNS resolution mode: `cloudflare-doh`, `cloudflare-udp`, or `system` |
+| `port` | `PORT` / `NY_PORT` | `43201` | Backend port (auto-increments if port is occupied) |
+| `host` | `HOST` | `127.0.0.1` | Backend bind address |
+
+<br/>
+
+### Diagnostics (`ny-cli --doctor`)
+
+Run `ny-cli --doctor` anytime to verify your environment:
+```
+ny-cli doctor
+=============
+Package Version: 7.0.0
+Node.js:         v22.23.1 (supported: >=20.18.0)
+UI Runtime:      node (v22.23.1)
+Config Dir:      ~/.config/ny-cli (writable)
+State Dir:       ~/.local/state/ny-cli (writable)
+DNS Mode:        cloudflare-doh
+
+Checking DNS Layers:
+  DoH (1.1.1.1):   PASS
+  DoH (8.8.8.8):   PASS
+  UDP (Cloudflare): PASS
+  Active (cloudflare-doh): PASS via cloudflare-doh:1.1.1.1
+
+Checking Backend:
+  Backend:       PASS - started successfully on port 43299 (reported v7.0.0)
+
+Checking Network Endpoints:
+  AniList:       reachable (200 OK)
+  AniKoto:       reachable (200 OK)
+  Kitsu:         reachable (200 OK)
+  Jikan:         reachable (200 OK)
+  Relay:         not configured (optional)
+
+Checking Media Tools:
+  mpv:           installed (mpv v0.41.0)
+  vlc:           installed (VLC v3.0.24)
+  ffmpeg:        installed (ffmpeg v8.1.3)
+  yt-dlp:        installed (2026.08.19) (optional)
+
+-----------------------------
+Doctor result: PASS (all required checks passed)
+```
 
 <br/>
 
@@ -374,17 +389,15 @@ The relay is a safety net: ny-cli always tries the direct request first and only
 
 ## 🛠️ Tech Stack
 
-<br/>
-
 <div align="center">
 
 | Layer | Technologies |
 |:-----:|:-------------|
-| **CLI** | ![React](https://img.shields.io/badge/React-61dafb?style=flat-square&logo=react&logoColor=black) ![Ink](https://img.shields.io/badge/Ink_5-333333?style=flat-square) ![TypeScript](https://img.shields.io/badge/TSX-3178c6?style=flat-square&logo=typescript&logoColor=white) |
-| **Backend** | ![Node.js](https://img.shields.io/badge/Node.js_18+-339933?style=flat-square&logo=nodedotjs&logoColor=white) ![Express](https://img.shields.io/badge/Express-000000?style=flat-square&logo=express&logoColor=white) |
-| **APIs** | ![AllAnime](https://img.shields.io/badge/AllAnime-06b6d4?style=flat-square) ![Jikan](https://img.shields.io/badge/Jikan_API-25A2E2?style=flat-square) ![Anipy](https://img.shields.io/badge/Anipy-ff69b4?style=flat-square) |
-| **Sync** | ![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=flat-square&logo=firebase&logoColor=black) ![NyAnime](https://img.shields.io/badge/nyanime.qzz.io-a855f7?style=flat-square) |
-| **Media** | ![mpv](https://img.shields.io/badge/mpv-690D76?style=flat-square&logo=mpv&logoColor=white) ![ink-picture](https://img.shields.io/badge/ink-picture-333333?style=flat-square) ![webtorrent](https://img.shields.io/badge/WebTorrent-f04b36?style=flat-square) |
+| **CLI & Terminal** | ![React](https://img.shields.io/badge/React_18-61dafb?style=flat-square&logo=react&logoColor=black) ![Ink](https://img.shields.io/badge/Ink_5-333333?style=flat-square) ![TypeScript](https://img.shields.io/badge/TSX-3178c6?style=flat-square&logo=typescript&logoColor=white) |
+| **Backend & Runtime** | ![Node.js](https://img.shields.io/badge/Node.js_%3E%3D20.18.0-339933?style=flat-square&logo=nodedotjs&logoColor=white) ![Express](https://img.shields.io/badge/Express_5-000000?style=flat-square&logo=express&logoColor=white) ![Undici](https://img.shields.io/badge/Undici_6-gray?style=flat-square) |
+| **Metadata APIs** | ![AniList](https://img.shields.io/badge/AniList_GraphQL-02A9FF?style=flat-square&logo=anilist&logoColor=white) ![Kitsu](https://img.shields.io/badge/Kitsu_API-FD755C?style=flat-square) ![AniKoto](https://img.shields.io/badge/AniKoto_API-6366f1?style=flat-square) |
+| **Authentication & Sync** | ![Firebase](https://img.shields.io/badge/Firebase_Auth-FFCA28?style=flat-square&logo=firebase&logoColor=black) ![NyAnime](https://img.shields.io/badge/nyanime.qzz.io-a855f7?style=flat-square) |
+| **Playback & Media** | ![mpv](https://img.shields.io/badge/mpv-690D76?style=flat-square&logo=mpv&logoColor=white) ![ffmpeg](https://img.shields.io/badge/ffmpeg-007808?style=flat-square&logo=ffmpeg&logoColor=white) ![yt-dlp](https://img.shields.io/badge/yt--dlp-red?style=flat-square) |
 
 </div>
 
@@ -398,16 +411,42 @@ The relay is a safety net: ny-cli always tries the direct request first and only
 
 ```
 ny-cli/
-├── 📄 ny-cli                    # Main launcher script
-├── 📄 cli-terminal.tsx          # Ink/React terminal UI (main)
-├── 📄 cli-terminal-fallback.mjs # Fallback UI (no Bun)
-├── 📄 backend.mjs               # Express API server
-├── 📄 package.json              # npm package config
-├── 📄 install.sh                # Universal installer
-├── 📂 debian/                   # Debian packaging
-├── 📄 PKGBUILD                  # Arch Linux AUR
-├── 📄 ny-cli.spec               # RPM spec
-└── 📄 LICENSE                   # MIT License
+├── bin/
+│   └── ny-cli.mjs              # Node launcher (CLI entrypoint)
+├── providers/
+│   ├── index.mjs               # Stream resolver aggregator
+│   ├── hianime.mjs             # HiAnime HLS stream decoder
+│   ├── anipub.mjs              # Anipub embed stream provider
+│   ├── senshi.mjs              # Senshi MAL ID stream provider
+│   ├── owais.mjs               # Owais API stream resolver
+│   ├── allanime.mjs            # Mirror provider interface
+│   └── anidb.mjs               # AniDB / AniLab provider
+├── relay/
+│   ├── worker.mjs              # Cloudflare Worker relay script
+│   └── wrangler.toml           # Worker deployment configuration
+├── scripts/
+│   ├── pre-commit.sh           # Local Git pre-commit hook (bundle & version checks)
+│   ├── sync-version.js         # Single-source version synchronizer
+│   ├── check-versions.mjs      # Repository-wide version assertion
+│   ├── check-bundle.mjs        # Production bundle verifier
+│   └── build-bundle.mjs        # Fallback UI bundler (esbuild)
+├── backend.mjs                 # Express 5 hardened API server
+├── cli-terminal.tsx            # React / Ink terminal user interface
+├── cli-terminal-fallback.mjs   # Standalone bundled UI fallback
+├── config.mjs                  # XDG configuration loader
+├── dns.mjs                     # DNS-over-HTTPS (DoH) engine
+├── doctor.mjs                  # System diagnostics & health check
+├── net.mjs                     # Undici HTTP client wrapper
+├── paths.mjs                   # Cross-platform XDG file paths
+├── skip.mjs                    # AniSkip v2 chapter integration
+├── swr-cache.mjs               # Stale-While-Revalidate memory cache
+├── install.sh                  # Universal Linux & macOS installer
+├── install.ps1                 # Universal Windows PowerShell installer
+├── package.json                # npm manifest and dependencies
+├── PKGBUILD                    # Arch Linux AUR package specification
+├── ny-cli.spec                 # RPM package specification
+├── debian/                     # Debian / Ubuntu deb package files
+└── LICENSE                     # MIT License
 ```
 
 <br/>
@@ -418,46 +457,20 @@ ny-cli/
 
 ## 🤝 Contributing
 
-<br/>
+Contributions are welcome! Please make sure that all changes adhere to:
+1. Node.js >= 20.18.0 runtime compatibility
+2. Bundle synchronization (`npm run check:bundle` or `node scripts/check-bundle.mjs`)
+3. Version consistency across packaging manifests (`npm run check:versions`)
 
-Contributions are welcome! Here's how you can help:
-
+Before committing changes, install the git pre-commit hook from `scripts/pre-commit.sh`:
 ```bash
-# 1. Fork the repository
-
-# 2. Create your feature branch
-git checkout -b feature/amazing-feature
-
-# 3. Commit your changes
-git commit -m "feat: add amazing feature"
-
-# 4. Push to the branch
-git push origin feature/amazing-feature
-
-# 5. Open a Pull Request
+cp scripts/pre-commit.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 ```
 
-<br/>
-
----
-
-<br/>
-
-## 🔗 Links & Resources
-
-<br/>
-
-<div align="center">
-
-| | |
-|:-:|:-:|
-| 🌐 **Website** | [nyanime.qzz.io](https://nyanime.qzz.io) |
-| 🖥️ **Web App** | [github.com/AnjishnuSengupta/nyanime](https://github.com/AnjishnuSengupta/nyanime) |
-| 📦 **npm** | [@anjishnusengupta/ny-cli](https://www.npmjs.com/package/@anjishnusengupta/ny-cli) |
-| 📚 **AllAnime** | [allanime.day](https://allanime.day) |
-| 🎨 **Jikan API** | [jikan.moe](https://jikan.moe) |
-
-</div>
+If you modify `cli-terminal.tsx` or any module inlined into the fallback bundle (`config.mjs`, `paths.mjs`), rebuild the fallback bundle with:
+```bash
+npm run build:fallback
+```
 
 <br/>
 
@@ -467,21 +480,7 @@ git push origin feature/amazing-feature
 
 ## 📜 License
 
-<br/>
-
-<div align="center">
-
 This project is licensed under the **MIT License**.
-
-Use freely. Give credit. Build cool things. 💜
-
-</div>
-
-<br/>
-
----
-
-<br/>
 
 <div align="center">
 
@@ -493,30 +492,7 @@ All streams are fetched from third-party sources. Use responsibly.
 </samp>
 
 <br/>
-<br/>
-
----
-
-<br/>
-
-<img src="https://capsule-render.vercel.app/api?type=waving&color=a855f7&height=100&section=footer" width="100%" />
-
-<br/>
-
-<samp>
-
-*"In a world full of filler episodes, be the main arc."* ✦
-
-</samp>
-
-<br/>
 
 **Made with 💜 by [Anjishnu](https://github.com/AnjishnuSengupta)**
-
-[![Instagram](https://img.shields.io/badge/@anjishnu.prolly-E4405F?style=for-the-badge&logo=instagram&logoColor=white)](https://www.instagram.com/anjishnu.prolly)
-
-<br/>
-
-⭐ Star this repo if you found it useful!
 
 </div>

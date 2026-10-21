@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { render, Box, Text, useInput, useApp, useStdout } from 'ink';
 import TextInput from 'ink-text-input';
 import Picture, { TerminalInfoProvider } from 'ink-picture';
@@ -9,12 +9,38 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import { EventEmitter } from 'node:events';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import {
+  configDir as CONFIG_DIR,
+  dataDir as DATA_DIR,
+  authFile as AUTH_FILE,
+  historyFile as HISTORY_FILE,
+  settingsFile as SETTINGS_FILE,
+  anime4kDir as ANIME4K_DIR,
+  ensureSecureAuthFile,
+} from './paths.mjs';
+import { loadConfig } from './config.mjs';
+import { getMpvSkipArgs } from './skip.mjs';
 
 // Module-level quit bus: bridges OS signals → React state
 export const quitBus = new EventEmitter();
 
-const API_BASE = process.env.NYCLI_API_BASE || 'http://localhost:43201';
-const VERSION = '6.2.0';
+const defaultPort = process.env.NY_PORT || '43201';
+const API_BASE = process.env.NYCLI_API_BASE || `http://127.0.0.1:${defaultPort}`;
+declare const __CLI_VERSION__: string | undefined;
+
+let VERSION = 'unknown';
+try {
+  if (typeof __CLI_VERSION__ !== 'undefined') {
+    VERSION = __CLI_VERSION__;
+  } else {
+    const pkgPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      VERSION = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version;
+    }
+  }
+} catch {}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE & CLOUD SYNC CONFIGURATION
@@ -229,26 +255,9 @@ function AnsiLine({ children }: { children: string }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// LOCAL STORAGE (XDG Compliant)
+// LOCAL STORAGE (XDG Compliant via paths.mjs)
 // ═══════════════════════════════════════════════════════════════════════════════
-const CONFIG_DIR = process.env.XDG_CONFIG_HOME 
-  ? path.join(process.env.XDG_CONFIG_HOME, 'ny-cli')
-  : path.join(os.homedir(), '.config', 'ny-cli');
-const DATA_DIR = process.env.XDG_DATA_HOME
-  ? path.join(process.env.XDG_DATA_HOME, 'ny-cli')
-  : path.join(os.homedir(), '.local', 'share', 'ny-cli');
-
-const AUTH_FILE = path.join(CONFIG_DIR, 'auth');
-const HISTORY_FILE = path.join(DATA_DIR, 'history');
-const SETTINGS_FILE = path.join(CONFIG_DIR, 'settings.json');
-const ANIME4K_DIR = path.join(DATA_DIR, 'anime4k');
-
-// Ensure directories exist
-try {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.mkdirSync(ANIME4K_DIR, { recursive: true });
-} catch {}
+ensureSecureAuthFile();
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SETTINGS HELPERS
@@ -257,26 +266,33 @@ interface Settings {
   anime4k: boolean;
   anime4kMode: 'A' | 'B' | 'C' | 'A+A' | 'B+B' | 'C+A';
   player: 'auto' | 'mpv' | 'vlc';
+  skipMode: 'off' | 'chapters' | 'auto';
 }
 
 const defaultSettings: Settings = {
   anime4k: false,
   anime4kMode: 'A',
   player: 'auto',
+  skipMode: 'off',
 };
 
 function loadSettings(): Settings {
   try {
+    const config = loadConfig();
+    const player = (config.player && ['auto', 'mpv', 'vlc'].includes(config.player)) ? (config.player as 'auto' | 'mpv' | 'vlc') : 'auto';
+    const skipMode = (config.skipMode && ['off', 'chapters', 'auto'].includes(config.skipMode)) ? (config.skipMode as 'off' | 'chapters' | 'auto') : 'off';
     if (fs.existsSync(SETTINGS_FILE)) {
-      return { ...defaultSettings, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) };
+      return { ...defaultSettings, player, skipMode, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) };
     }
+    return { ...defaultSettings, player, skipMode };
   } catch {}
   return defaultSettings;
 }
 
 function saveSettings(settings: Settings): void {
   try {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), { mode: 0o600 });
+    try { fs.chmodSync(SETTINGS_FILE, 0o600); } catch {}
   } catch {}
 }
 
@@ -463,7 +479,8 @@ function saveToHistory(entry: HistoryEntry): void {
     const content = newHistory.map(h => 
       `${h.id}|${h.title}|${h.episode}|${h.timestamp}|${h.category}|${h.watchTime || 0}|${h.duration || 0}|${h.totalEpisodes || 0}`
     ).join('\n');
-    fs.writeFileSync(HISTORY_FILE, content);
+    fs.writeFileSync(HISTORY_FILE, content, { mode: 0o600 });
+    try { fs.chmodSync(HISTORY_FILE, 0o600); } catch {}
     // Sync to cloud in background
     syncToCloud(entry).catch(() => {});
   } catch {}
@@ -482,7 +499,8 @@ function saveWatchProgress(animeId: string, episode: number, watchTime: number, 
     }
     
     progress[key] = { watchTime, duration };
-    fs.writeFileSync(WATCH_PROGRESS_FILE, JSON.stringify(progress));
+    fs.writeFileSync(WATCH_PROGRESS_FILE, JSON.stringify(progress), { mode: 0o600 });
+    try { fs.chmodSync(WATCH_PROGRESS_FILE, 0o600); } catch {}
   } catch {}
 }
 
@@ -505,6 +523,88 @@ function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+const MY_LIST_FILE = path.join(DATA_DIR, 'my-list.json');
+
+function getMyList(): { id: string; title: string; poster?: string }[] {
+  try {
+    if (!fs.existsSync(MY_LIST_FILE)) return [];
+    return JSON.parse(fs.readFileSync(MY_LIST_FILE, 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
+function addToMyList(item: { id: string; title: string; poster?: string }): void {
+  try {
+    const list = getMyList().filter(i => i.id !== item.id);
+    list.unshift(item);
+    fs.writeFileSync(MY_LIST_FILE, JSON.stringify(list), { mode: 0o600 });
+    try { fs.chmodSync(MY_LIST_FILE, 0o600); } catch {}
+  } catch {}
+}
+
+function removeFromMyList(id: string): void {
+  try {
+    const list = getMyList().filter(i => i.id !== id);
+    fs.writeFileSync(MY_LIST_FILE, JSON.stringify(list), { mode: 0o600 });
+    try { fs.chmodSync(MY_LIST_FILE, 0o600); } catch {}
+  } catch {}
+}
+
+function isInMyList(id: string): boolean {
+  if (!id) return false;
+  return getMyList().some(i => i.id === id);
+}
+
+function renderScore(score: number | null | undefined): { glyphs: string; bar: string; text: string } {
+  if (score === null || score === undefined || isNaN(score)) {
+    return { glyphs: '🌑🌑🌑🌑🌑', bar: '[          ]', text: 'N/A' };
+  }
+  const s = Math.max(0, Math.min(100, Math.round(score)));
+  let glyphs = '';
+  for (let i = 0; i < 5; i++) {
+    const rem = Math.max(0, Math.min(20, s - i * 20));
+    if (rem < 2.5) glyphs += '🌑';
+    else if (rem < 7.5) glyphs += '🌒';
+    else if (rem < 12.5) glyphs += '🌓';
+    else if (rem < 17.5) glyphs += '🌔';
+    else glyphs += '🌕';
+  }
+  const filled = Math.round((s / 100) * 10);
+  const bar = `[${'█'.repeat(filled)}${'░'.repeat(10 - filled)}]`;
+  const text = `${s}/100`;
+  return { glyphs, bar, text };
+}
+
+function formatTimeUntilAiring(seconds: number): string {
+  if (seconds <= 0) return 'airing now';
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return `in ${days}d ${hours}h`;
+  if (hours > 0) return `in ${hours}h ${mins}m`;
+  return `in ${mins}m`;
+}
+
+function wrapText(str: string, maxLen: number): string[] {
+  if (!str) return [];
+  const words = str.split(/\s+/);
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of words) {
+    if (!cur) {
+      cur = w;
+    } else if (cur.length + 1 + w.length <= maxLen) {
+      cur += ' ' + w;
+    } else {
+      lines.push(cur);
+      cur = w;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -643,7 +743,8 @@ async function mergeCloudHistory(): Promise<{ added: number; message: string }> 
       const content = merged.slice(0, 50).map(h => 
         `${h.id}|${h.title}|${h.episode}|${h.timestamp}|${h.category}|${h.watchTime || 0}|${h.duration || 0}|${h.totalEpisodes || 0}`
       ).join('\n');
-      fs.writeFileSync(HISTORY_FILE, content);
+      fs.writeFileSync(HISTORY_FILE, content, { mode: 0o600 });
+      try { fs.chmodSync(HISTORY_FILE, 0o600); } catch {}
     }
     
     return { added: newEntries.length, message: `Synced ${newEntries.length} items from cloud` };
@@ -734,10 +835,12 @@ function Spinner({ color = theme.purple, text = '' }: { color?: string; text?: s
 const EXIT_FRAMES = ['◜ ', ' ◝', ' ◞', '◟ ', '◜ '];
 function ExitAnimation({ onDone }: { onDone: () => void }) {
   const [frame, setFrame] = useState(0);
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
   
   useInput(() => {
     // any key press cuts it short
-    onDone();
+    onDoneRef.current();
   });
 
   useEffect(() => {
@@ -745,13 +848,13 @@ function ExitAnimation({ onDone }: { onDone: () => void }) {
       setFrame(f => {
         if (f + 1 >= EXIT_FRAMES.length) {
           clearInterval(timer);
-          setTimeout(onDone, 100);
+          setTimeout(() => onDoneRef.current(), 100);
         }
         return Math.min(f + 1, EXIT_FRAMES.length - 1);
       });
     }, 120);
     return () => clearInterval(timer);
-  }, [onDone]);
+  }, []);
 
   return <Text color={theme.purple}>{EXIT_FRAMES[frame]} Goodbye!</Text>;
 }
@@ -970,10 +1073,15 @@ function ScrollingWelcome({ text, onComplete }: { text: string; onComplete?: () 
     return () => clearInterval(timer);
   }, [maxPos]);
   
+  useInput(() => {
+    setDone(true);
+    if (onComplete) onComplete();
+  });
+
   // Handle completion via useEffect, not in render
   useEffect(() => {
     if (done && onComplete) {
-      const timeout = setTimeout(onComplete, 100);
+      const timeout = setTimeout(onComplete, 50);
       return () => clearTimeout(timeout);
     }
   }, [done, onComplete]);
@@ -1175,9 +1283,28 @@ interface SelectInputProps {
   showNumbers?: boolean; // Show quick-select numbers (default: true)
   enableSearch?: boolean; // Enable search/filter for large lists
   onAction?: (action: string, item: SelectItem) => void;
+  onPageNext?: () => void;
+  onPagePrev?: () => void;
+  onSortToggle?: () => void;
+  customKeyHint?: string;
 }
 
-function SelectList({ items, onSelect, onBack, title, color = theme.purple, showBorder = true, showArtwork = false, showNumbers = true, enableSearch = false, onAction }: SelectInputProps) {
+function SelectList({
+  items,
+  onSelect,
+  onBack,
+  title,
+  color = theme.purple,
+  showBorder = true,
+  showArtwork = false,
+  showNumbers = true,
+  enableSearch = false,
+  onAction,
+  onPageNext,
+  onPagePrev,
+  onSortToggle,
+  customKeyHint,
+}: SelectInputProps) {
   const { stdout } = useStdout();
   const [termSize, setTermSize] = useState({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
   
@@ -1197,7 +1324,8 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
   const filteredItems = enableSearch && searchQuery
     ? items.filter(item => {
         const num = item.number?.toString() || '';
-        const label = item.label.toLowerCase();
+        const itemLabel = typeof item.label === 'string' ? item.label : String(item.label ?? '');
+        const label = itemLabel.toLowerCase();
         const query = searchQuery.toLowerCase();
         return num.startsWith(query) || label.includes(query);
       })
@@ -1273,6 +1401,12 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
       } else if (onBack) {
         onBack();
       }
+    } else if (onPageNext && input === 'n' && !isSearching) {
+      onPageNext();
+    } else if (onPagePrev && input === 'p' && !isSearching) {
+      onPagePrev();
+    } else if (onSortToggle && input === 's' && !isSearching) {
+      onSortToggle();
     } else if (onAction && (input === 'd' || input === 'a')) {
       if (filteredItems.length > 0) {
         onAction(input, filteredItems[selectedIndex]);
@@ -1296,14 +1430,14 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
   const rippleChars = ['○', '◎', '●', '◉', '◎', '○'];
   const getRippleChar = (phase: number) => rippleChars[Math.min(phase, rippleChars.length - 1)];
   const termWidth = process.stdout.columns || 80;
-  const maxLabelLen = Math.max(30, termWidth - 25);
+  const maxLabelLen = Math.max(15, termWidth - 25);
 
   const content = (
     <Box flexDirection="column">
       {title && <Text color={color} bold>{title}</Text>}
       {title && (
         <Text color={theme.dimGray} dimColor>
-          ↑↓: navigate │ Enter: select │ b: back{enableSearch ? ' │ Type number to jump' : ''}{onAction ? ' │ d: dl │ a: dl all' : ''} │ q: quit
+          {customKeyHint || `↑↓: navigate │ Enter: select │ ${(onPageNext || onPagePrev) ? 'n/p: page │ ' : ''}${onSortToggle ? 's: sort │ ' : ''}b: back${enableSearch ? ' │ Type number to jump' : ''}${onAction ? ' │ d: dl │ a: dl all' : ''} │ q: quit`}
         </Text>
       )}
       {/* Search input for large lists */}
@@ -1337,7 +1471,8 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
           const displayNum = idx + 1;
           const icon = item.icon ? `${item.icon} ` : '';
           const badgeStr = item.badge ? ` (${item.badge})` : '';
-          const fullText = `${icon}${item.label}${badgeStr}`;
+          const itemLabel = typeof item.label === 'string' ? item.label : String(item.label ?? '');
+          const fullText = `${icon}${itemLabel}${badgeStr}`;
           const labelText = fullText.length > maxLabelLen ? fullText.slice(0, maxLabelLen - 3) + '...' : fullText;
           const numPrefix = showNumbers ? `${String(displayNum).padStart(2, ' ')}) ` : '';
 
@@ -1369,15 +1504,20 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
 
   // With artwork layout
   if (showArtwork) {
-    const artworkWidth = 30;  // Reasonable size
-    const artworkHeight = 15;
+    const isNarrow = termSize.cols < 70;
+    const artworkWidth = isNarrow ? Math.min(26, Math.max(16, termSize.cols - 6)) : 30;
+    const artworkHeight = isNarrow ? 8 : 15;
     
+    const titleText = typeof selectedItem?.label === 'string'
+      ? selectedItem.label
+      : String(selectedItem?.label ?? '');
+
     return (
-      <Box flexDirection={termSize.cols < 70 ? 'column' : 'row'}>
-        {/* Artwork panel on the left */}
-        <Box flexDirection="column" marginRight={2} width={artworkWidth}>
+      <Box flexDirection={isNarrow ? 'column' : 'row'}>
+        {/* Artwork panel on the left (or top on narrow) */}
+        <Box flexDirection="column" marginRight={isNarrow ? 0 : 2} marginBottom={isNarrow ? 1 : 0} width={artworkWidth}>
           <AnimeArtwork 
-            title={selectedItem?.label || ''} 
+            title={titleText} 
             imageUrl={selectedItem?.imageUrl}
             width={artworkWidth} 
             height={artworkHeight} 
@@ -1386,7 +1526,7 @@ function SelectList({ items, onSelect, onBack, title, color = theme.purple, show
           {selectedItem && (
             <Box marginTop={1}>
               <Text color={theme.cyan} wrap="truncate-end">
-                {selectedItem.label.slice(0, artworkWidth - 2)}
+                {titleText.slice(0, Math.max(10, artworkWidth - 2))}
               </Text>
             </Box>
           )}
@@ -1511,13 +1651,30 @@ function StatusBar({ message, type = 'info', loading = false }: StatusProps) {
 // API HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
 async function getJson(path: string) {
-  const res = await fetch(`${API_BASE}${path}`);
-  const text = await res.text();
-  const body = JSON.parse(text);
-  if (!res.ok || !body?.success) {
-    throw new Error(body?.error || `HTTP ${res.status}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { signal: controller.signal });
+    const text = await res.text();
+    let body: any;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      const snippet = text.slice(0, 100).replace(/\s+/g, ' ').trim();
+      throw new Error(`Non-JSON response (HTTP ${res.status}): ${snippet || '(empty response)'}`);
+    }
+    if (!res.ok || !body?.success) {
+      throw new Error(body?.error || `HTTP ${res.status}`);
+    }
+    return body.data;
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      throw new Error(`Request timed out after 15s: ${path}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return body.data;
 }
 
 function pickPlayableSource(sources: any[]) {
@@ -1568,7 +1725,17 @@ function resolvePlayerCommand(settings: Settings): string {
 }
 
 // Build player-specific arguments for streaming
-function buildPlayerArgs(player: string, url: string, headers?: Record<string, string>, title?: string, subtitle?: string): string[] {
+function buildPlayerArgs(
+  player: string,
+  url: string,
+  headers?: Record<string, string>,
+  title?: string,
+  subtitle?: string,
+  options?: {
+    audioType?: 'sub' | 'dub';
+    skipArgs?: string[];
+  }
+): string[] {
   if (player === 'vlc') {
     const args = [url];
     if (headers?.Referer) {
@@ -1583,6 +1750,11 @@ function buildPlayerArgs(player: string, url: string, headers?: Record<string, s
     if (subtitle) {
       args.push(`--sub-file=${subtitle}`);
     }
+    if (options?.audioType === 'sub') {
+      args.push('--sub-language=en,eng', '--audio-language=ja,jpn');
+    } else if (options?.audioType === 'dub') {
+      args.push('--audio-language=en,eng');
+    }
     args.push('--play-and-exit');
     return args;
   }
@@ -1594,10 +1766,20 @@ function buildPlayerArgs(player: string, url: string, headers?: Record<string, s
     });
   }
   if (title) {
+    args.push(`--title=${title}`);
     args.push(`--force-media-title=${title}`);
   }
   if (subtitle) {
     args.push(`--sub-file=${subtitle}`);
+  }
+  if (options?.audioType === 'sub') {
+    args.push('--alang=jpn,ja,Japanese');
+    args.push('--slang=eng,en,English');
+  } else if (options?.audioType === 'dub') {
+    args.push('--alang=eng,en,English');
+  }
+  if (options?.skipArgs && options.skipArgs.length > 0) {
+    args.push(...options.skipArgs);
   }
   return args;
 }
@@ -1628,9 +1810,11 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
   const anime4kInstalled = isAnime4kInstalled();
   const modes = ['A', 'B', 'C', 'A+A', 'B+B', 'C+A'] as const;
   const players = ['auto', 'mpv', 'vlc'] as const;
+  const skipModes = ['off', 'chapters', 'auto'] as const;
   
   const menuItems = [
     { key: 'player', label: 'Video Player', type: 'select' },
+    { key: 'skipMode', label: 'AniSkip Mode', type: 'select' },
     { key: 'anime4k', label: 'Anime4K Upscaling', type: 'toggle' },
     { key: 'anime4kMode', label: 'Anime4K Mode', type: 'select' },
     { key: 'download', label: 'Download Anime4K Shaders', type: 'action' },
@@ -1687,6 +1871,10 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
         const currentIdx = players.indexOf(settings.player || 'auto');
         const nextIdx = (currentIdx + 1) % players.length;
         onUpdate({ ...settings, player: players[nextIdx] });
+      } else if (item.key === 'skipMode') {
+        const currentIdx = skipModes.indexOf(settings.skipMode || 'off');
+        const nextIdx = (currentIdx + 1) % skipModes.length;
+        onUpdate({ ...settings, skipMode: skipModes[nextIdx] });
       } else if (item.key === 'anime4k') {
         if (anime4kInstalled) {
           onUpdate({ ...settings, anime4k: !settings.anime4k });
@@ -1710,6 +1898,14 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
       const currentIdx = players.indexOf(settings.player || 'auto');
       const nextIdx = (currentIdx + 1) % players.length;
       onUpdate({ ...settings, player: players[nextIdx] });
+    } else if (key.leftArrow && menuItems[selectedIndex].key === 'skipMode') {
+      const currentIdx = skipModes.indexOf(settings.skipMode || 'off');
+      const prevIdx = currentIdx > 0 ? currentIdx - 1 : skipModes.length - 1;
+      onUpdate({ ...settings, skipMode: skipModes[prevIdx] });
+    } else if (key.rightArrow && menuItems[selectedIndex].key === 'skipMode') {
+      const currentIdx = skipModes.indexOf(settings.skipMode || 'off');
+      const nextIdx = (currentIdx + 1) % skipModes.length;
+      onUpdate({ ...settings, skipMode: skipModes[nextIdx] });
     } else if (key.leftArrow && menuItems[selectedIndex].key === 'anime4kMode') {
       const currentIdx = modes.indexOf(settings.anime4kMode);
       const prevIdx = currentIdx > 0 ? currentIdx - 1 : modes.length - 1;
@@ -1738,11 +1934,22 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
             {'◀ '}{(settings.player || 'auto').toUpperCase()}{' ▶'}
           </Text>
         </Box>
-        
-        {/* Anime4K Toggle */}
+
+        {/* AniSkip Mode */}
         <Box>
           <Text color={selectedIndex === 1 ? theme.cyan : theme.lightGray}>
             {selectedIndex === 1 ? '▸ ' : '  '}
+            AniSkip Mode:{' '}
+          </Text>
+          <Text color={selectedIndex === 1 ? theme.cyan : theme.lightGray}>
+            {'◀ '}{(settings.skipMode || 'off').toUpperCase()}{' ▶'}
+          </Text>
+        </Box>
+        
+        {/* Anime4K Toggle */}
+        <Box>
+          <Text color={selectedIndex === 2 ? theme.cyan : theme.lightGray}>
+            {selectedIndex === 2 ? '▸ ' : '  '}
             Anime4K Upscaling:{' '}
           </Text>
           {anime4kInstalled ? (
@@ -1756,11 +1963,11 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
         
         {/* Anime4K Mode */}
         <Box>
-          <Text color={selectedIndex === 2 ? theme.cyan : theme.lightGray}>
-            {selectedIndex === 2 ? '▸ ' : '  '}
+          <Text color={selectedIndex === 3 ? theme.cyan : theme.lightGray}>
+            {selectedIndex === 3 ? '▸ ' : '  '}
             Anime4K Mode:{' '}
           </Text>
-          <Text color={selectedIndex === 2 ? theme.cyan : theme.lightGray}>
+          <Text color={selectedIndex === 3 ? theme.cyan : theme.lightGray}>
             {'◀ '}{settings.anime4kMode}{' ▶'}
           </Text>
         </Box>
@@ -1769,16 +1976,16 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
         
         {/* Download Action */}
         <Box>
-          <Text color={selectedIndex === 3 ? theme.cyan : theme.lightGray}>
-            {selectedIndex === 3 ? '▸ ' : '  '}
+          <Text color={selectedIndex === 4 ? theme.cyan : theme.lightGray}>
+            {selectedIndex === 4 ? '▸ ' : '  '}
             {anime4kInstalled ? '↻ Re-download' : '↓ Download'} Anime4K Shaders
           </Text>
         </Box>
         
         {/* Back */}
         <Box>
-          <Text color={selectedIndex === 4 ? theme.cyan : theme.lightGray}>
-            {selectedIndex === 4 ? '▸ ' : '  '}
+          <Text color={selectedIndex === 5 ? theme.cyan : theme.lightGray}>
+            {selectedIndex === 5 ? '▸ ' : '  '}
             ← Back
           </Text>
         </Box>
@@ -1811,12 +2018,252 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// ANIME DETAILS SCREEN
+// ═══════════════════════════════════════════════════════════════════════════════
+function AnimeDetailsView({
+  animeInfo,
+  history,
+  onWatch,
+  onDownload,
+  onPlayTrailer,
+  onToggleMyList,
+  isInList,
+  onBack,
+  termSize,
+}: {
+  animeInfo: any;
+  history: HistoryEntry[];
+  onWatch: () => void;
+  onDownload: () => void;
+  onPlayTrailer: () => void;
+  onToggleMyList: () => void;
+  isInList: boolean;
+  onBack: () => void;
+  termSize: { cols: number; rows: number };
+}) {
+  const isNarrow = termSize.cols < 70;
+  const [synopsisScroll, setSynopsisScroll] = useState(0);
+  const [focusArea, setFocusArea] = useState<'actions' | 'synopsis'>('actions');
+  const [selectedActionIndex, setSelectedActionIndex] = useState(0);
+
+  const histEntry = history.find(h => h.id === animeInfo?.id);
+  const watchLabel = histEntry?.episode ? `▶ Continue from Episode ${histEntry.episode}` : '▶ Watch';
+
+  const actionItems: { value: string; label: string; icon: string }[] = [
+    { value: 'watch', label: watchLabel, icon: '[▶]' },
+    { value: 'mylist', label: isInList ? '★ Remove from My List' : '☆ Add to My List', icon: isInList ? '[★]' : '[☆]' },
+    { value: 'download', label: 'Download Episodes', icon: '[⬇]' },
+  ];
+
+  if (animeInfo?.trailer?.id || animeInfo?.trailer?.url) {
+    actionItems.push({ value: 'trailer', label: 'Play Trailer', icon: '[🎬]' });
+  }
+  actionItems.push({ value: 'back', label: 'Back', icon: '[↩]' });
+
+  // Moon phase score calculation
+  const scoreData = renderScore(animeInfo?.averageScore);
+
+  // Facts Line
+  const formatStr = animeInfo?.format || 'TV';
+  const isAiring = animeInfo?.status === 'RELEASING' || Boolean(animeInfo?.nextAiringEpisode);
+  const statusStr = isAiring ? 'Airing' : (animeInfo?.status === 'FINISHED' ? 'Finished' : (animeInfo?.status || 'Unknown'));
+  const seasonYearStr = `${animeInfo?.season ? animeInfo.season.charAt(0) + animeInfo.season.slice(1).toLowerCase() : ''} ${animeInfo?.year || ''}`.trim();
+  const studiosStr = animeInfo?.studios?.length ? animeInfo.studios.slice(0, 2).join(', ') : '';
+
+  const releasedCount = animeInfo?.episodes?.sub?.length || (animeInfo?.nextAiringEpisode ? animeInfo.nextAiringEpisode.episode - 1 : 0);
+  const totalCount = animeInfo?.stats?.episodes?.sub || animeInfo?.totalEpisodes || null;
+  const epFactsStr = isAiring
+    ? `${releasedCount} released of ${totalCount || '?'}${animeInfo?.nextAiringEpisode ? ` (Ep ${animeInfo.nextAiringEpisode.episode} ${formatTimeUntilAiring(animeInfo.nextAiringEpisode.timeUntilAiring)})` : ''}`
+    : `${releasedCount || totalCount || '?'} Episodes`;
+
+  const factsParts = [
+    formatStr,
+    statusStr,
+    seasonYearStr,
+    studiosStr ? `Studio: ${studiosStr}` : null,
+    epFactsStr,
+  ].filter(Boolean);
+
+  // Synopsis wrapping
+  const synopsisWidth = isNarrow ? Math.max(20, termSize.cols - 6) : Math.max(30, termSize.cols - 38);
+  const rawSynopsis = animeInfo?.synopsis || animeInfo?.description || 'No synopsis available.';
+  const synopsisLines = wrapText(rawSynopsis, synopsisWidth);
+  const maxVisibleSynopsis = isNarrow ? 3 : 5;
+  const visibleSynopsisLines = synopsisLines.slice(synopsisScroll, synopsisScroll + maxVisibleSynopsis);
+
+  const handleActionSelect = (item: { value: string; label: string }) => {
+    if (item.value === 'watch') onWatch();
+    else if (item.value === 'download') onDownload();
+    else if (item.value === 'trailer') onPlayTrailer();
+    else if (item.value === 'mylist') onToggleMyList();
+    else if (item.value === 'back') onBack();
+  };
+
+  // Keyboard navigation for synopsis scrolling & focus toggle
+  useInput((input, key) => {
+    if (key.escape || input === 'b') {
+      onBack();
+      return;
+    }
+    if (input === 'q') {
+      quitBus.emit('quit');
+      return;
+    }
+    if (key.tab) {
+      setFocusArea(f => f === 'actions' ? 'synopsis' : 'actions');
+      return;
+    }
+
+    if (input && /^[1-9]$/.test(input)) {
+      const idx = parseInt(input, 10) - 1;
+      if (idx >= 0 && idx < actionItems.length) {
+        handleActionSelect(actionItems[idx]);
+        return;
+      }
+    }
+
+    if (focusArea === 'synopsis') {
+      if (key.upArrow || input === 'k') {
+        setSynopsisScroll(s => Math.max(0, s - 1));
+      } else if (key.downArrow || input === 'j') {
+        setSynopsisScroll(s => Math.min(Math.max(0, synopsisLines.length - maxVisibleSynopsis), s + 1));
+      }
+    } else {
+      if (key.upArrow || input === 'k') {
+        setSelectedActionIndex(i => Math.max(0, i - 1));
+      } else if (key.downArrow || input === 'j') {
+        setSelectedActionIndex(i => Math.min(actionItems.length - 1, i + 1));
+      } else if (key.return) {
+        if (actionItems[selectedActionIndex]) {
+          handleActionSelect(actionItems[selectedActionIndex]);
+        }
+      }
+    }
+
+    // Also support [ and ] or PageUp/PageDown for scrolling synopsis anytime
+    if (input === '[' || key.pageUp) {
+      setSynopsisScroll(s => Math.max(0, s - 2));
+    } else if (input === ']' || key.pageDown) {
+      setSynopsisScroll(s => Math.min(Math.max(0, synopsisLines.length - maxVisibleSynopsis), s + 2));
+    }
+  });
+
+  const artworkWidth = isNarrow ? Math.min(26, Math.max(16, termSize.cols - 6)) : 28;
+  const artworkHeight = isNarrow ? 8 : 13;
+
+  return (
+    <Box flexDirection="column" width={Math.min(120, termSize.cols - 2)}>
+      <Box flexDirection={isNarrow ? 'column' : 'row'}>
+        {/* Cover Artwork */}
+        <Box flexDirection="column" marginRight={isNarrow ? 0 : 2} marginBottom={isNarrow ? 1 : 0} width={artworkWidth} alignItems="center">
+          <AnimeArtwork
+            title={animeInfo?.name || ''}
+            imageUrl={animeInfo?.poster}
+            width={artworkWidth}
+            height={artworkHeight}
+          />
+        </Box>
+
+        {/* Info Column */}
+        <Box flexDirection="column" flexGrow={1}>
+          {/* Titles */}
+          <Text bold color={theme.pink}>{animeInfo?.titles?.english || animeInfo?.name || 'Untitled'}</Text>
+          {animeInfo?.titles?.romaji && animeInfo.titles.romaji !== animeInfo?.titles?.english && (
+            <Text color={theme.cyan} dimColor>{animeInfo.titles.romaji}</Text>
+          )}
+          {animeInfo?.titles?.native && (
+            <Text color={theme.dimGray}>{animeInfo.titles.native}</Text>
+          )}
+
+          {/* Facts Line */}
+          <Box marginTop={1}>
+            <Text color={theme.yellow} bold>
+              {factsParts.join(' • ')}
+            </Text>
+          </Box>
+
+          {/* Score line: moon glyphs + plain text bar + score */}
+          <Box marginTop={1}>
+            <Text color={theme.cyan}>Score: </Text>
+            <Text color={theme.yellow}>{scoreData.glyphs} </Text>
+            <Text color={theme.dimGray}>{scoreData.bar} </Text>
+            <Text color={theme.white} bold>{scoreData.text}</Text>
+          </Box>
+
+          {/* Genres Line */}
+          <Box marginTop={1}>
+            <Text color={theme.cyan}>Genres: </Text>
+            <Text color={theme.lightGray}>
+              {animeInfo?.genres?.length ? animeInfo.genres.join(' • ') : 'N/A'}
+            </Text>
+          </Box>
+
+          {/* Synopsis */}
+          <Box
+            flexDirection="column"
+            marginTop={1}
+            borderStyle="round"
+            borderColor={focusArea === 'synopsis' ? theme.yellow : theme.dimGray}
+            paddingX={1}
+          >
+            <Box justifyContent="space-between">
+              <Text bold color={theme.purple}>Synopsis</Text>
+              <Text color={theme.dimGray} dimColor>
+                {focusArea === 'synopsis' ? '↑↓ to scroll │ Tab to actions' : 'Tab or [/] to scroll'}
+              </Text>
+            </Box>
+            {visibleSynopsisLines.map((line, idx) => (
+              <Text key={idx} color={theme.white}>{line}</Text>
+            ))}
+          </Box>
+
+          {/* Actions */}
+          <Box
+            marginTop={1}
+            flexDirection="column"
+            borderStyle="round"
+            borderColor={focusArea === 'actions' ? theme.cyan : theme.dimGray}
+            paddingX={1}
+          >
+            <Box justifyContent="space-between">
+              <Text bold color={theme.cyan}>Actions</Text>
+              <Text color={theme.dimGray} dimColor>
+                {focusArea === 'actions' ? '↑↓ to select │ Enter to confirm │ Tab for synopsis' : 'Tab to focus actions'}
+              </Text>
+            </Box>
+            {actionItems.map((item, idx) => {
+              const isSelected = focusArea === 'actions' && idx === selectedActionIndex;
+              return (
+                <Box key={item.value}>
+                  <Text color={isSelected ? theme.yellow : theme.dimGray}>
+                    {isSelected ? '▸ ' : '  '}
+                  </Text>
+                  <Text color={theme.dimGray}>{idx + 1}. </Text>
+                  <Text color={isSelected ? theme.white : theme.lightGray} bold={isSelected}>
+                    {item.icon} {item.label}
+                  </Text>
+                </Box>
+              );
+            })}
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════════
 type Screen = 
   | 'main-menu'
   | 'search'
+  | 'browse-category'
+  | 'browse-genre'
+  | 'browse-season'
+  | 'browse-results'
   | 'anime-select'
+  | 'anime-details'
   | 'audio-select'
   | 'episode-select'
   | 'continue'
@@ -1831,17 +2278,23 @@ type Screen =
   | 'playing';
 
 const rawArgs = process.argv.slice(2);
-const enableAllanime = rawArgs.includes('--enable-allanime');
-const initialQuery = rawArgs.filter(arg => arg !== '--enable-allanime').join(' ').trim();
+const initialQuery = rawArgs.join(' ').trim();
 
 export interface DownloadTask {
-  id: string;
+  id?: string;
   anilistId?: string;
+  malId?: number;
   animeTitle: string;
   episodeNumber: number;
   status: 'pending' | 'downloading' | 'completed' | 'error';
   progress: number;
   message?: string;
+  titles?: {
+    english?: string;
+    romaji?: string;
+    native?: string;
+  };
+  year?: number | string;
 }
 
 function App() {
@@ -1879,10 +2332,27 @@ function App() {
   const [showWelcome, setShowWelcome] = useState(!initialQuery);
   const [isExiting, setIsExiting] = useState(false);
   const [userPhotoUrl, setUserPhotoUrl] = useState<string | null>(null);
+  const [isDownloadMode, setIsDownloadMode] = useState<boolean>(false);
+
+  // Browse state
+  const [browseCategory, setBrowseCategory] = useState<string>('trending');
+  const [browseCategoryTitle, setBrowseCategoryTitle] = useState<string>('Trending Now');
+  const [browseGenre, setBrowseGenre] = useState<string>('Action');
+  const [browseSeason, setBrowseSeason] = useState<string>('SPRING');
+  const [browseYear, setBrowseYear] = useState<number>(2026);
+  const [browseSort, setBrowseSort] = useState<'popularity' | 'score' | 'trending' | 'title'>('popularity');
+  const [browsePage, setBrowsePage] = useState<number>(1);
+  const [browseHasNext, setBrowseHasNext] = useState<boolean>(false);
+  const [browseSource, setBrowseSource] = useState<string>('');
+  const [browseAnimes, setBrowseAnimes] = useState<any[]>([]);
+  const [genresList, setGenresList] = useState<string[]>([]);
+  const [browseReturnScreen, setBrowseReturnScreen] = useState<Screen>('main-menu');
+
   const [playingEpisode, setPlayingEpisode] = useState<any>(null);
   const [playingPaused, setPlayingPaused] = useState(false);
-  const [playingProviders, setPlayingProviders] = useState<{name: string, type: 'torrent'|'direct'|'embed'|'hls', url?: string, magnet?: string, headers?: any, subtitle?: string}[]>([]);
+  const [playingProviders, setPlayingProviders] = useState<{name: string, type: 'torrent'|'direct'|'embed'|'hls'|'mp4', url?: string, magnet?: string, headers?: any, subtitle?: string, candidate?: any}[]>([]);
   const [playingProviderIndex, setPlayingProviderIndex] = useState(0);
+  const [playingAttempts, setPlayingAttempts] = useState<any[]>([]);
 
   // Expose these for the PlayingScreen
   const togglePause = () => {
@@ -1901,7 +2371,47 @@ function App() {
     }
   };
 
-  const playProvider = (provider: any) => {
+  const tryNextCandidate = (
+    currentIndex: number,
+    providerList: any[],
+    resolveAttempts: any[],
+    reason: string,
+    playContext?: any
+  ) => {
+    const nextIndex = currentIndex + 1;
+    if (nextIndex < providerList.length) {
+      const nextProvider = providerList[nextIndex];
+      setPlayingProviderIndex(nextIndex);
+      setStatus({
+        message: `${providerList[currentIndex]?.name || 'Candidate'} failed (${reason}). Trying ${nextProvider.name}...`,
+        type: 'warning',
+        loading: true,
+      });
+      playProvider(nextProvider, nextIndex, providerList, resolveAttempts, playContext);
+    } else {
+      const attemptSummary = resolveAttempts?.length
+        ? resolveAttempts.map((a: any) => `${a.provider}: ${a.error || (a.success ? 'ok' : 'failed')}`).join('; ')
+        : reason;
+      setStatus({
+        message: `All candidates failed. Attempts: ${attemptSummary}`,
+        type: 'error',
+        loading: false,
+      });
+    }
+  };
+
+  const playProvider = async (
+    provider: any,
+    providerIndex: number = 0,
+    providerList: any[] = playingProviders,
+    resolveAttempts: any[] = playingAttempts,
+    playContext?: {
+      malId?: number;
+      epNo?: number;
+      animeTitle?: string;
+      mode?: 'sub' | 'dub';
+    }
+  ) => {
     const cmd = resolvePlayerCommand(appSettings);
     
     if (provider.type === 'torrent') {
@@ -1913,25 +2423,68 @@ function App() {
         setStatus({ message: `Failed to launch webtorrent: ${err.message}`, type: 'error', loading: false });
       });
       proc.unref();
-    } else if (provider.type === 'direct' || provider.type === 'hls') {
-      setStatus({ message: `Starting ${provider.name} in ${cmd.toUpperCase()}...`, type: 'success', loading: false });
-      const args = buildPlayerArgs(cmd, provider.url, provider.headers, 'NY-CLI Stream', provider.subtitle);
-      const proc = spawn(cmd, args, { stdio: 'ignore', detached: true });
-      proc.on('error', (err: any) => {
-        setStatus({ message: `Failed to launch ${cmd}: ${err.message}`, type: 'error', loading: false });
-      });
-      proc.unref();
+    } else if (provider.type === 'embed') {
+      setStatus({ message: `Opening ${provider.name} in browser...`, type: 'info', loading: false });
+      try {
+        const platform = process.platform;
+        let bCmd = 'xdg-open';
+        let bArgs = [provider.url];
+        if (platform === 'darwin') {
+          bCmd = 'open';
+        } else if (platform === 'win32') {
+          bCmd = 'cmd';
+          bArgs = ['/c', 'start', '', provider.url];
+        }
+        const bChild = spawn(bCmd, bArgs, { stdio: 'ignore', detached: true });
+        bChild.on('error', (err) => {
+          setStatus({ message: `Failed to open browser: ${err.message}`, type: 'error', loading: false });
+        });
+        bChild.unref();
+      } catch (err: any) {
+        setStatus({ message: `Failed to open browser: ${err.message}`, type: 'error', loading: false });
+      }
     } else {
-      // Fallback for anything else
-      const args = buildPlayerArgs(cmd, provider.url!, undefined, 'NY-CLI Stream', provider.subtitle);
-      const proc = spawn(cmd, args, { stdio: 'ignore', detached: true });
-      proc.on('error', (err: any) => {
-        setStatus({ message: `Failed to launch ${cmd}: ${err.message}`, type: 'error', loading: false });
+      setStatus({ message: `Starting ${provider.name} in ${cmd.toUpperCase()}...`, type: 'success', loading: false });
+      const epNo = playContext?.epNo ?? playingEpisode?.number ?? 1;
+      const malId = playContext?.malId ?? (animeInfo?.malId || undefined);
+      const animeTitle = playContext?.animeTitle || selectedAnime?.label || animeInfo?.name || animeInfo?.titles?.english || 'Anime';
+      const streamMode = playContext?.mode || (audioType === 'dub' ? 'dub' : 'sub');
+      const playerTitle = `${animeTitle}, Episode ${epNo}`;
+
+      let skipArgs: string[] = [];
+      if (cmd === 'mpv' && appSettings.skipMode && appSettings.skipMode !== 'off' && malId) {
+        try {
+          skipArgs = await getMpvSkipArgs(malId, epNo, appSettings.skipMode);
+        } catch {}
+      }
+
+      const args = buildPlayerArgs(cmd, provider.url, provider.headers, playerTitle, provider.subtitle, {
+        audioType: streamMode,
+        skipArgs,
       });
+      const proc = spawn(cmd, args, { stdio: 'ignore' });
+
+      let fiveSecPassed = false;
+      const timer = setTimeout(() => {
+        fiveSecPassed = true;
+      }, 5000);
+
+      proc.on('error', (err: any) => {
+        clearTimeout(timer);
+        tryNextCandidate(providerIndex, providerList, resolveAttempts, `Launch error: ${err.message}`, playContext);
+      });
+
+      proc.on('exit', (code) => {
+        clearTimeout(timer);
+        if (!fiveSecPassed && code !== 0 && code !== null) {
+          tryNextCandidate(providerIndex, providerList, resolveAttempts, `Player exited with code ${code}`, playContext);
+        }
+      });
+
       proc.unref();
-      setStatus({ message: `Opened stream in ${cmd}.`, type: 'success', loading: false });
     }
   };
+
 
 
   // Listen for quit requests from SIGINT/SIGTERM via quitBus
@@ -1943,11 +2496,12 @@ function App() {
 
   // Banner animation
   useEffect(() => {
+    if (isExiting) return;
     const timer = setInterval(() => {
       setBannerPhase((p) => (p + 1) % 50);
     }, 120);
     return () => clearInterval(timer);
-  }, []);
+  }, [isExiting]);
 
   // Auto-search if query provided via CLI
   useEffect(() => {
@@ -1977,6 +2531,8 @@ function App() {
     { value: 'profile', label: 'Profile', icon: '[P]' },
     { value: 'continue', label: 'Continue Watching', icon: '[>]' },
     { value: 'search', label: 'Search', icon: '[S]' },
+    { value: 'browse', label: 'Browse', icon: '[B]' },
+    { value: 'downloads', label: downloadQueue.length > 0 ? `Downloads (${downloadQueue.length})` : 'Downloads', icon: '[📥]' },
     { value: 'random', label: 'Random Anime', icon: '[🎲]' },
     { value: 'settings', label: 'Settings', icon: '[⚙]' },
     { value: 'help', label: 'Help', icon: '[?]' },
@@ -1985,6 +2541,8 @@ function App() {
 
   const loggedOutMenuItems: SelectItem[] = [
     { value: 'search', label: 'Search', icon: '[S]' },
+    { value: 'browse', label: 'Browse', icon: '[B]' },
+    { value: 'downloads', label: downloadQueue.length > 0 ? `Downloads (${downloadQueue.length})` : 'Downloads', icon: '[📥]' },
     { value: 'random', label: 'Random Anime', icon: '[🎲]' },
     { value: 'settings', label: 'Settings', icon: '[⚙]' },
     { value: 'login', label: 'Login', icon: '[L]' },
@@ -2003,6 +2561,12 @@ function App() {
     } else if (action === 'search') {
       setScreen('search');
       setStatus({ message: 'Enter anime name to search', type: 'info', loading: false });
+    } else if (action === 'browse') {
+      setScreen('browse-category');
+      setStatus({ message: 'Browse anime categories', type: 'info', loading: false });
+    } else if (action === 'downloads') {
+      setScreen('downloading');
+      setStatus({ message: 'Downloads Queue', type: 'info', loading: false });
     } else if (action === 'random') {
       handleRandomAnime();
     } else if (action === 'continue') {
@@ -2018,7 +2582,7 @@ function App() {
     } else if (action === 'help') {
       setScreen('help');
     }
-  }, []);
+  }, [downloadQueue.length, screen]);
 
   const handleSearch = useCallback(async (query: string) => {
     setStatus({ message: `Searching "${query}"...`, type: 'info', loading: true });
@@ -2099,8 +2663,22 @@ function App() {
     setStatus({ message: 'Opening browser for login...', type: 'info', loading: true });
     setScreen('login-waiting');
     
-    // Start local server
-    const server = http.createServer((req: any, res: any) => {
+    const loginState = crypto.randomBytes(16).toString('hex');
+    let server: any = null;
+    let timeoutId: any = null;
+
+    const cleanupServer = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      if (server) {
+        try { server.close(); } catch {}
+        server = null;
+      }
+    };
+
+    server = http.createServer((req: any, res: any) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, POST');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -2118,22 +2696,21 @@ function App() {
         req.on('end', () => {
           try {
             const data = JSON.parse(body);
-            if (data.token && data.username) {
+            if (data.token && data.username && data.state === loginState) {
               setStatus({ message: 'Callback verified, logging in...', type: 'info', loading: true });
               setPendingUsername(data.username);
               handleLoginToken(data.token, data.username, data.idToken, data.refreshToken);
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ success: true }));
+              cleanupServer();
+              return;
             } else {
-              res.writeHead(400);
-              res.end();
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'invalid_token_or_state' }));
             }
           } catch (e) {
-            res.writeHead(400);
-            res.end();
-          } finally {
-            server.close();
-            // Go back to profile or home if logged in, handleLoginToken will do it but let's wait a bit
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'invalid_json' }));
           }
         });
       } else {
@@ -2142,17 +2719,61 @@ function App() {
       }
     });
 
-    server.listen(4000, () => {
-      import('open').then((open) => {
-        open.default(`${API_BASE}/api/auth/login?port=4000`).catch(() => {});
-      }).catch(err => {
-        setStatus({ message: 'Failed to open browser: ' + err.message, type: 'error', loading: false });
-      });
+    const openBrowserWithPort = (port: number) => {
+      const authUrl = `${API_BASE}/api/auth/login?port=${port}&state=${loginState}`;
+      try {
+        const platform = process.platform;
+        let cmd = 'xdg-open';
+        let args = [authUrl];
+        if (platform === 'darwin') {
+          cmd = 'open';
+        } else if (platform === 'win32') {
+          cmd = 'cmd';
+          args = ['/c', 'start', '', authUrl];
+        }
+        const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+        child.on('error', (err) => {
+          setStatus({ message: 'Failed to open browser: ' + err.message, type: 'error', loading: false });
+        });
+        child.unref();
+      } catch (err: any) {
+        setStatus({ message: 'Failed to open browser: ' + (err?.message || String(err)), type: 'error', loading: false });
+      }
+    };
+
+    server.on('error', (err: any) => {
+      if (err.code === 'EADDRINUSE') {
+        // Fall back to dynamic port (port 0)
+        try {
+          const fallbackServer = http.createServer(server.listeners('request')[0] as any);
+          server.close();
+          server = fallbackServer;
+          fallbackServer.on('error', (fallbackErr: any) => {
+            setStatus({ message: 'Login server error: ' + fallbackErr.message, type: 'error', loading: false });
+            cleanupServer();
+          });
+          fallbackServer.listen(0, '127.0.0.1', () => {
+            const addr = fallbackServer.address();
+            const chosenPort = typeof addr === 'object' && addr ? addr.port : 4000;
+            openBrowserWithPort(chosenPort);
+          });
+        } catch (fallbackErr: any) {
+          setStatus({ message: 'Login server error: ' + fallbackErr.message, type: 'error', loading: false });
+          cleanupServer();
+        }
+      } else {
+        setStatus({ message: 'Login server error: ' + err.message, type: 'error', loading: false });
+        cleanupServer();
+      }
     });
-    
+
+    server.listen(4000, '127.0.0.1', () => {
+      openBrowserWithPort(4000);
+    });
+
     // Auto-close after 5 minutes
-    setTimeout(() => {
-      server.close();
+    timeoutId = setTimeout(() => {
+      cleanupServer();
       if (!isLoggedIn()) {
         setStatus({ message: 'Login timed out', type: 'error', loading: false });
         setScreen('main-menu');
@@ -2224,11 +2845,45 @@ function App() {
 
   const goBack = useCallback(() => {
     if (screen === 'episode-select') {
-      setScreen('audio-select');
-      setStatus({ message: 'Select audio type', type: 'info', loading: false });
+      if (isDownloadMode) {
+        setIsDownloadMode(false);
+        setScreen('anime-details');
+        setStatus({ message: selectedAnime?.label || animeInfo?.name || 'Anime Details', type: 'info', loading: false });
+      } else {
+        setScreen('audio-select');
+        setStatus({ message: 'Select audio type', type: 'info', loading: false });
+      }
     } else if (screen === 'audio-select') {
-      setScreen('anime-select');
-      setStatus({ message: `Found ${animes.length} anime`, type: 'success', loading: false });
+      setScreen('anime-details');
+      setStatus({ message: selectedAnime?.label || animeInfo?.name || 'Anime Details', type: 'info', loading: false });
+    } else if (screen === 'anime-details') {
+      if (browseReturnScreen === 'browse-results') {
+        setScreen('browse-results');
+        setStatus({ message: `Browse: ${browseCategory === 'genre' ? browseGenre : browseCategoryTitle} (Page ${browsePage})`, type: 'info', loading: false });
+      } else if (browseReturnScreen === 'browse-category') {
+        setScreen('browse-category');
+        setStatus({ message: 'Browse anime categories', type: 'info', loading: false });
+      } else {
+        setScreen('anime-select');
+        setStatus({ message: `Found ${animes.length} anime`, type: 'success', loading: false });
+      }
+    } else if (screen === 'browse-results') {
+      if (browseCategory === 'genre') {
+        setScreen('browse-genre');
+        setStatus({ message: 'Select a genre', type: 'info', loading: false });
+      } else if (browseCategory === 'season') {
+        setScreen('browse-season');
+        setStatus({ message: 'Select season and year', type: 'info', loading: false });
+      } else {
+        setScreen('browse-category');
+        setStatus({ message: 'Browse anime categories', type: 'info', loading: false });
+      }
+    } else if (screen === 'browse-genre' || screen === 'browse-season') {
+      setScreen('browse-category');
+      setStatus({ message: 'Browse anime categories', type: 'info', loading: false });
+    } else if (screen === 'browse-category') {
+      setScreen('main-menu');
+      setStatus({ message: 'Welcome to NY-CLI!', type: 'info', loading: false });
     } else if (screen === 'login-token') {
       setScreen('login');
       setPendingUsername('');
@@ -2237,22 +2892,33 @@ function App() {
       setScreen('main-menu');
       setStatus({ message: 'Welcome to NY-CLI!', type: 'info', loading: false });
     }
-  }, [screen, animes.length]);
+  }, [screen, browseReturnScreen, browseCategory, browseGenre, browseCategoryTitle, browsePage, animes.length, selectedAnime, animeInfo]);
 
   const handleEpisodeAction = useCallback((action: string, item: SelectItem) => {
     if (action === 'd' || action === 'a') {
-      const itemsToDownload = action === 'a' ? episodes.map(e => ({
+      const itemsToDownload = action === 'a' ? episodes.map((e, idx) => ({
         ...e,
-        label: `Episode ${e.number}`,
-        value: `ep-${e.number}`,
-        episodeId: e.episodeId
+        label: `Episode ${e.number || idx + 1}`,
+        value: `ep-${e.number || idx + 1}`,
+        episodeId: e.episodeId || e.id,
+        number: e.number || idx + 1,
       })) : [item];
 
-      const anilistId = animeInfo?.id?.replace('anilist::', '') || '';
+      const anilistId = animeInfo?.anilistId || (String(animeInfo?.id || '').startsWith('anilist::') ? String(animeInfo.id).replace('anilist::', '') : '');
+      const malId = animeInfo?.malId;
+      const titles = animeInfo?.titles || {
+        english: animeInfo?.name || selectedAnime?.label,
+        romaji: animeInfo?.jname || selectedAnime?.label,
+        native: ''
+      };
+      const year = animeInfo?.year;
 
       const newTasks: DownloadTask[] = itemsToDownload.map((ep: any) => ({
-        id: ep.episodeId,
+        id: ep.episodeId || ep.id,
         anilistId,
+        malId,
+        titles,
+        year,
         animeTitle: selectedAnime?.label || animeInfo?.name || 'Anime',
         episodeNumber: ep.number || ep.epNo || 1,
         status: 'pending',
@@ -2267,41 +2933,299 @@ function App() {
 
   const handleAnimeSelect = useCallback(async (item: SelectItem) => {
     setStatus({ message: `Loading "${item.label}"...`, type: 'info', loading: true });
+    setBrowseReturnScreen(screen);
 
     try {
       const data = await getJson(`/api/aniwatch?action=info&id=${encodeURIComponent(item.id!)}`);
       
-      const subCount = data?.episodes?.sub?.length || 0;
-      const dubCount = data?.episodes?.dub?.length || 0;
+      const eps = data?.episodes?.sub?.length ? data.episodes.sub : (data?.episodes?.dub || []);
+      const totalCount = eps.length || data?.totalEpisodes || data?.stats?.episodes?.sub || 0;
 
-      if (subCount === 0 && dubCount === 0) {
+      if (totalCount === 0 && (!data?.status || data.status === 'FINISHED') && !data?.name) {
         setStatus({ message: 'No episodes found', type: 'warning', loading: false });
         return;
       }
 
       setSelectedAnime(item);
       setAnimeInfo(data);
-      setScreen('audio-select');
-      setStatus({ message: `Sub: ${subCount} eps │ Dub: ${dubCount} eps`, type: 'success', loading: false });
+      setScreen('anime-details');
+      setStatus({ message: `${item.label} Details`, type: 'info', loading: false });
     } catch (err: any) {
       setStatus({ message: `Failed to load: ${err.message}`, type: 'error', loading: false });
     }
-  }, []);
+  }, [screen]);
+
+  const handleWatchFromDetails = useCallback(() => {
+    setIsDownloadMode(false);
+    const histEntry = history.find(h => h.id === animeInfo?.id);
+    if (histEntry) {
+      const type = histEntry.category || 'sub';
+      setAudioType(type);
+      const eps = animeInfo?.episodes?.[type] || animeInfo?.episodes?.sub || [];
+      setEpisodes(eps);
+
+      let targetEpisode = histEntry.episode || 1;
+      const progress = getWatchProgress(animeInfo.id, targetEpisode);
+      const watchPercentage = progress ? getWatchPercentage(progress.watchTime, progress.duration) : 0;
+
+      if (watchPercentage >= 90 && targetEpisode < eps.length) {
+        const nextEp = eps.find((e: any) => e.number === targetEpisode + 1);
+        const currEp = eps.find((e: any) => e.number === targetEpisode);
+        if (nextEp && currEp) {
+          setAutoAdvanceData({
+            currentEpisode: currEp,
+            nextEpisode: nextEp,
+            percentage: watchPercentage
+          });
+          setScreen('auto-advance');
+          setStatus({ message: `Episode ${targetEpisode} is almost complete.`, type: 'info', loading: false });
+          return;
+        }
+      }
+
+      setScreen('episode-select');
+      setStatus({ message: `Continue Episode ${targetEpisode}`, type: 'success', loading: false });
+    } else {
+      setScreen('audio-select');
+      setStatus({ message: 'Select audio type', type: 'info', loading: false });
+    }
+  }, [animeInfo, history]);
+
+  const handleDownloadFromDetails = useCallback(() => {
+    const hasDub = Boolean(animeInfo?.episodes?.dub?.length);
+    if (hasDub) {
+      setIsDownloadMode(true);
+      setScreen('audio-select');
+      setStatus({ message: 'Select audio type to download', type: 'info', loading: false });
+    } else {
+      const type = 'sub';
+      setAudioType(type);
+      let eps = animeInfo?.episodes?.[type]?.length 
+        ? animeInfo.episodes[type] 
+        : (animeInfo?.episodes?.sub?.length 
+          ? animeInfo.episodes.sub 
+          : (animeInfo?.episodes?.dub?.length ? animeInfo.episodes.dub : []));
+
+      if (!eps || !eps.length) {
+        const count = animeInfo?.totalEpisodes || animeInfo?.stats?.episodes?.sub || 1;
+        eps = Array.from({ length: Math.max(1, count) }, (_, idx) => ({
+          id: `ep::fallback::${animeInfo?.id || 'unknown'}::${idx + 1}`,
+          number: idx + 1,
+          title: count === 1 ? (animeInfo?.name || 'Full Feature') : `Episode ${idx + 1}`,
+          isFiller: false,
+        }));
+      }
+
+      setEpisodes(eps);
+      setIsDownloadMode(true);
+      setScreen('episode-select');
+      setStatus({ message: 'Select episode to download (Enter / [d] for single, [a] for all)', type: 'info', loading: false });
+    }
+  }, [animeInfo]);
+
+  const handlePlayTrailer = useCallback(() => {
+    const trailer = animeInfo?.trailer;
+    let trailerUrl = trailer?.url;
+    if (!trailerUrl && trailer?.id) {
+      if (!trailer.site || trailer.site.toLowerCase() === 'youtube') {
+        trailerUrl = `https://www.youtube.com/watch?v=${trailer.id}`;
+      } else {
+        trailerUrl = trailer.id;
+      }
+    }
+    if (!trailerUrl) {
+      setStatus({ message: 'No trailer available', type: 'warning', loading: false });
+      return;
+    }
+    const cmd = resolvePlayerCommand(appSettings);
+    const title = `NY-CLI Trailer: ${animeInfo?.titles?.english || animeInfo?.name || selectedAnime?.label || 'Trailer'}`;
+    const args = cmd === 'mpv' ? [`--title=${title}`, trailerUrl] : [trailerUrl];
+    setStatus({ message: `Opening trailer in ${cmd.toUpperCase()}...`, type: 'info', loading: false });
+    try {
+      const proc = spawn(cmd, args, { stdio: 'ignore', detached: true });
+      proc.on('error', (err: any) => {
+        setStatus({ message: `Failed to launch player: ${err.message}`, type: 'error', loading: false });
+      });
+      proc.unref();
+      setStatus({ message: `Playing trailer in ${cmd.toUpperCase()}`, type: 'success', loading: false });
+    } catch (err: any) {
+      setStatus({ message: `Failed to launch player: ${err.message}`, type: 'error', loading: false });
+    }
+  }, [animeInfo, selectedAnime, appSettings]);
+
+  const handleToggleMyList = useCallback(() => {
+    if (!animeInfo?.id) return;
+    if (isInMyList(animeInfo.id)) {
+      removeFromMyList(animeInfo.id);
+      setStatus({ message: `Removed "${animeInfo.titles?.english || animeInfo.name || selectedAnime?.label}" from My List`, type: 'info', loading: false });
+    } else {
+      addToMyList({
+        id: animeInfo.id,
+        name: animeInfo.titles?.english || animeInfo.name || selectedAnime?.label || 'Anime',
+        poster: animeInfo.poster || selectedAnime?.imageUrl,
+        format: animeInfo.format,
+        year: animeInfo.year,
+        addedAt: Date.now(),
+      });
+      setStatus({ message: `Added "${animeInfo.titles?.english || animeInfo.name || selectedAnime?.label}" to My List`, type: 'success', loading: false });
+    }
+  }, [animeInfo, selectedAnime]);
+
+  const fetchBrowseResults = useCallback(async (cat: string, opts: { page?: number; genre?: string; season?: string; year?: number; sort?: string } = {}) => {
+    const p = opts.page ?? 1;
+    const g = opts.genre ?? browseGenre;
+    const s = opts.season ?? browseSeason;
+    const y = opts.year ?? browseYear;
+    const srt = opts.sort ?? browseSort;
+
+    setStatus({ message: `Fetching ${cat === 'genre' ? g : (cat === 'season' ? `${s} ${y}` : cat)} (page ${p})...`, type: 'info', loading: true });
+
+    try {
+      let url = `/api/aniwatch?action=browse&category=${encodeURIComponent(cat)}&page=${p}`;
+      if (cat === 'genre') {
+        url += `&genre=${encodeURIComponent(g)}&sort=${encodeURIComponent(srt)}`;
+      } else if (cat === 'season') {
+        url += `&season=${encodeURIComponent(s)}&year=${encodeURIComponent(y)}`;
+      }
+      const data = await getJson(url);
+      const items = data?.animes || [];
+
+      if (!items.length) {
+        setStatus({ message: `No anime found for ${cat} (page ${p})`, type: 'warning', loading: false });
+        return;
+      }
+
+      setBrowseAnimes(items);
+      setBrowseCategory(cat);
+      setBrowsePage(data?.currentPage || p);
+      setBrowseHasNext(!!data?.hasNextPage);
+      setBrowseSource(data?.provider || 'unknown');
+      setScreen('browse-results');
+      setStatus({ 
+        message: `${cat === 'genre' ? `${g} (${srt})` : (cat === 'season' ? `${s} ${y}` : cat)} • Page ${p} [Source: ${data?.provider || 'unknown'}]`, 
+        type: 'success', 
+        loading: false 
+      });
+    } catch (err: any) {
+      setStatus({ message: `Browse failed: ${err.message}`, type: 'error', loading: false });
+    }
+  }, [browseGenre, browseSeason, browseYear, browseSort]);
+
+  const handleBrowsePageNext = useCallback(async () => {
+    const nextPage = browsePage + 1;
+    await fetchBrowseResults(browseCategory, { page: nextPage, genre: browseGenre, season: browseSeason, year: browseYear, sort: browseSort });
+  }, [browsePage, browseCategory, browseGenre, browseSeason, browseYear, browseSort, fetchBrowseResults]);
+
+  const handleBrowsePagePrev = useCallback(async () => {
+    if (browsePage <= 1) return;
+    const prevPage = browsePage - 1;
+    await fetchBrowseResults(browseCategory, { page: prevPage, genre: browseGenre, season: browseSeason, year: browseYear, sort: browseSort });
+  }, [browsePage, browseCategory, browseGenre, browseSeason, browseYear, browseSort, fetchBrowseResults]);
+
+  const handleBrowseSortToggle = useCallback(async () => {
+    if (browseCategory !== 'genre') return;
+    const sorts: ('popularity' | 'score' | 'trending' | 'title')[] = ['popularity', 'score', 'trending', 'title'];
+    const currentIdx = sorts.indexOf(browseSort);
+    const nextSort = sorts[(currentIdx + 1) % sorts.length];
+    setBrowseSort(nextSort);
+    await fetchBrowseResults('genre', { page: 1, genre: browseGenre, sort: nextSort });
+  }, [browseCategory, browseSort, browseGenre, fetchBrowseResults]);
+
+  const handleSurpriseMe = useCallback(async () => {
+    setStatus({ message: 'Finding surprise anime...', type: 'info', loading: true });
+    try {
+      const randomPage = Math.floor(Math.random() * 3) + 1;
+      const cat = Math.random() > 0.5 ? 'top-rated' : 'trending';
+      const data = await getJson(`/api/aniwatch?action=browse&category=${cat}&page=${randomPage}`);
+      const items = data?.animes || [];
+      if (items.length > 0) {
+        const pick = items[Math.floor(Math.random() * items.length)];
+        setStatus({ message: `Surprise: "${pick.name}"!`, type: 'success', loading: false });
+        setBrowseReturnScreen('browse-category');
+        handleAnimeSelect({
+          id: pick.id,
+          label: pick.name,
+          imageUrl: pick.poster,
+        });
+      } else {
+        setStatus({ message: 'Could not find surprise anime', type: 'warning', loading: false });
+      }
+    } catch (err: any) {
+      setStatus({ message: `Surprise failed: ${err.message}`, type: 'error', loading: false });
+    }
+  }, [handleAnimeSelect]);
+
+  const handleBrowseCategorySelect = useCallback(async (item: SelectItem) => {
+    const cat = item.value || 'trending';
+    setBrowseCategory(cat);
+    setBrowseCategoryTitle(item.label);
+
+    if (cat === 'surprise') {
+      handleSurpriseMe();
+    } else if (cat === 'genre') {
+      setStatus({ message: 'Loading genres...', type: 'info', loading: true });
+      try {
+        const data = await getJson('/api/aniwatch?action=genres');
+        const list: string[] = data?.genres || [];
+        setGenresList(list);
+        setBrowseSource(data?.provider || 'unknown');
+        setScreen('browse-genre');
+        setStatus({ message: `Select a genre (${data?.provider || 'unknown'})`, type: 'info', loading: false });
+      } catch (err: any) {
+        setStatus({ message: `Failed to load genres: ${err.message}`, type: 'error', loading: false });
+      }
+    } else if (cat === 'season') {
+      setScreen('browse-season');
+      setStatus({ message: 'Select season and year', type: 'info', loading: false });
+    } else {
+      setBrowsePage(1);
+      await fetchBrowseResults(cat, { page: 1 });
+    }
+  }, [fetchBrowseResults, handleSurpriseMe]);
+
+  const handleBrowseGenreSelect = useCallback(async (item: SelectItem) => {
+    const selectedGenre = item.value || item.label;
+    setBrowseGenre(selectedGenre);
+    setBrowseSort('popularity');
+    setBrowsePage(1);
+    await fetchBrowseResults('genre', { genre: selectedGenre, sort: 'popularity', page: 1 });
+  }, [fetchBrowseResults]);
+
+  const handleBrowseSeasonSelect = useCallback(async (item: SelectItem) => {
+    const [s, yStr] = (item.value || 'SPRING-2026').split('-');
+    const y = parseInt(yStr, 10) || 2026;
+    setBrowseSeason(s);
+    setBrowseYear(y);
+    setBrowsePage(1);
+    await fetchBrowseResults('season', { season: s, year: y, page: 1 });
+  }, [fetchBrowseResults]);
 
   const handleAudioSelect = useCallback((item: SelectItem) => {
     const type = item.value as 'sub' | 'dub';
     setAudioType(type);
     
-    const eps = animeInfo?.episodes?.[type] || [];
-    if (!eps.length) {
-      setStatus({ message: `No ${type === 'sub' ? 'subbed' : 'dubbed'} episodes`, type: 'warning', loading: false });
-      return;
+    let eps = animeInfo?.episodes?.[type]?.length 
+      ? animeInfo.episodes[type] 
+      : (animeInfo?.episodes?.sub?.length 
+        ? animeInfo.episodes.sub 
+        : (animeInfo?.episodes?.dub?.length ? animeInfo.episodes.dub : []));
+
+    // Fallback if episodes array is empty: provide at least 1 episode (or totalEpisodes count)
+    if (!eps || !eps.length) {
+      const count = animeInfo?.totalEpisodes || animeInfo?.stats?.episodes?.sub || 1;
+      eps = Array.from({ length: Math.max(1, count) }, (_, idx) => ({
+        id: `ep::fallback::${animeInfo?.id || 'unknown'}::${idx + 1}`,
+        number: idx + 1,
+        title: count === 1 ? (animeInfo?.name || 'Full Feature') : `Episode ${idx + 1}`,
+        isFiller: false,
+      }));
     }
 
     setEpisodes(eps);
     setScreen('episode-select');
-    setStatus({ message: `${eps.length} ${type === 'sub' ? 'subbed' : 'dubbed'} episodes`, type: 'success', loading: false });
+    setStatus({ message: `${eps.length} episode${eps.length === 1 ? '' : 's'} (${type === 'sub' ? 'subbed' : 'dubbed'})`, type: 'success', loading: false });
   }, [animeInfo]);
+
 
   const handleHistorySelect = useCallback(async (item: SelectItem) => {
     // Load the anime and continue from last episode
@@ -2362,55 +3286,104 @@ function App() {
       const epNo = item.number || 1;
       const mode = audioType === 'dub' ? 'dub' : 'sub';
 
-      // Extract malId from episodeId: "ep::malId::epNo"
-      const epIdParts = String(item.episodeId || '').split('::');
-      const malId = epIdParts[0] === 'ep' ? Number(epIdParts[1]) : undefined;
-      const anilistId = animeInfo?.id?.replace('anilist::', '') || '';
+      // Extract IDs and title metadata
+      const epIdParts = String(item.episodeId || item.id || '').split('::');
+      const malId = epIdParts[0] === 'ep' && epIdParts[1] === 'jikan' ? Number(epIdParts[2]) : (epIdParts[0] === 'ep' && !isNaN(Number(epIdParts[1])) ? Number(epIdParts[1]) : (animeInfo?.malId || undefined));
+      const anilistId = animeInfo?.anilistId || (String(animeInfo?.id || '').startsWith('anilist::') ? String(animeInfo.id).replace('anilist::', '') : '');
+      const englishTitle = animeInfo?.titles?.english || '';
+      const romajiTitle = animeInfo?.titles?.romaji || animeJName || '';
+      const nativeTitle = animeInfo?.titles?.native || '';
+      const year = animeInfo?.year || '';
 
-      // ── Resolve All Sources Concurrently for Max Speed ──────────────────
-      setStatus({ message: `Resolving fastest available stream...`, type: 'info', loading: true });
+      // Check if already downloaded locally
+      const safeTitle = (animeTitle || 'Anime').replace(/[^a-zA-Z0-9_\-]/g, '_');
+      const localFile = path.join(os.homedir(), 'Downloads', 'ny-cli', safeTitle, `${safeTitle}_Ep${epNo}.mp4`);
+      const providers: {name: string, type: 'torrent'|'direct'|'embed'|'hls'|'mp4', url?: string, magnet?: string, headers?: any, subtitle?: string, candidate?: any}[] = [];
 
-      const [torrentResult, backendResult] = await Promise.allSettled([
-        getJson(`/api/torrent?title=${encodeURIComponent(animeTitle)}&ep=${epNo}`),
-        getJson(`/api/resolve-stream?title=${encodeURIComponent(animeTitle)}&epNo=${epNo}&mode=${mode}${malId ? `&malId=${malId}` : ''}${enableAllanime ? '&enableAllanime=true' : ''}`)
-      ]);
-
-      const torrentData = torrentResult.status === 'fulfilled' ? torrentResult.value : null;
-      const backendStream = backendResult.status === 'fulfilled' ? backendResult.value : null;
-
-      let isTorrent = false;
-      let magnetLink = '';
-      let source: any = null;
-      let streamHeaders: Record<string, string> = {};
-      let isLocalStream = false;
-      let allEmbedSources: any[] = [];
-
-      
-      // Build Providers List
-      const providers: {name: string, type: 'torrent'|'direct'|'embed'|'hls', url?: string, magnet?: string, headers?: any, subtitle?: string}[] = [];
-      
-      if (backendStream && backendStream.url) {
-        providers.push({ name: backendStream.quality || backendStream.provider || 'Direct Stream', type: backendStream.type || 'direct', url: backendStream.url, subtitle: backendStream.subtitle, headers: backendStream.referer ? { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin } : undefined });
+      if (fs.existsSync(localFile)) {
+        providers.push({
+          name: 'Local File (Downloaded)',
+          type: 'direct',
+          url: localFile,
+        });
       }
 
-      if (providers.length === 0 && torrentData?.magnet) {
-        setStatus({ message: `No direct stream found — falling back to torrent (this will be slower)`, type: 'info', loading: true });
-        providers.push({ name: 'Nyaa (Torrent)', type: 'torrent', magnet: torrentData.magnet });
+      // ── Resolve Tier 1 and Tier 2 streams (Direct / Embed) ──────────────────
+      setStatus({ message: `Resolving stream for Episode ${epNo}...`, type: 'info', loading: true });
+
+      const queryParams = new URLSearchParams({
+        title: animeTitle,
+        epNo: String(epNo),
+        mode,
+      });
+      if (malId) queryParams.set('malId', String(malId));
+      if (anilistId) queryParams.set('anilistId', String(anilistId));
+      if (englishTitle) queryParams.set('englishTitle', englishTitle);
+      if (romajiTitle) queryParams.set('romajiTitle', romajiTitle);
+      if (nativeTitle) queryParams.set('nativeTitle', nativeTitle);
+      if (year) queryParams.set('year', String(year));
+
+      let streamRes: any = null;
+      try {
+        streamRes = await getJson(`/api/resolve-stream?${queryParams.toString()}`);
+      } catch (err: any) {
+        streamRes = { candidates: [], attempts: err.attempts || [] };
+      }
+
+      const candidates: any[] = streamRes?.candidates || (streamRes?.url ? [streamRes] : []);
+      const attempts: any[] = streamRes?.attempts || [];
+
+      for (const c of candidates) {
+        if (c.url) {
+          providers.push({
+            name: `${c.provider || 'Provider'} (${c.quality || c.type?.toUpperCase() || 'Stream'})`,
+            type: c.type || 'direct',
+            url: c.url,
+            subtitle: c.subtitleTracks?.[0]?.src || c.subtitle,
+            headers: c.referer ? { Referer: c.referer, Origin: new URL(c.referer).origin } : c.headers,
+            candidate: c,
+          });
+        }
+      }
+
+      // ── Torrent Search: ONLY when all direct and embed candidates failed ────
+      if (providers.length === 0) {
+        setStatus({ message: 'No direct stream found, trying torrent (slower)...', type: 'info', loading: true });
+
+        let torrentData: any = null;
+        try {
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Torrent search stall timeout')), 8000));
+          torrentData = await Promise.race([
+            getJson(`/api/torrent?title=${encodeURIComponent(animeTitle)}&ep=${epNo}`),
+            timeoutPromise,
+          ]);
+        } catch {
+          torrentData = null;
+        }
+
+        if (torrentData?.magnet) {
+          providers.push({ name: 'Nyaa (Torrent)', type: 'torrent', magnet: torrentData.magnet });
+        }
       }
 
       if (providers.length === 0) {
-        setStatus({ message: 'No playable source found', type: 'error', loading: false });
+        const attemptSummary = attempts.length
+          ? attempts.map((a: any) => `${a.provider}: ${a.error || (a.success ? 'ok' : 'failed')}`).join('; ')
+          : 'no candidates available';
+        setStatus({ message: `No playable source found (${attemptSummary})`, type: 'error', loading: false });
         return;
       }
 
       setPlayingProviders(providers);
       setPlayingProviderIndex(0);
+      setPlayingAttempts(attempts);
       setPlayingEpisode(item);
       setPlayingPaused(false);
       setScreen('playing');
 
-      // Start the best provider
-      playProvider(providers[0]);
+      // Start the best provider with sequential fallthrough support
+      playProvider(providers[0], 0, providers, attempts, { malId, epNo, animeTitle, mode });
+
 
       const epAnimeTitle = selectedAnime?.label || animeInfo?.name || animeInfo?.title || '';
       const animeId = selectedAnime?.id || '';
@@ -2450,62 +3423,73 @@ function App() {
 
     const task = downloadQueue[nextTaskIndex];
     
-    setDownloadQueue(prev => {
-      const q = [...prev];
-      q[nextTaskIndex].status = 'downloading';
-      q[nextTaskIndex].message = 'Resolving stream...';
-      return q;
-    });
+    setDownloadQueue(prev => prev.map((t, idx) => 
+      idx === nextTaskIndex ? { ...t, status: 'downloading', message: 'Resolving stream...' } : t
+    ));
 
     const startDownload = async () => {
       try {
         const epIdParts = String(task.id || '').split('::');
-        const malId = epIdParts[0] === 'ep' ? Number(epIdParts[1]) : undefined;
+        const malId = task.malId || (epIdParts[0] === 'ep' && epIdParts[1] === 'jikan' ? Number(epIdParts[2]) : (epIdParts[0] === 'ep' && !isNaN(Number(epIdParts[1])) ? Number(epIdParts[1]) : undefined));
 
-        const safeTitle = task.animeTitle.replace(/[^a-zA-Z0-9]/g, '_');
+        const safeTitle = (task.animeTitle || 'Anime').replace(/[^a-zA-Z0-9_\-]/g, '_');
         const outDir = path.join(os.homedir(), 'Downloads', 'ny-cli', safeTitle);
         
-        const anilistQuery = task.anilistId ? `&anilistId=${task.anilistId}` : '';
-        
-        // Fetch All Sources Concurrently for Max Speed
-        const [torrentResult, backendResult] = await Promise.allSettled([
-          getJson(`/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`),
-          getJson(`/api/resolve-stream?title=${encodeURIComponent(task.animeTitle)}&epNo=${task.episodeNumber}&mode=${audioType}${malId ? `&malId=${malId}` : ''}${enableAllanime ? '&enableAllanime=true' : ''}`)
-        ]);
-
-        const torrentData = torrentResult.status === 'fulfilled' ? torrentResult.value : null;
-        const backendStream = backendResult.status === 'fulfilled' ? backendResult.value : null;
-
-        // Prefer direct stream; fall back to torrent only if no direct source
         let isTorrent = false;
         let magnetLink = '';
-        let streamUrl = backendStream?.url || '';
+        let streamUrl = '';
         let streamHeaders: any = {};
 
-        if (backendStream?.url) {
-          if (backendStream.referer) {
-             streamHeaders = { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin };
-          }
+        const qParams = new URLSearchParams({
+          title: task.animeTitle,
+          epNo: String(task.episodeNumber),
+          mode: audioType,
+        });
+        if (malId) qParams.set('malId', String(malId));
+        if (task.anilistId) qParams.set('anilistId', String(task.anilistId));
+        if (task.titles?.english) qParams.set('englishTitle', task.titles.english);
+        if (task.titles?.romaji) qParams.set('romajiTitle', task.titles.romaji);
+        if (task.titles?.native) qParams.set('nativeTitle', task.titles.native);
+        if (task.year) qParams.set('year', String(task.year));
+
+        let backendStreamRes: any = null;
+        try {
+          backendStreamRes = await getJson(`/api/resolve-stream?${qParams.toString()}`);
+        } catch {
+          backendStreamRes = null;
         }
 
-        if (!streamUrl && torrentData?.magnet) {
-          magnetLink = torrentData.magnet;
-          isTorrent = true;
-          setDownloadQueue(prev => {
-            const q = [...prev];
-            q[nextTaskIndex].message = 'No direct stream — falling back to torrent...';
-            return q;
-          });
+        const candidates = backendStreamRes?.candidates || (backendStreamRes?.url ? [backendStreamRes] : []);
+        const backendStream = candidates.find((c: any) => c.type === 'hls' || c.type === 'mp4') || candidates[0];
+
+        if (backendStream?.url) {
+          streamUrl = backendStream.url;
+          if (backendStream.referer) {
+            streamHeaders = { Referer: backendStream.referer, Origin: new URL(backendStream.referer).origin };
+          } else if (backendStream.headers) {
+            streamHeaders = backendStream.headers;
+          }
+        } else {
+          // Fall back to torrent only when direct stream fails
+          setDownloadQueue(prev => prev.map((t, idx) => 
+            idx === nextTaskIndex ? { ...t, message: 'No direct stream — searching torrent...' } : t
+          ));
+          const torrentData = await getJson(
+            `/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`
+          ).catch(() => null);
+
+          if (torrentData?.magnet) {
+            magnetLink = torrentData.magnet;
+            isTorrent = true;
+          }
         }
 
         if (isTorrent && magnetLink) {
           if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
           
-          setDownloadQueue(prev => {
-             const q = [...prev];
-             q[nextTaskIndex].message = 'Downloading Torrent...';
-             return q;
-          });
+          setDownloadQueue(prev => prev.map((t, idx) => 
+            idx === nextTaskIndex ? { ...t, message: 'Downloading Torrent...' } : t
+          ));
 
           const wtCmd = os.platform() === 'win32' ? 'npx.cmd' : 'npx';
           const args = ['-y', 'webtorrent-cli', 'download', magnetLink, '-o', outDir];
@@ -2521,32 +3505,31 @@ function App() {
                 const speedMatch = output.match(/([0-9.]+ [KMG]B\/s)/);
                 if (speedMatch) msg = `Speed: ${speedMatch[1]}`;
 
-                setDownloadQueue(prev => {
-                  const q = [...prev];
-                  q[nextTaskIndex].progress = progress;
-                  q[nextTaskIndex].message = msg;
-                  return q;
-                });
+                setDownloadQueue(prev => prev.map((t, idx) => 
+                  idx === nextTaskIndex ? { ...t, progress, message: msg } : t
+                ));
              }
           });
 
           wtProcess.on('close', (code) => {
-             setDownloadQueue(prev => {
-                const q = [...prev];
-                q[nextTaskIndex].status = code === 0 ? 'completed' : 'error';
-                q[nextTaskIndex].message = code === 0 ? 'Completed' : 'WebTorrent Error';
-                if (code === 0) q[nextTaskIndex].progress = 100;
-                return q;
-             });
+             setDownloadQueue(prev => prev.map((t, idx) => 
+               idx === nextTaskIndex ? {
+                 ...t,
+                 status: code === 0 ? 'completed' : 'error',
+                 message: code === 0 ? 'Completed' : 'WebTorrent Error',
+                 progress: code === 0 ? 100 : t.progress
+               } : t
+             ));
           });
 
           wtProcess.on('error', (err: any) => {
-             setDownloadQueue(prev => {
-                const q = [...prev];
-                q[nextTaskIndex].status = 'error';
-                q[nextTaskIndex].message = `Failed to launch webtorrent: ${err.message}`;
-                return q;
-             });
+             setDownloadQueue(prev => prev.map((t, idx) => 
+               idx === nextTaskIndex ? {
+                 ...t,
+                 status: 'error',
+                 message: `Failed to launch webtorrent: ${err.message}`
+               } : t
+             ));
           });
 
           // Stall detector: if no progress change in 45s, mark as error
@@ -2560,11 +3543,14 @@ function App() {
               }
               if (current?.progress === lastProgress) {
                 clearInterval(stallTimer);
-                wtProcess.kill();
-                const q = [...prev];
-                q[nextTaskIndex].status = 'error';
-                q[nextTaskIndex].message = 'No seeders found — try again later or use a direct source';
-                return q;
+                try { wtProcess.kill(); } catch {}
+                return prev.map((t, idx) => 
+                  idx === nextTaskIndex ? {
+                    ...t,
+                    status: 'error',
+                    message: 'No seeders found — try again later or use a direct source'
+                  } : t
+                );
               }
               lastProgress = current?.progress ?? -1;
               return prev;
@@ -2574,90 +3560,199 @@ function App() {
           return;
         }
 
-        // Direct stream download with FFMpeg
+        // Direct stream download
         if (!streamUrl) {
-          throw new Error('No stream found');
+          throw new Error('No stream or torrent found');
         }
 
         if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
         const filename = path.join(outDir, `${safeTitle}_Ep${task.episodeNumber}.mp4`);
-        
-        setDownloadQueue(prev => {
-           const q = [...prev];
-           q[nextTaskIndex].message = 'Downloading via FFmpeg...';
-           return q;
-        });
 
-        const ffmpegArgs = ['-y'];
-        if (streamHeaders && streamHeaders.Referer) {
-          ffmpegArgs.push('-headers', `Referer: ${streamHeaders.Referer}\r\n`);
+        // Check tool availability
+        const hasFfmpeg = (() => {
+          try {
+            const res = spawnSync('ffmpeg', ['-version'], { stdio: 'pipe' });
+            return res.status === 0;
+          } catch { return false; }
+        })();
+        const hasYtDlp = (() => {
+          try {
+            const res = spawnSync('yt-dlp', ['--version'], { stdio: 'pipe' });
+            return res.status === 0;
+          } catch { return false; }
+        })();
+
+        if (!hasFfmpeg && !hasYtDlp) {
+          throw new Error('Neither ffmpeg nor yt-dlp is installed. Please install ffmpeg or yt-dlp to download streams.');
         }
-        ffmpegArgs.push(
-          '-i', streamUrl,
-          '-c', 'copy',
-          '-bsf:a', 'aac_adtstoasc',
-          '-progress', 'pipe:1',
-          '-nostats',
-          filename
-        );
 
-        const ffmpegProc = spawn('ffmpeg', ffmpegArgs);
+        if (hasFfmpeg) {
+          setDownloadQueue(prev => prev.map((t, idx) => 
+            idx === nextTaskIndex ? { ...t, message: 'Downloading via FFmpeg...' } : t
+          ));
 
-        let durationUs = 0;
+          const ffmpegArgs = ['-y'];
+          // HLS options MUST precede -i to allow TS segments disguised as JPG/images
+          ffmpegArgs.push(
+            '-allowed_extensions', 'ALL',
+            '-allowed_segment_extensions', 'ALL',
+            '-extension_picky', '0'
+          );
 
-        ffmpegProc.stderr.on('data', (data: any) => {
-           const output = data.toString();
-           if (!durationUs) {
+          let customHeaders = '';
+          if (streamHeaders?.Referer) {
+            customHeaders += `Referer: ${streamHeaders.Referer}\r\n`;
+          }
+          if (streamHeaders?.['User-Agent'] || streamHeaders?.['user-agent']) {
+            customHeaders += `User-Agent: ${streamHeaders['User-Agent'] || streamHeaders['user-agent']}\r\n`;
+          } else {
+            customHeaders += 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36\r\n';
+          }
+          ffmpegArgs.push('-headers', customHeaders);
+
+          ffmpegArgs.push(
+            '-i', streamUrl,
+            '-c', 'copy',
+            '-bsf:a', 'aac_adtstoasc',
+            '-progress', 'pipe:1',
+            '-nostats',
+            filename
+          );
+
+          const ffmpegProc = spawn('ffmpeg', ffmpegArgs);
+          let durationUs = 0;
+
+          ffmpegProc.stderr.on('data', (data: any) => {
+            const output = data.toString();
+            if (!durationUs) {
               const durMatch = output.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
               if (durMatch) {
-                 const h = parseInt(durMatch[1]);
-                 const m = parseInt(durMatch[2]);
-                 const s = parseInt(durMatch[3]);
-                 durationUs = (h * 3600 + m * 60 + s) * 1000000;
+                const h = parseInt(durMatch[1]);
+                const m = parseInt(durMatch[2]);
+                const s = parseInt(durMatch[3]);
+                durationUs = (h * 3600 + m * 60 + s) * 1000000;
               }
-           }
-        });
+            }
+          });
 
-        ffmpegProc.stdout.on('data', (data: any) => {
-          const output = data.toString();
-          const timeMatch = output.match(/out_time_us=(\d+)/);
-          if (timeMatch && durationUs > 0) {
-            const timeUs = parseInt(timeMatch[1]);
-            const progress = Math.min(100, Math.max(0, Math.floor((timeUs / durationUs) * 100)));
-            setDownloadQueue(prev => {
-              const q = [...prev];
-              q[nextTaskIndex].progress = progress;
-              return q;
-            });
+          ffmpegProc.stdout.on('data', (data: any) => {
+            const output = data.toString();
+            const timeMatch = output.match(/out_time_us=(\d+)/);
+            const speedMatch = output.match(/speed=\s*([0-9.]+x)/);
+            const speed = speedMatch ? speedMatch[1] : '';
+
+            if (timeMatch) {
+              const timeUs = parseInt(timeMatch[1]);
+              if (durationUs > 0) {
+                const progress = Math.min(100, Math.max(0, Math.floor((timeUs / durationUs) * 100)));
+                setDownloadQueue(prev => prev.map((t, idx) => 
+                  idx === nextTaskIndex ? {
+                    ...t,
+                    progress,
+                    message: speed ? `Downloading (${speed})...` : 'Downloading...'
+                  } : t
+                ));
+              } else {
+                const timeSec = Math.floor(timeUs / 1000000);
+                const min = Math.floor(timeSec / 60);
+                const sec = timeSec % 60;
+                setDownloadQueue(prev => prev.map((t, idx) => 
+                  idx === nextTaskIndex ? {
+                    ...t,
+                    message: `Downloaded ${min}m${sec}s${speed ? ` (${speed})` : ''}...`
+                  } : t
+                ));
+              }
+            }
+          });
+
+          ffmpegProc.on('close', (code) => {
+            setDownloadQueue(prev => prev.map((t, idx) => 
+              idx === nextTaskIndex ? {
+                ...t,
+                status: code === 0 ? 'completed' : 'error',
+                message: code === 0 ? 'Completed' : `FFmpeg error (exit ${code})`,
+                progress: code === 0 ? 100 : t.progress
+              } : t
+            ));
+          });
+
+          ffmpegProc.on('error', (err: any) => {
+            setDownloadQueue(prev => prev.map((t, idx) => 
+              idx === nextTaskIndex ? {
+                ...t,
+                status: 'error',
+                message: `Failed to launch ffmpeg: ${err.message}`
+              } : t
+            ));
+          });
+        } else {
+          // yt-dlp fallback
+          setDownloadQueue(prev => prev.map((t, idx) => 
+            idx === nextTaskIndex ? { ...t, message: 'Downloading via yt-dlp...' } : t
+          ));
+
+          const ytdlpArgs = [
+            '--no-playlist',
+            '--downloader-args', 'ffmpeg_i:-extension_picky 0 -allowed_extensions ALL -allowed_segment_extensions ALL',
+            streamUrl,
+            '-o', filename,
+          ];
+          if (streamHeaders?.Referer) {
+            ytdlpArgs.push('--referer', streamHeaders.Referer);
           }
-        });
+          ytdlpArgs.push(
+            '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+          );
 
-        ffmpegProc.on('close', (code) => {
-           setDownloadQueue(prev => {
-              const q = [...prev];
-              q[nextTaskIndex].status = code === 0 ? 'completed' : 'error';
-              q[nextTaskIndex].message = code === 0 ? 'Completed' : 'FFmpeg Error';
-              if (code === 0) q[nextTaskIndex].progress = 100;
-              return q;
-           });
-        });
+          const ytdlpProc = spawn('yt-dlp', ytdlpArgs);
 
-        ffmpegProc.on('error', (err: any) => {
-           setDownloadQueue(prev => {
-              const q = [...prev];
-              q[nextTaskIndex].status = 'error';
-              q[nextTaskIndex].message = `Failed to launch ffmpeg: ${err.message}`;
-              return q;
-           });
-        });
+          ytdlpProc.stdout.on('data', (data: any) => {
+            const output = data.toString();
+            const pctMatch = output.match(/(\d+(?:\.\d+)?)%/);
+            const speedMatch = output.match(/at\s+([0-9.]+[KMG]i?B\/s)/);
+            if (pctMatch) {
+              const progress = Math.min(100, Math.floor(parseFloat(pctMatch[1])));
+              const speed = speedMatch ? speedMatch[1] : '';
+              setDownloadQueue(prev => prev.map((t, idx) => 
+                idx === nextTaskIndex ? {
+                  ...t,
+                  progress,
+                  message: speed ? `Downloading (${speed})...` : 'Downloading...'
+                } : t
+              ));
+            }
+          });
 
+          ytdlpProc.on('close', (code) => {
+            setDownloadQueue(prev => prev.map((t, idx) => 
+              idx === nextTaskIndex ? {
+                ...t,
+                status: code === 0 ? 'completed' : 'error',
+                message: code === 0 ? 'Completed' : `yt-dlp error (exit ${code})`,
+                progress: code === 0 ? 100 : t.progress
+              } : t
+            ));
+          });
+
+          ytdlpProc.on('error', (err: any) => {
+            setDownloadQueue(prev => prev.map((t, idx) => 
+              idx === nextTaskIndex ? {
+                ...t,
+                status: 'error',
+                message: `Failed to launch yt-dlp: ${err.message}`
+              } : t
+            ));
+          });
+        }
       } catch (err: any) {
-        setDownloadQueue(prev => {
-          const q = [...prev];
-          q[nextTaskIndex].status = 'error';
-          q[nextTaskIndex].message = err.message;
-          return q;
-        });
+        setDownloadQueue(prev => prev.map((t, idx) => 
+          idx === nextTaskIndex ? {
+            ...t,
+            status: 'error',
+            message: err.message
+          } : t
+        ));
       }
     };
 
@@ -2669,34 +3764,83 @@ function App() {
   // COMPUTED DATA
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const animeItems: SelectItem[] = animes.map((a) => ({
-    id: a.id,
-    label: a.name || a.title || 'Untitled',
-    badge: a.episodes ? `sub ${a.episodes.sub || 0} / dub ${a.episodes.dub || 0}` : undefined,
-    imageUrl: a.poster || undefined,
-  }));
+  const getAnimeItemTitle = (a: any): string => {
+    if (typeof a.name === 'string' && a.name.trim()) return a.name;
+    if (typeof a.title === 'string' && a.title.trim()) return a.title;
+    if (a.title && typeof a.title === 'object') {
+      return a.title.english || a.title.romaji || a.title.userPreferred || a.title.native || '';
+    }
+    if (typeof a.jname === 'string' && a.jname.trim()) return a.jname;
+    return 'Untitled';
+  };
 
+  const animeItems: SelectItem[] = animes.map((a) => {
+    const title = getAnimeItemTitle(a);
+    const subCount = a.episodes?.sub ?? (typeof a.episodes === 'number' ? a.episodes : 0);
+    const dubCount = a.episodes?.dub ?? 0;
+    return {
+      id: a.id,
+      label: title,
+      badge: a.episodes ? `sub ${subCount} / dub ${dubCount}` : undefined,
+      imageUrl: a.poster || a.artwork || undefined,
+    };
+  });
+
+  const browseAnimeItems: SelectItem[] = browseAnimes.map((a) => {
+    const title = getAnimeItemTitle(a);
+    const subCount = a.episodes?.sub ?? (typeof a.episodes === 'number' ? a.episodes : 0);
+    return {
+      id: a.id,
+      label: title,
+      badge: a.averageScore ? `★ ${a.averageScore}%` : (a.format || (a.episodes ? `sub ${subCount}` : undefined)),
+      imageUrl: a.poster || a.artwork || undefined,
+    };
+  });
+
+  const browseCategoryItems: SelectItem[] = [
+    { value: 'trending', label: 'Trending Now', icon: '[🔥]' },
+    { value: 'popular-season', label: 'Popular This Season', icon: '[🌸]' },
+    { value: 'top-rated', label: 'Top Rated', icon: '[⭐]' },
+    { value: 'airing', label: 'Currently Airing', icon: '[📺]' },
+    { value: 'upcoming', label: 'Upcoming', icon: '[📅]' },
+    { value: 'movies', label: 'Movies', icon: '[🎬]' },
+    { value: 'genre', label: 'By Genre', icon: '[🏷️]' },
+    { value: 'season', label: 'By Season and Year', icon: '[🍂]' },
+    { value: 'surprise', label: 'Surprise Me', icon: '[🎲]' },
+  ];
+
+  const seasonOptions: SelectItem[] = [
+    { value: 'SPRING-2026', label: 'Spring 2026 (Current)', icon: '[🌸]' },
+    { value: 'WINTER-2026', label: 'Winter 2026', icon: '[❄️]' },
+    { value: 'FALL-2025', label: 'Fall 2025', icon: '[🍂]' },
+    { value: 'SUMMER-2025', label: 'Summer 2025', icon: '[☀️]' },
+    { value: 'SPRING-2025', label: 'Spring 2025', icon: '[🌸]' },
+    { value: 'WINTER-2025', label: 'Winter 2025', icon: '[❄️]' },
+    { value: 'FALL-2024', label: 'Fall 2024', icon: '[🍂]' },
+    { value: 'SUMMER-2024', label: 'Summer 2024', icon: '[☀️]' },
+    { value: 'SPRING-2024', label: 'Spring 2024', icon: '[🌸]' },
+    { value: 'WINTER-2024', label: 'Winter 2024', icon: '[❄️]' },
+  ];
+
+  const epCount = episodes.length || animeInfo?.episodes?.sub?.length || animeInfo?.episodes?.dub?.length || animeInfo?.totalEpisodes || animeInfo?.stats?.episodes?.sub || (animeInfo ? 1 : 0);
   const audioOptions: SelectItem[] = [
     { 
       value: 'sub', 
       label: 'Japanese (Subbed)', 
-      badge: `${animeInfo?.episodes?.sub?.length || 0} episodes` 
+      badge: `${epCount} episodes` 
     },
     { 
       value: 'dub', 
       label: 'English (Dubbed)', 
-      badge: `${animeInfo?.episodes?.dub?.length || 0} episodes` 
+      badge: `${epCount} episodes` 
     },
-  ].filter(opt => {
-    const count = opt.value === 'sub' 
-      ? animeInfo?.episodes?.sub?.length 
-      : animeInfo?.episodes?.dub?.length;
-    return count > 0;
-  });
+  ];
+
 
   const episodeItems: SelectItem[] = episodes
     .map((e, idx) => ({
-      episodeId: e.episodeId,
+      id: e.id || e.episodeId,
+      episodeId: e.episodeId || e.id,
       // Use original index + 1 as episode number if number is missing/0
       number: e.number || idx + 1,
       title: e.title,
@@ -2707,6 +3851,7 @@ function App() {
     .sort((a, b) => a.number - b.number)
     // Format labels
     .map(e => ({
+      id: e.id,
       episodeId: e.episodeId,
       number: e.number,
       label: `Episode ${e.number}${e.title && !e.title.includes('Episode') ? `: ${e.title}` : ''}`,
@@ -2717,7 +3862,8 @@ function App() {
     .filter((h) => {
       if (!h || !h.id || !h.title) return false;
       if (String(h.id).includes('undefined') || String(h.title).includes('undefined')) return false;
-      if (h.title.trim() === '' || h.id.trim() === '') return false;
+      if (typeof h.title === 'string' && h.title.trim() === '') return false;
+      if (typeof h.id === 'string' && h.id.trim() === '') return false;
       return true;
     })
     .map((h) => {
@@ -2729,11 +3875,12 @@ function App() {
           ? ' - Almost done!' 
           : ` • ${percentage}%` 
         : '';
+      const titleStr = typeof h.title === 'string' ? h.title : (h.title?.english || h.title?.romaji || String(h.title || 'Untitled'));
       return {
-        id: h.id,
-        value: h.id,
-        label: h.title,
-        badge: `Ep ${h.episode} • ${h.category.toUpperCase()}${progressStr}`,
+        id: String(h.id),
+        value: String(h.id),
+        label: titleStr,
+        badge: `Ep ${h.episode} • ${String(h.category || '').toUpperCase()}${progressStr}`,
         icon: almostDone ? '[*]' : undefined,
       };
     });
@@ -2862,6 +4009,54 @@ function App() {
         </Box>
       )}
 
+      {/* Browse Category List */}
+      {screen === 'browse-category' && (
+        <SelectList
+          items={browseCategoryItems}
+          onSelect={handleBrowseCategorySelect}
+          onBack={goBack}
+          title="[B] Browse Anime"
+          color={theme.purple}
+        />
+      )}
+
+      {/* Browse Genre List */}
+      {screen === 'browse-genre' && (
+        <SelectList
+          items={genresList.map(g => ({ value: g, label: g, icon: '[🏷️]' }))}
+          onSelect={handleBrowseGenreSelect}
+          onBack={goBack}
+          title={`[🏷️] Browse by Genre [Source: ${browseSource}]`}
+          color={theme.pink}
+        />
+      )}
+
+      {/* Browse Season List */}
+      {screen === 'browse-season' && (
+        <SelectList
+          items={seasonOptions}
+          onSelect={handleBrowseSeasonSelect}
+          onBack={goBack}
+          title="[🍂] Select Season & Year"
+          color={theme.yellow}
+        />
+      )}
+
+      {/* Browse Results */}
+      {screen === 'browse-results' && (
+        <SelectList
+          items={browseAnimeItems}
+          onSelect={handleAnimeSelect}
+          onBack={goBack}
+          onPageNext={handleBrowsePageNext}
+          onPagePrev={handleBrowsePagePrev}
+          onSortToggle={browseCategory === 'genre' ? handleBrowseSortToggle : undefined}
+          title={`[Browse: ${browseCategory === 'genre' ? `${browseGenre} (${browseSort})` : (browseCategory === 'season' ? `${browseSeason} ${browseYear}` : browseCategoryTitle)}] (Page ${browsePage}) [Source: ${browseSource}]`}
+          color={theme.purple}
+          showArtwork={true}
+        />
+      )}
+
       {/* Search Screen */}
       {screen === 'search' && (
         <InputBox
@@ -2897,6 +4092,21 @@ function App() {
         />
       )}
 
+      {/* Anime Details */}
+      {screen === 'anime-details' && animeInfo && (
+        <AnimeDetailsView
+          animeInfo={animeInfo}
+          history={history}
+          onWatch={handleWatchFromDetails}
+          onDownload={handleDownloadFromDetails}
+          onPlayTrailer={handlePlayTrailer}
+          onToggleMyList={handleToggleMyList}
+          isInList={isInMyList(animeInfo?.id)}
+          onBack={goBack}
+          termSize={termSize}
+        />
+      )}
+
       {/* Audio Selection */}
       {screen === 'audio-select' && (
         <Box flexDirection="column">
@@ -2917,16 +4127,16 @@ function App() {
       {screen === 'episode-select' && (
         <Box flexDirection="column">
           <Text color={theme.pink} bold>
-            📺 {selectedAnime?.label || 'Anime'} <Text color={theme.cyan}>({audioType.toUpperCase()})</Text>
+            {isDownloadMode ? '📥' : '📺'} {selectedAnime?.label || 'Anime'} <Text color={theme.cyan}>({audioType.toUpperCase()})</Text>
           </Text>
           <Box marginTop={1}>
             <SelectList
               items={episodeItems}
-              onSelect={handleEpisodeSelect}
+              onSelect={(item) => isDownloadMode ? handleEpisodeAction('d', item) : handleEpisodeSelect(item)}
               onAction={handleEpisodeAction}
               onBack={goBack}
-              title={`📋 Select Episode (${episodeItems.length} total)`}
-              color={theme.blue}
+              title={isDownloadMode ? `📥 Select Episode to Download (${episodeItems.length} total)` : `📋 Select Episode (${episodeItems.length} total)`}
+              color={isDownloadMode ? theme.cyan : theme.blue}
               showNumbers={false}
               enableSearch={episodeItems.length > 20}
             />
@@ -2962,7 +4172,8 @@ function App() {
             })
           )}
           <Text color={theme.dimGray}>{'─'.repeat(60)}</Text>
-          <Text color={theme.dimGray}>Press 'b' to go back</Text>
+          <Text color={theme.dimGray}>Press 'b' to go back | 'c' to clear finished</Text>
+          <ScreenBackHandler onBack={goBack} onClear={() => setDownloadQueue(prev => prev.filter(t => t.status === 'downloading' || t.status === 'pending'))} />
         </Box>
       )}
 
@@ -3080,7 +4291,7 @@ function App() {
             <Text color={theme.dimGray}>Press b or Left to go back</Text>
           </Box>
           {/* Handle back for help screen */}
-          <HelpBackHandler onBack={goBack} />
+          <ScreenBackHandler onBack={goBack} />
         </Box>
       )}
 
@@ -3091,9 +4302,13 @@ function App() {
   );
 }
 
-// Simple component to handle back navigation in help screen
-function HelpBackHandler({ onBack }: { onBack: () => void }) {
+// Simple component to handle keyboard input in help and download screens
+function ScreenBackHandler({ onBack, onClear }: { onBack: () => void; onClear?: () => void }) {
   useInput((input, key) => {
+    if (input === 'c' && onClear) {
+      onClear();
+      return;
+    }
     if (key.escape || input === 'b' || key.leftArrow || input === 'q') {
       if (input === 'q') { quitBus.emit('quit'); return; }
       onBack();
@@ -3106,26 +4321,34 @@ function HelpBackHandler({ onBack }: { onBack: () => void }) {
 // RENDER WITH PROPER CLEANUP
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Clear screen on startup
-process.stdout.write('\x1bc');
-
-const instance = render(
-  <TerminalInfoProvider>
-    <App />
-  </TerminalInfoProvider>
+const isMain = process.argv[1] && (
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url) ||
+  process.argv[1].endsWith('cli-terminal-fallback.mjs') ||
+  process.argv[1].endsWith('cli-terminal.tsx')
 );
 
-process.on('exit', () => {
-  instance.clear();
-});
+if (isMain) {
+  // Clear screen on startup
+  process.stdout.write('\x1bc');
 
-process.on('SIGINT', () => {
-  quitBus.emit('quit');
-  // Safety fallback: if Ink doesn't exit within 1.5s, force-exit
-  setTimeout(() => { instance.clear(); process.exit(0); }, 1500).unref();
-});
+  const instance = render(
+    <TerminalInfoProvider>
+      <App />
+    </TerminalInfoProvider>
+  );
 
-process.on('SIGTERM', () => {
-  quitBus.emit('quit');
-  setTimeout(() => { instance.clear(); process.exit(0); }, 1500).unref();
-});
+  process.on('exit', () => {
+    instance.clear();
+  });
+
+  process.on('SIGINT', () => {
+    quitBus.emit('quit');
+    // Safety fallback: if Ink doesn't exit within 1.5s, force-exit
+    setTimeout(() => { instance.clear(); process.exit(0); }, 1500).unref();
+  });
+
+  process.on('SIGTERM', () => {
+    quitBus.emit('quit');
+    setTimeout(() => { instance.clear(); process.exit(0); }, 1500).unref();
+  });
+}

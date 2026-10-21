@@ -7,10 +7,65 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-deb:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install dependencies
+        run: npm ci || npm install
+      - name: Version check
+        run: npm run check:versions
+      - name: Bundle check
+        run: npm run check:bundle
+      - name: Pack package
+        run: npm pack
+      - name: Install tarball into clean prefix
+        run: |
+          mkdir -p /tmp/clean-prefix-${{ matrix.node-version }}
+          npm install -g ./*.tgz --prefix /tmp/clean-prefix-${{ matrix.node-version }}
+      - name: Verify ny-cli --version
+        run: /tmp/clean-prefix-${{ matrix.node-version }}/bin/ny-cli --version
+      - name: Verify ny-cli --doctor
+        run: /tmp/clean-prefix-${{ matrix.node-version }}/bin/ny-cli --doctor
+
+  verify-root-prefix:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+      - name: Install dependencies
+        run: npm ci || npm install
+      - name: Pack package
+        run: npm pack
+      - name: Install under root-owned prefix as root
+        run: |
+          sudo mkdir -p /opt/ny-cli-root
+          sudo npm install -g ./*.tgz --prefix /opt/ny-cli-root
+      - name: Run as normal user
+        run: |
+          /opt/ny-cli-root/bin/ny-cli --version
+          /opt/ny-cli-root/bin/ny-cli --doctor
+
+  build-deb:
+    needs: [verify, verify-root-prefix]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
       
       - name: Get version
         id: version
@@ -24,25 +79,20 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y debhelper devscripts fakeroot build-essential nodejs npm
+          sudo apt-get install -y debhelper devscripts fakeroot build-essential
       
       - name: Build .deb package
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          # Create proper debian source directory
+          npm run build:fallback
+          TARBALL=$(npm pack)
           mkdir -p build/ny-cli-${VERSION}
-          cp ny-cli backend.mjs cli-terminal.tsx cli-terminal-fallback.mjs package.json tsconfig.json install.sh LICENSE README.md build/ny-cli-${VERSION}/
+          cp "$TARBALL" build/ny-cli-${VERSION}/
           cp -r debian build/ny-cli-${VERSION}/
           
           # Update debian changelog version
           cd build/ny-cli-${VERSION}
           sed -i "1s/ny-cli ([^)]*)/ny-cli (${VERSION}-1)/" debian/changelog
-          
-          # Install npm dependencies with legacy-peer-deps to resolve ink version conflict
-          npm install --omit=dev --ignore-scripts --legacy-peer-deps
-          
-          # Update rules to skip npm install since we did it
-          sed -i 's/npm install.*$/true/' debian/rules
           
           # Build the package
           dpkg-buildpackage -us -uc -b
@@ -54,6 +104,7 @@ jobs:
           path: build/*.deb
 
   build-rpm:
+    needs: [verify, verify-root-prefix]
     runs-on: ubuntu-latest
     container: fedora:latest
     steps:
@@ -74,27 +125,21 @@ jobs:
       - name: Setup RPM build tree
         run: rpmdev-setuptree
       
-      - name: Prepare source and install deps
+      - name: Prepare source from npm pack
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
+          npm run build:fallback
+          TARBALL=$(npm pack)
+          
+          # Prepare rpmbuild source directory containing tarball
           mkdir -p ny-cli-${VERSION}
-          cp ny-cli backend.mjs cli-terminal.tsx cli-terminal-fallback.mjs package.json tsconfig.json install.sh LICENSE README.md ny-cli-${VERSION}/
-          
-          # Install npm dependencies with legacy-peer-deps
-          cd ny-cli-${VERSION}
-          npm install --omit=dev --ignore-scripts --legacy-peer-deps
-          cd ..
-          
-          # Create tarball with node_modules included
+          cp "$TARBALL" ny-cli-${VERSION}/
+          cp LICENSE README.md ny-cli-${VERSION}/
           tar czf $HOME/rpmbuild/SOURCES/ny-cli-${VERSION}.tar.gz ny-cli-${VERSION}
           
           # Copy and update spec
           cp ny-cli.spec $HOME/rpmbuild/SPECS/
           sed -i "s/^Version:.*/Version:        ${VERSION}/" $HOME/rpmbuild/SPECS/ny-cli.spec
-          # Skip npm install in spec since we already did it
-          sed -i 's/npm install.*$/true/' $HOME/rpmbuild/SPECS/ny-cli.spec
-          # Fix the changelog date format
-          sed -i 's/Sat Apr 05/Sun Apr 05/g' $HOME/rpmbuild/SPECS/ny-cli.spec
       
       - name: Build RPM
         run: rpmbuild -ba $HOME/rpmbuild/SPECS/ny-cli.spec

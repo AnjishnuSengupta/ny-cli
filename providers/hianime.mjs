@@ -1,34 +1,46 @@
+import { httpFetch } from '../net.mjs';
+import { findBestMatch } from './match.mjs';
+
+export const name = 'hianime';
+export const tier = 1;
+
 const BASE_URL = 'https://hianime.at';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-async function fetchHtml(url, referer) {
-  const res = await fetch(url, { 
+async function fetchHtml(url, referer, signal) {
+  const timeoutSignal = AbortSignal.timeout(6000);
+  const effectiveSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+
+  const res = await httpFetch(url, { 
     headers: { 
       'User-Agent': UA, 
       'Referer': referer || BASE_URL,
       'X-Requested-With': 'XMLHttpRequest'
     },
-    signal: AbortSignal.timeout(5000)
+    signal: effectiveSignal,
   });
   if (!res.ok) throw new Error(`HiAnime HTTP ${res.status}`);
   return res.text();
 }
 
-async function fetchJson(url, referer) {
-  const res = await fetch(url, { 
+async function fetchJson(url, referer, signal) {
+  const timeoutSignal = AbortSignal.timeout(6000);
+  const effectiveSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+
+  const res = await httpFetch(url, { 
     headers: { 
       'User-Agent': UA, 
       'Referer': referer || BASE_URL,
       'X-Requested-With': 'XMLHttpRequest'
     },
-    signal: AbortSignal.timeout(5000)
+    signal: effectiveSignal,
   });
   if (!res.ok) throw new Error(`HiAnime HTTP ${res.status}`);
   return res.json();
 }
 
-export async function hianimeSearch(query) {
-  const html = await fetchHtml(`${BASE_URL}/search?keyword=${encodeURIComponent(query)}`);
+export async function hianimeSearch(query, signal) {
+  const html = await fetchHtml(`${BASE_URL}/search?keyword=${encodeURIComponent(query)}`, BASE_URL, signal);
   
   // Strip out the main-sidebar so we don't match "Top Airing" anime by accident
   const mainContent = html.split('id="main-sidebar"')[0];
@@ -46,62 +58,138 @@ export async function hianimeSearch(query) {
   }
   return results;
 }
+
+/**
+ * Parses HiAnime episode list HTML into an array of { number, id, title } entries.
+ */
+export function parseEpisodeEntries(html) {
+  const episodes = [];
+  const epItemRegex = /<a\s+[^>]*class="[^"]*ep-item[^"]*"([^>]*)>/gi;
+  let match;
+  while ((match = epItemRegex.exec(html)) !== null) {
+    const attrStr = match[1];
+    const numMatch = attrStr.match(/data-number=["']([^"']*)["']/i);
+    const idMatch = attrStr.match(/data-id=["']([^"']*)["']/i);
+    const titleMatch = attrStr.match(/title=["']([^"']*)["']/i);
+    if (numMatch && idMatch) {
+      episodes.push({
+        number: parseInt(numMatch[1], 10),
+        id: idMatch[1],
+        title: titleMatch ? titleMatch[1] : '',
+      });
+    }
+  }
+  return episodes;
+}
+
+/**
+ * Parses HiAnime episode server HTML into structured entries per-entry.
+ */
+export function parseServerEntries(html) {
+  const entries = [];
+  const itemRegex = /<div\s+class="[^"]*server-item[^"]*"([^>]*)>/gi;
+  let match;
+  while ((match = itemRegex.exec(html)) !== null) {
+    const attrStr = match[1];
+    const typeMatch = attrStr.match(/data-type=["']([^"']*)["']/i);
+    const serverNameMatch = attrStr.match(/data-server-name=["']([^"']*)["']/i);
+    const hashMatch = attrStr.match(/data-hash=["']([^"']*)["']/i);
+    const idMatch = attrStr.match(/data-id=["']([^"']*)["']/i);
+
+    if (hashMatch) {
+      entries.push({
+        type: typeMatch ? typeMatch[1].toLowerCase() : '',
+        serverName: serverNameMatch ? serverNameMatch[1] : '',
+        hash: hashMatch[1],
+        id: idMatch ? idMatch[1] : '',
+      });
+    }
+  }
+  return entries;
+}
+
 export async function hianimeGetSource(title, epNo, mode = 'sub') {
+  return resolve({
+    titles: { english: title, romaji: title },
+    episodeNumber: epNo,
+    audioKind: mode,
+  }).then(candidates => candidates[0]);
+}
+
+export async function resolve(context) {
+  const { titles = {}, episodeNumber, audioKind = 'sub', signal } = context;
+  const title = titles.english || titles.romaji || titles.native;
+  if (!title) {
+    throw new Error('Title is required for HiAnime search');
+  }
+
   // 1. Search for title
-  const results = await hianimeSearch(title);
+  const results = await hianimeSearch(title, signal);
   if (!results.length) {
     throw new Error(`No search results on HiAnime for title: ${title}`);
   }
   
-  // Exact or closest match
-  let match = results.find(r => r.title.toLowerCase() === title.toLowerCase());
-  
-  if (!match) {
-    const targetSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    // Find the one that matches the slug best and is NOT a sequel (unless title implies sequel)
-    match = results.find(r => r.slug.startsWith(targetSlug) && !r.slug.includes('-season-') && !r.slug.includes('-final') && !r.slug.includes('-part-'));
-    if (!match) match = results.find(r => r.slug.startsWith(targetSlug));
-  }
-  
-  if (!match) match = results[0]; // fallback to first result
+  const matchResult = findBestMatch(results, context, {
+    extractors: {
+      getTitle: (r) => r.title || r.slug,
+    },
+  });
 
+  if (!matchResult.match) {
+    throw new Error(matchResult.reason || 'no confident match');
+  }
+
+  const match = matchResult.match;
   const animeId = match.id;
 
   // 2. Fetch episodes list
   const epApi = `${BASE_URL}/api/theme/episode/list/${animeId}`;
   let epListHtml;
   try {
-    const epJson = await fetchJson(epApi, `${BASE_URL}/watch/${match.slug}`);
+    const epJson = await fetchJson(epApi, `${BASE_URL}/watch/${match.slug}`, signal);
     epListHtml = epJson.html;
   } catch (e) {
-    epListHtml = await fetchHtml(epApi, `${BASE_URL}/watch/${match.slug}`); // some endpoints return pure html
+    epListHtml = await fetchHtml(epApi, `${BASE_URL}/watch/${match.slug}`, signal);
   }
 
-  // Find the episode ID by extracting data-number="{epNo}" and grabbing its data-id
-  const epRegex = new RegExp(`data-number="${epNo}"\\s+data-id="(\\d+)"`, 'i');
-  const epMatch = epListHtml.match(epRegex);
-  if (!epMatch) {
-    throw new Error(`HiAnime episode ${epNo} not found for title: ${title}`);
+  // Parse episode entries per-entry
+  const episodeEntries = parseEpisodeEntries(epListHtml);
+  let epEntry = episodeEntries.find(e => e.number === Number(episodeNumber));
+
+  if (!epEntry) {
+    const epRegex = new RegExp(`data-number="${episodeNumber}"\\s+data-id="(\\d+)"`, 'i');
+    const epMatch = epListHtml.match(epRegex);
+    if (epMatch) {
+      epEntry = { id: epMatch[1], number: Number(episodeNumber) };
+    }
   }
-  const epId = epMatch[1];
+
+  if (!epEntry || !epEntry.id) {
+    throw new Error(`HiAnime episode ${episodeNumber} not found for title: ${title}`);
+  }
+  const epId = epEntry.id;
 
   // 3. Fetch servers
   const serversApi = `${BASE_URL}/api/theme/episode/servers?episodeId=${epId}`;
-  const serversJson = await fetchJson(serversApi, `${BASE_URL}/watch/${match.slug}?ep=${epId}`);
+  const serversJson = await fetchJson(serversApi, `${BASE_URL}/watch/${match.slug}?ep=${epId}`, signal);
   const serversHtml = serversJson.html || '';
 
-  // Extract ZokoAnime hash for the correct mode (sub/dub)
-  const hashRegex = new RegExp(`data-type="${mode}".*?data-server-name="ZokoAnime".*?data-hash="([^"]*)"`, 'is');
-  const hashMatch = serversHtml.match(hashRegex);
-  
-  if (!hashMatch) {
-    throw new Error(`HiAnime ZokoAnime server not found for ${title} (mode: ${mode})`);
+  // Parse servers per-entry
+  const serverEntries = parseServerEntries(serversHtml);
+  const targetType = audioKind.toLowerCase();
+
+  const serverEntry = serverEntries.find(e => e.type === targetType && e.serverName.toLowerCase() === 'zokoanime') ||
+                      serverEntries.find(e => e.type === targetType);
+
+  if (!serverEntry || !serverEntry.hash) {
+    throw new Error(`HiAnime server not found for ${title} (mode: ${audioKind})`);
   }
-  
-  const embedUrl = Buffer.from(hashMatch[1], 'base64').toString('ascii');
+
+  const embedUrl = Buffer.from(serverEntry.hash, 'base64').toString('ascii');
+
 
   // 4. Fetch embed page and decrypt blob
-  const embedHtml = await fetchHtml(embedUrl, `${BASE_URL}/`);
+  const embedHtml = await fetchHtml(embedUrl, `${BASE_URL}/`, signal);
   const pMatch = embedHtml.match(/window\.__P\s*=\s*"([^"]*)"/);
   if (!pMatch) {
     throw new Error(`HiAnime window.__P blob not found in embed for ${title}`);
@@ -127,22 +215,33 @@ export async function hianimeGetSource(title, epNo, mode = 'sub') {
     throw new Error(`HiAnime stream URL missing for ${title}`);
   }
 
-  let subtitle = '';
+  const subtitleTracks = [];
   if (Array.isArray(payload.subtitles)) {
-    const englishTrack = payload.subtitles.find(t =>
-      (t.default || (t.lang && t.lang.toLowerCase() === 'en') || (t.label && /english/i.test(t.label)))
-    );
-    subtitle = englishTrack?.src || '';
+    for (const t of payload.subtitles) {
+      if (t.src) {
+        subtitleTracks.push({
+          label: t.label || t.lang || 'Subtitle',
+          src: t.src,
+          default: !!t.default || t.lang === 'en' || /english/i.test(t.label || ''),
+        });
+      }
+    }
   }
 
-  return {
-    url: streamUrl,
-    embedUrl: embedUrl,
-    quality: `HiAnime (HLS)`,
-    type: 'hls',
-    isM3U8: true,
-    subtitle,
-    referer: embedUrl,
-    provider: 'hianime'
-  };
+  return [
+    {
+      url: streamUrl,
+      type: 'hls',
+      referer: embedUrl,
+      headers: {
+        'User-Agent': UA,
+        'Referer': embedUrl,
+      },
+      subtitleTracks,
+      audioKind,
+      quality: 'HiAnime (HLS)',
+      provider: name,
+      tier,
+    },
+  ];
 }

@@ -1,11 +1,41 @@
+ny-cli (7.0.0-1) unstable; urgency=medium
+
+  * Release 7.0.0
+
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Wed, 21 Oct 2026 19:18:34 GMT
+
+ny-cli (6.4.2-1) unstable; urgency=medium
+
+  * Release 6.4.2
+
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Mon, 19 Oct 2026 05:54:38 +0000
+
+ny-cli (6.4.1-1) unstable; urgency=medium
+
+  * Release 6.4.1
+
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Mon, 19 Oct 2026 00:00:00 +0000
+
 ny-cli (6.2.0-1) unstable; urgency=medium
+
   * Added custom Undici DNS resolver for bypass
   * Fixed ink-picture dependency conflicts
   * Fixed install.sh missing providers
 
  -- Anjishnu Sengupta <itsaemail@duck.com>  Sun, 26 Jul 2026 00:00:00 +0000
 
-ny-cli (6.1.0-1) unstable; urgency=medium
+ny-cli (5.1.2-1) unstable; urgency=medium
+
+  * React/Ink terminal UI with animated gradients and ripple effects
+  * Anime artwork display via Jikan API + chafa
+  * Watch progress tracking via mpv IPC
+  * 97% auto-advance feature for completed episodes
+  * Enhanced cloud sync with watch time
+  * Production-ready universal installer
+
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Sun, 05 Apr 2026 12:00:00 +0000
+
+ny-cli (3.0.0-1) unstable; urgency=medium
 
   * Self-hosted scraping via AllAnime adapter backend
   * Parallel server racing with Promise.any() for faster streaming
@@ -14,7 +44,7 @@ ny-cli (6.1.0-1) unstable; urgency=medium
 
  -- Anjishnu Sengupta <itsaemail@duck.com>  Tue, 17 Feb 2026 12:00:00 +0000
 
-ny-cli (6.1.0-1) unstable; urgency=medium
+ny-cli (2.5.0-1) unstable; urgency=medium
 
   * Unified Continue Watching: CLI and website now share the same history
   * Cloud sync uses main Firestore history field for bidirectional sync
@@ -23,7 +53,7 @@ ny-cli (6.1.0-1) unstable; urgency=medium
 
  -- Anjishnu Sengupta <itsaemail@duck.com>  Sat, 03 Jan 2026 12:00:00 +0000
 
-ny-cli (6.1.0-1) unstable; urgency=medium
+ny-cli (2.0.0-1) unstable; urgency=medium
 
   * Cloud sync: Fetch watch history from nyanime.qzz.io website
   * Cloud sync: Push watch history from ny-cli to website
@@ -33,16 +63,7 @@ ny-cli (6.1.0-1) unstable; urgency=medium
 
  -- Anjishnu Sengupta <itsaemail@duck.com>  Sun, 28 Dec 2025 12:00:00 +0000
 
-ny-cli (6.1.0-1) unstable; urgency=medium
-
-  * Multi-language subtitle support (all available subtitles loaded, English default)
-  * Improved random function uses full anime database
-  * Fixed install.sh colored output
-  * UI improvements and bug fixes
-
- -- Anjishnu Sengupta <itsaemail@duck.com>  Sat, 20 Dec 2025 13:00:00 +0000
-
-ny-cli (6.1.0-1) unstable; urgency=medium
+ny-cli (1.0.0-1) unstable; urgency=medium
 
   * Initial release.
   * Terminal-based anime streaming client

@@ -1,48 +1,101 @@
-# Node.js
+# Node.js & Dependencies
 node_modules/
 package-lock.json
 
-# Ignore auth files
+# Environment and secrets
+.env
+.env.*
+!.env.example
+.env.local
+.dev.vars
+relay/.dev.vars
+.npmrc
+.netrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+*.token
+secrets.*
+credentials*.json
+service-account*.json
+*-adminsdk-*.json
+.aws/
+
+# Local ny-cli runtime and user data (for checkouts)
+auth
 auth.json
 user.json
+config.json
+settings.json
+history
+*.pid
+.ny-cli/
+anime4k/
+shaders/
+downloads/
 
-# Ignore cache
+# Build and package output
+*.tgz
+*.deb
+*.rpm
+*.pkg.tar.*
+pkg/
+rpmbuild/
+dist/
+build/
+
+# Cache and temporary data
 *.cache
 cache/
 .cache/
 
-# Ignore local config
-.env
-.env.local
-
-# macOS
-.DS_Store
-
-# Backend logs
+# Logs and scratch
 .ny-cli-backend.log
 *.log
-
-# Editor files
-*.swp
-*.swo
-*~
-
-.directory
-
-# Copilot/AI skills (local only)
-.agents/
-.claude/
-skills-lock.json
-
-# NPM and Yarn logs
+*.out
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+tmp/
+*.bak
+*.orig
+*.rej
 
-# Coverage and test output
+# Other lock files
+bun.lock
+bun.lockb
+yarn.lock
+pnpm-lock.yaml
+
+# Cloudflare / Wrangler
+.wrangler/
+relay/.wrangler/
+
+# Agent and editor metadata
+.agents/
+.claude/
+skills-lock.json
+.gemini/
+.antigravity/
+.cursor/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.directory
+.DS_Store
+Thumbs.db
+
+# Stop test files coming back
+scripts/test-*
+test/
+test-results/
 coverage/
 .nyc_output/
-
-# OS generated files
-Thumbs.db
