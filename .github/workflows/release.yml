@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+      - '[0-9]*'
   workflow_dispatch:
 
 jobs:
@@ -20,6 +21,8 @@ jobs:
           node-version: ${{ matrix.node-version }}
       - name: Install dependencies
         run: npm ci || npm install
+      - name: Install system media player
+        run: sudo apt-get update && sudo apt-get install -y mpv
       - name: Version check
         run: npm run check:versions
       - name: Bundle check
@@ -45,6 +48,8 @@ jobs:
           node-version: '20.x'
       - name: Install dependencies
         run: npm ci || npm install
+      - name: Install system media player
+        run: sudo apt-get update && sudo apt-get install -y mpv
       - name: Pack package
         run: npm pack
       - name: Install under root-owned prefix as root
@@ -84,18 +89,19 @@ jobs:
       - name: Build .deb package
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          npm run build:fallback
           TARBALL=$(npm pack)
           mkdir -p build/ny-cli-${VERSION}
           cp "$TARBALL" build/ny-cli-${VERSION}/
           cp -r debian build/ny-cli-${VERSION}/
+          cp LICENSE README.md package.json build/ny-cli-${VERSION}/
           
           # Update debian changelog version
           cd build/ny-cli-${VERSION}
           sed -i "1s/ny-cli ([^)]*)/ny-cli (${VERSION}-1)/" debian/changelog
+          chmod +x debian/rules
           
           # Build the package
-          dpkg-buildpackage -us -uc -b
+          dpkg-buildpackage -us -uc -b -d
           
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
@@ -128,13 +134,12 @@ jobs:
       - name: Prepare source from npm pack
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          npm run build:fallback
           TARBALL=$(npm pack)
           
           # Prepare rpmbuild source directory containing tarball
           mkdir -p ny-cli-${VERSION}
           cp "$TARBALL" ny-cli-${VERSION}/
-          cp LICENSE README.md ny-cli-${VERSION}/
+          cp LICENSE README.md package.json ny-cli-${VERSION}/
           tar czf $HOME/rpmbuild/SOURCES/ny-cli-${VERSION}.tar.gz ny-cli-${VERSION}
           
           # Copy and update spec
@@ -155,9 +160,28 @@ jobs:
           name: rpm-package
           path: rpms/*.rpm
 
+  build-tarball:
+    needs: [verify, verify-root-prefix]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+      - name: Pack package
+        run: |
+          mkdir -p tarball
+          npm pack --pack-destination tarball
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: tarball/*.tgz
+
   release:
-    needs: [build-deb, build-rpm]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-deb, build-rpm, build-tarball]
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -171,4 +195,5 @@ jobs:
           files: |
             deb-package/*.deb
             rpm-package/*.rpm
+            npm-tarball/*.tgz
           generate_release_notes: true

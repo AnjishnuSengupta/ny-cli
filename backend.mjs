@@ -2464,7 +2464,7 @@ app.get('/api/auth/login', (req, res) => {
       document.getElementById('loader').style.display='none';
       document.getElementById('ok').style.display='block';
       u.getIdToken().then(idToken => {
-        fetch('http://127.0.0.1:${portNum}/callback',{
+        fetch('http://localhost:' + portNum + '/callback',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({

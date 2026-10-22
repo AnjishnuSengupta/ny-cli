@@ -6,7 +6,7 @@
 
 <br/>
 
-[![Version](https://img.shields.io/badge/v7.0.0-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
+[![Version](https://img.shields.io/badge/v7.0.1-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
 [![npm](https://img.shields.io/npm/v/@anjishnusengupta/ny-cli?style=flat-square&color=22c55e&label=npm)](https://www.npmjs.com/package/@anjishnusengupta/ny-cli)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.18.0-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/MIT-3b82f6?style=flat-square&label=license)](LICENSE)
@@ -27,13 +27,16 @@
 
 <br/>
 
-## 🎯 What's New in v7.0.0
+## 🎯 What's New in v7.0.1
+- **🔄 Built-in In-CLI Updater**: Instant upgrade to latest release via `ny-cli update` or `ny-cli -U` with registry version checking, background process synchronization, and symlink maintenance.
+- **🔐 Direct Localhost Authentication**: Web sign-in callback server at `http://localhost:8080/` allowing immediate Firebase authentication without remote domain whitelisting.
+- **🎨 Cover Art & Details Layout Polish**: Flexible spacing and word wrapping preventing synopsis text from overlapping anime cover art across all terminal dimensions.
 - **🚀 High-Speed Direct Anime Downloads**: One-click download of single episodes (<kbd>d</kbd> / <kbd>Enter</kbd>) or full seasons (<kbd>a</kbd>) using FFmpeg with HLS segment unmasking (`-allowed_segment_extensions ALL`) and automatic `yt-dlp` fallback.
 - **⚡ Offline Local Playback Auto-Detection**: Instant playback of downloaded episodes without buffering or internet access. When you choose to watch an episode, NY-CLI automatically checks your local downloads folder first.
 - **📥 Interactive Download Queue & Manager**: Live progress bars, transfer speeds (`speed=...x`), and keyboard controls (<kbd>b</kbd> to return, <kbd>c</kbd> to clear finished tasks), with a dedicated **Downloads** menu shortcut.
 - **⛩️ AniKoto & Kitsu Resilient Metadata Engine**: Recovers canonical episode counts (e.g. all 1,180+ One Piece episodes) with 0% overlap between Trending, Airing, and Seasonal releases.
 - **🖥️ Universal Cross-Platform Installers**: Automated one-line curl installers for Linux, macOS, and Windows PowerShell with automated dependency resolution (mpv, ffmpeg).
-- **🩺 Doctor Suite Diagnostics**: Upgraded `ny-cli --doctor` verifying node runtime, UI environment, DoH DNS layers, media tools, and network endpoints.
+- **🩺 Doctor Suite Diagnostics**: Upgraded `ny-cli doctor` verifying node runtime, UI environment, DoH DNS layers, media tools, and network endpoints.
 
 <br/>
 
@@ -247,8 +250,19 @@ npm install -g @anjishnusengupta/ny-cli
 # Start interactive terminal UI
 ny-cli
 
+# Update ny-cli to the latest release
+ny-cli update
+ny-cli -U
+
+# Check for updates without installing
+ny-cli update --check
+
 # Run system, media player & network diagnostics
+ny-cli doctor
 ny-cli --doctor
+
+# Display help and command summary
+ny-cli --help
 
 # Check installed version
 ny-cli --version
@@ -348,7 +362,7 @@ Run `ny-cli --doctor` anytime to verify your environment:
 ```
 ny-cli doctor
 =============
-Package Version: 7.0.0
+Package Version: 7.0.1
 Node.js:         v22.23.1 (supported: >=20.18.0)
 UI Runtime:      node (v22.23.1)
 Config Dir:      ~/.config/ny-cli (writable)
@@ -362,7 +376,7 @@ Checking DNS Layers:
   Active (cloudflare-doh): PASS via cloudflare-doh:1.1.1.1
 
 Checking Backend:
-  Backend:       PASS - started successfully on port 43299 (reported v7.0.0)
+  Backend:       PASS - started successfully on port 43299 (reported v7.0.1)
 
 Checking Network Endpoints:
   AniList:       reachable (200 OK)

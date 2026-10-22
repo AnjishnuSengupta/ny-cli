@@ -34,7 +34,7 @@ if (fs.existsSync(changelogPath)) {
   const current = fs.readFileSync(changelogPath, 'utf8');
   const targetHeader = `ny-cli (${version}-1)`;
   if (!current.startsWith(targetHeader)) {
-    const dateStr = new Date().toUTCString();
+    const dateStr = new Date().toUTCString().replace(/GMT$/, '+0000');
     const newEntry = `${targetHeader} unstable; urgency=medium\n\n  * Release ${version}\n\n -- Anjishnu Sengupta <itsaemail@duck.com>  ${dateStr}\n\n`;
     fs.writeFileSync(changelogPath, newEntry + current, 'utf8');
     console.log(`[sync-version] Added ${targetHeader} to debian/changelog`);

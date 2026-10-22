@@ -372,11 +372,11 @@ var getFirebaseConfig = () => {
 // cli-terminal.tsx
 var quitBus = new EventEmitter();
 var defaultPort = process.env.NY_PORT || "43201";
-var API_BASE = process.env.NYCLI_API_BASE || `http://127.0.0.1:${defaultPort}`;
+var API_BASE = process.env.NYCLI_API_BASE || `http://localhost:${defaultPort}`;
 var VERSION = "unknown";
 try {
   if (true) {
-    VERSION = "7.0.0";
+    VERSION = "7.0.1";
   } else {
     const pkgPath = path3.join(path3.dirname(fileURLToPath(import.meta.url)), "package.json");
     if (fs4.existsSync(pkgPath)) {
@@ -1147,7 +1147,7 @@ function SelectList({
     const artworkWidth = isNarrow ? Math.min(26, Math.max(16, termSize.cols - 6)) : 30;
     const artworkHeight = isNarrow ? 8 : 15;
     const titleText = typeof selectedItem?.label === "string" ? selectedItem.label : String(selectedItem?.label ?? "");
-    return /* @__PURE__ */ React.createElement(Box, { flexDirection: isNarrow ? "column" : "row" }, /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", marginRight: isNarrow ? 0 : 2, marginBottom: isNarrow ? 1 : 0, width: artworkWidth }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement(Box, { flexDirection: isNarrow ? "column" : "row" }, /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", marginRight: isNarrow ? 0 : 2, marginBottom: isNarrow ? 1 : 0, width: artworkWidth, flexShrink: 0 }, /* @__PURE__ */ React.createElement(
       AnimeArtwork,
       {
         title: titleText,
@@ -1445,7 +1445,12 @@ function AnimeDetailsView({
     studiosStr ? `Studio: ${studiosStr}` : null,
     epFactsStr
   ].filter(Boolean);
-  const synopsisWidth = isNarrow ? Math.max(20, termSize.cols - 6) : Math.max(30, termSize.cols - 38);
+  const contentWidth = Math.min(120, termSize.cols - 2);
+  const artworkWidth = isNarrow ? Math.min(26, Math.max(16, termSize.cols - 6)) : 28;
+  const artworkHeight = isNarrow ? 8 : 13;
+  const artworkGap = isNarrow ? 0 : 3;
+  const infoWidth = isNarrow ? contentWidth : Math.max(30, contentWidth - artworkWidth - artworkGap);
+  const synopsisWidth = Math.max(20, infoWidth - 4);
   const rawSynopsis = animeInfo?.synopsis || animeInfo?.description || "No synopsis available.";
   const synopsisLines = wrapText(rawSynopsis, synopsisWidth);
   const maxVisibleSynopsis = isNarrow ? 3 : 5;
@@ -1500,24 +1505,34 @@ function AnimeDetailsView({
       setSynopsisScroll((s) => Math.min(Math.max(0, synopsisLines.length - maxVisibleSynopsis), s + 2));
     }
   });
-  const artworkWidth = isNarrow ? Math.min(26, Math.max(16, termSize.cols - 6)) : 28;
-  const artworkHeight = isNarrow ? 8 : 13;
-  return /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: Math.min(120, termSize.cols - 2) }, /* @__PURE__ */ React.createElement(Box, { flexDirection: isNarrow ? "column" : "row" }, /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", marginRight: isNarrow ? 0 : 2, marginBottom: isNarrow ? 1 : 0, width: artworkWidth, alignItems: "center" }, /* @__PURE__ */ React.createElement(
-    AnimeArtwork,
+  return /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: contentWidth }, /* @__PURE__ */ React.createElement(Box, { flexDirection: isNarrow ? "column" : "row", width: contentWidth }, /* @__PURE__ */ React.createElement(
+    Box,
     {
-      title: animeInfo?.name || "",
-      imageUrl: animeInfo?.poster,
+      flexDirection: "column",
+      marginRight: artworkGap,
+      marginBottom: isNarrow ? 1 : 0,
       width: artworkWidth,
-      height: artworkHeight
-    }
-  )), /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", flexGrow: 1 }, /* @__PURE__ */ React.createElement(Text, { bold: true, color: theme.pink }, animeInfo?.titles?.english || animeInfo?.name || "Untitled"), animeInfo?.titles?.romaji && animeInfo.titles.romaji !== animeInfo?.titles?.english && /* @__PURE__ */ React.createElement(Text, { color: theme.cyan, dimColor: true }, animeInfo.titles.romaji), animeInfo?.titles?.native && /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, animeInfo.titles.native), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.yellow, bold: true }, factsParts.join(" \u2022 "))), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "Score: "), /* @__PURE__ */ React.createElement(Text, { color: theme.yellow }, scoreData.glyphs, " "), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, scoreData.bar, " "), /* @__PURE__ */ React.createElement(Text, { color: theme.white, bold: true }, scoreData.text)), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "Genres: "), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, animeInfo?.genres?.length ? animeInfo.genres.join(" \u2022 ") : "N/A")), /* @__PURE__ */ React.createElement(
+      flexShrink: 0,
+      alignItems: "center"
+    },
+    /* @__PURE__ */ React.createElement(
+      AnimeArtwork,
+      {
+        title: animeInfo?.name || "",
+        imageUrl: animeInfo?.poster,
+        width: artworkWidth,
+        height: artworkHeight
+      }
+    )
+  ), /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: infoWidth, flexShrink: 0 }, /* @__PURE__ */ React.createElement(Text, { bold: true, color: theme.pink, wrap: "wrap" }, animeInfo?.titles?.english || animeInfo?.name || "Untitled"), animeInfo?.titles?.romaji && animeInfo.titles.romaji !== animeInfo?.titles?.english && /* @__PURE__ */ React.createElement(Text, { color: theme.cyan, dimColor: true, wrap: "wrap" }, animeInfo.titles.romaji), animeInfo?.titles?.native && /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray, wrap: "wrap" }, animeInfo.titles.native), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.yellow, bold: true, wrap: "wrap" }, factsParts.join(" \u2022 "))), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "Score: "), /* @__PURE__ */ React.createElement(Text, { color: theme.yellow }, scoreData.glyphs, " "), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, scoreData.bar, " "), /* @__PURE__ */ React.createElement(Text, { color: theme.white, bold: true }, scoreData.text)), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "Genres: "), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray, wrap: "wrap" }, animeInfo?.genres?.length ? animeInfo.genres.join(" \u2022 ") : "N/A")), /* @__PURE__ */ React.createElement(
     Box,
     {
       flexDirection: "column",
       marginTop: 1,
       borderStyle: "round",
       borderColor: focusArea === "synopsis" ? theme.yellow : theme.dimGray,
-      paddingX: 1
+      paddingX: 1,
+      width: infoWidth
     },
     /* @__PURE__ */ React.createElement(Box, { justifyContent: "space-between" }, /* @__PURE__ */ React.createElement(Text, { bold: true, color: theme.purple }, "Synopsis"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray, dimColor: true }, focusArea === "synopsis" ? "\u2191\u2193 to scroll \u2502 Tab to actions" : "Tab or [/] to scroll")),
     visibleSynopsisLines.map((line, idx) => /* @__PURE__ */ React.createElement(Text, { key: idx, color: theme.white }, line))
@@ -1528,7 +1543,8 @@ function AnimeDetailsView({
       flexDirection: "column",
       borderStyle: "round",
       borderColor: focusArea === "actions" ? theme.cyan : theme.dimGray,
-      paddingX: 1
+      paddingX: 1,
+      width: infoWidth
     },
     /* @__PURE__ */ React.createElement(Box, { justifyContent: "space-between" }, /* @__PURE__ */ React.createElement(Text, { bold: true, color: theme.cyan }, "Actions"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray, dimColor: true }, focusArea === "actions" ? "\u2191\u2193 to select \u2502 Enter to confirm \u2502 Tab for synopsis" : "Tab to focus actions")),
     actionItems.map((item, idx) => {
@@ -1854,23 +1870,118 @@ function App() {
         server = null;
       }
     };
+    const loginHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>NyAnime CLI Login</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/ui/6.1.0/firebase-ui-auth.js"></script>
+  <link rel="stylesheet" href="https://www.gstatic.com/firebasejs/ui/6.1.0/firebase-ui-auth.css"/>
+  <style>
+    body { background: #1a1b26; color: #a9b1d6; font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 1rem; box-sizing: border-box; }
+    .box { background: #24283b; padding: 2.5rem 2rem; border-radius: 16px; max-width: 440px; width: 100%; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid rgba(187,154,247,0.2); }
+    h1 { color: #bb9af7; margin: 0 0 0.5rem 0; font-size: 1.8rem; letter-spacing: -0.5px; }
+    p { color: #a9b1d6; margin-bottom: 1.5rem; font-size: 0.95rem; line-height: 1.4; }
+    .ok { display: none; color: #9ece6a; font-weight: bold; margin-top: 1.5rem; font-size: 1.1rem; }
+    #loader { color: #7aa2f7; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>NyAnime CLI</h1>
+    <p>Sign in to authorize Ny-CLI and sync your watch history.</p>
+    <div id="ui"></div>
+    <div id="loader">Loading sign-in...</div>
+    <div id="ok" class="ok">\u2713 Successfully authorized! You may return to your terminal.</div>
+  </div>
+  <script>
+    firebase.initializeApp({
+      apiKey: "AIzaSyAfwO_c-_BbkiI0NcipTvGIya_R1EYyyTI",
+      authDomain: "nyanime-tech.firebaseapp.com",
+      projectId: "nyanime-tech",
+      storageBucket: "nyanime-tech.firebasestorage.app",
+      messagingSenderId: "677407184955",
+      appId: "1:677407184955:web:b3cc5095e838c9017e241e"
+    });
+    const auth = firebase.auth();
+    let sent = false;
+    function notify(u) {
+      if (sent) return;
+      sent = true;
+      document.getElementById('ui').style.display = 'none';
+      document.getElementById('loader').style.display = 'none';
+      document.getElementById('ok').style.display = 'block';
+      u.getIdToken().then(idToken => {
+        const payload = JSON.stringify({
+          token: u.uid,
+          idToken: idToken,
+          refreshToken: u.refreshToken,
+          username: u.displayName || u.email || 'AnimeFan',
+          state: ${JSON.stringify(loginState)}
+        });
+        fetch('/callback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload
+        }).catch(() => {
+          fetch('http://localhost:8080/callback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload
+          }).catch(console.error);
+        });
+      });
+    }
+    auth.onAuthStateChanged(u => {
+      if (u) {
+        notify(u);
+      } else {
+        document.getElementById('loader').style.display = 'none';
+        new firebaseui.auth.AuthUI(auth).start('#ui', {
+          callbacks: {
+            signInSuccessWithAuthResult: function(r) {
+              notify(r.user);
+              return false;
+            }
+          },
+          signInFlow: 'popup',
+          signInOptions: [
+            firebase.auth.EmailAuthProvider.PROVIDER_ID,
+            firebase.auth.GoogleAuthProvider.PROVIDER_ID
+          ]
+        });
+      }
+    });
+  </script>
+</body>
+</html>`;
     server = http.createServer((req, res) => {
       res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "OPTIONS, POST");
+      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS, POST");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type");
       if (req.method === "OPTIONS") {
         res.writeHead(204);
         res.end();
         return;
       }
-      if (req.method === "POST" && req.url === "/callback") {
+      const reqUrl = req.url || "/";
+      const urlPath = reqUrl.split("?")[0];
+      if (req.method === "GET" && (urlPath === "/" || urlPath === "/cli-login" || urlPath === "/api/auth/login")) {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(loginHtml);
+        return;
+      }
+      if (req.method === "POST" && (urlPath === "/callback" || urlPath === "/api/auth/callback")) {
         setStatus({ message: "Received callback connection...", type: "info", loading: true });
         let body = "";
         req.on("data", (chunk) => body += chunk.toString());
         req.on("end", () => {
           try {
             const data = JSON.parse(body);
-            if (data.token && data.username && data.state === loginState) {
+            if (data.token && data.username && (!loginState || !data.state || data.state === loginState)) {
               setStatus({ message: "Callback verified, logging in...", type: "info", loading: true });
               setPendingUsername(data.username);
               handleLoginToken(data.token, data.username, data.idToken, data.refreshToken);
@@ -1887,22 +1998,21 @@ function App() {
             res.end(JSON.stringify({ error: "invalid_json" }));
           }
         });
-      } else {
-        res.writeHead(404);
-        res.end();
+        return;
       }
+      res.writeHead(404);
+      res.end();
     });
-    const openBrowserWithPort = (port) => {
-      const authUrl = `${API_BASE}/api/auth/login?port=${port}&state=${loginState}`;
+    const openBrowser = (url) => {
       try {
         const platform = process.platform;
         let cmd = "xdg-open";
-        let args = [authUrl];
+        let args = [url];
         if (platform === "darwin") {
           cmd = "open";
         } else if (platform === "win32") {
           cmd = "cmd";
-          args = ["/c", "start", "", authUrl];
+          args = ["/c", "start", "", url];
         }
         const child = spawn(cmd, args, { stdio: "ignore", detached: true });
         child.on("error", (err) => {
@@ -1923,10 +2033,8 @@ function App() {
             setStatus({ message: "Login server error: " + fallbackErr.message, type: "error", loading: false });
             cleanupServer();
           });
-          fallbackServer.listen(0, "127.0.0.1", () => {
-            const addr = fallbackServer.address();
-            const chosenPort = typeof addr === "object" && addr ? addr.port : 4e3;
-            openBrowserWithPort(chosenPort);
+          fallbackServer.listen(4e3, () => {
+            openBrowser("http://localhost:8080/");
           });
         } catch (fallbackErr) {
           setStatus({ message: "Login server error: " + fallbackErr.message, type: "error", loading: false });
@@ -1937,8 +2045,8 @@ function App() {
         cleanupServer();
       }
     });
-    server.listen(4e3, "127.0.0.1", () => {
-      openBrowserWithPort(4e3);
+    server.listen(8080, () => {
+      openBrowser("http://localhost:8080/");
     });
     timeoutId = setTimeout(() => {
       cleanupServer();
@@ -3100,7 +3208,7 @@ function App() {
       showNumbers: true,
       enableSearch: false
     }
-  ))), screen === "login-waiting" && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: Math.min(55, termSize.cols - 4) }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.purple, bold: true }, "[L] Login to NyAnime"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(45)), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "1. Check your browser"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "2. Sign in or Authorize ny-cli"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "3. Return to terminal when done"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(45)), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "Waiting for authorization..."))), screen === "profile" && /* @__PURE__ */ React.createElement(Box, { flexDirection: termSize.cols < 70 ? "column" : "row", gap: 2 }, userPhotoUrl ? /* @__PURE__ */ React.createElement(Box, { width: 18, height: 14 }, /* @__PURE__ */ React.createElement(AnimeArtwork, { title: "", imageUrl: userPhotoUrl, width: 18, height: 14 })) : /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.purple, width: 16, height: 12, justifyContent: "center", alignItems: "center" }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "[No Photo]")), /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: Math.min(50, termSize.cols - 4) }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.purple, bold: true }, "[P] ", username), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(35)), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "UID: ", /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, getToken().substring(0, 12), "...")), syncMessage ? /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, syncMessage) : null), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(
+  ))), screen === "login-waiting" && /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: Math.min(55, termSize.cols - 4) }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.purple, bold: true }, "[L] Login to NyAnime"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(45)), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "1. Open in browser:"), /* @__PURE__ */ React.createElement(Text, { color: theme.yellow }, "   http://localhost:8080/"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "2. Sign in or Authorize ny-cli"), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "3. Return to terminal when done"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(45)), /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, "Waiting for authorization..."))), screen === "profile" && /* @__PURE__ */ React.createElement(Box, { flexDirection: termSize.cols < 70 ? "column" : "row", gap: 2 }, userPhotoUrl ? /* @__PURE__ */ React.createElement(Box, { width: 18, height: 14 }, /* @__PURE__ */ React.createElement(AnimeArtwork, { title: "", imageUrl: userPhotoUrl, width: 18, height: 14 })) : /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.purple, width: 16, height: 12, justifyContent: "center", alignItems: "center" }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "[No Photo]")), /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: Math.min(50, termSize.cols - 4) }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.purple, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.purple, bold: true }, "[P] ", username), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(35)), /* @__PURE__ */ React.createElement(Text, { color: theme.lightGray }, "UID: ", /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, getToken().substring(0, 12), "...")), syncMessage ? /* @__PURE__ */ React.createElement(Text, { color: theme.cyan }, syncMessage) : null), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(
     SelectList,
     {
       items: profileMenuItems,

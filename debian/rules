@@ -4,7 +4,7 @@
 	dh $@
 
 override_dh_auto_build:
-	npm pack
+	[ -f anjishnusengupta-ny-cli-*.tgz ] || npm pack
 
 override_dh_auto_install:
 	tarball=$$(ls -1 anjishnusengupta-ny-cli-*.tgz 2>/dev/null | head -n 1) && \

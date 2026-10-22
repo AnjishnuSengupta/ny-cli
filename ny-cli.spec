@@ -1,5 +1,5 @@
 Name:           ny-cli
-Version:        7.0.0
+Version:        7.0.1
 Release:        1%{?dist}
 Summary:        Beautiful terminal anime streaming client with artwork display and cloud sync
 
@@ -25,7 +25,7 @@ ripple effects, and support for mpv and VLC players.
 %autosetup
 
 %build
-npm pack
+[ -f anjishnusengupta-ny-cli-*.tgz ] || npm pack
 
 %install
 mkdir -p %{buildroot}%{_prefix}

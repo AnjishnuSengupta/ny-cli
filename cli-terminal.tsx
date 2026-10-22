@@ -27,7 +27,7 @@ import { getMpvSkipArgs } from './skip.mjs';
 export const quitBus = new EventEmitter();
 
 const defaultPort = process.env.NY_PORT || '43201';
-const API_BASE = process.env.NYCLI_API_BASE || `http://127.0.0.1:${defaultPort}`;
+const API_BASE = process.env.NYCLI_API_BASE || `http://localhost:${defaultPort}`;
 declare const __CLI_VERSION__: string | undefined;
 
 let VERSION = 'unknown';
@@ -1515,7 +1515,7 @@ function SelectList({
     return (
       <Box flexDirection={isNarrow ? 'column' : 'row'}>
         {/* Artwork panel on the left (or top on narrow) */}
-        <Box flexDirection="column" marginRight={isNarrow ? 0 : 2} marginBottom={isNarrow ? 1 : 0} width={artworkWidth}>
+        <Box flexDirection="column" marginRight={isNarrow ? 0 : 2} marginBottom={isNarrow ? 1 : 0} width={artworkWidth} flexShrink={0}>
           <AnimeArtwork 
             title={titleText} 
             imageUrl={selectedItem?.imageUrl}
@@ -2084,8 +2084,14 @@ function AnimeDetailsView({
     epFactsStr,
   ].filter(Boolean);
 
+  const contentWidth = Math.min(120, termSize.cols - 2);
+  const artworkWidth = isNarrow ? Math.min(26, Math.max(16, termSize.cols - 6)) : 28;
+  const artworkHeight = isNarrow ? 8 : 13;
+  const artworkGap = isNarrow ? 0 : 3;
+  const infoWidth = isNarrow ? contentWidth : Math.max(30, contentWidth - artworkWidth - artworkGap);
+
   // Synopsis wrapping
-  const synopsisWidth = isNarrow ? Math.max(20, termSize.cols - 6) : Math.max(30, termSize.cols - 38);
+  const synopsisWidth = Math.max(20, infoWidth - 4);
   const rawSynopsis = animeInfo?.synopsis || animeInfo?.description || 'No synopsis available.';
   const synopsisLines = wrapText(rawSynopsis, synopsisWidth);
   const maxVisibleSynopsis = isNarrow ? 3 : 5;
@@ -2148,14 +2154,18 @@ function AnimeDetailsView({
     }
   });
 
-  const artworkWidth = isNarrow ? Math.min(26, Math.max(16, termSize.cols - 6)) : 28;
-  const artworkHeight = isNarrow ? 8 : 13;
-
   return (
-    <Box flexDirection="column" width={Math.min(120, termSize.cols - 2)}>
-      <Box flexDirection={isNarrow ? 'column' : 'row'}>
+    <Box flexDirection="column" width={contentWidth}>
+      <Box flexDirection={isNarrow ? 'column' : 'row'} width={contentWidth}>
         {/* Cover Artwork */}
-        <Box flexDirection="column" marginRight={isNarrow ? 0 : 2} marginBottom={isNarrow ? 1 : 0} width={artworkWidth} alignItems="center">
+        <Box
+          flexDirection="column"
+          marginRight={artworkGap}
+          marginBottom={isNarrow ? 1 : 0}
+          width={artworkWidth}
+          flexShrink={0}
+          alignItems="center"
+        >
           <AnimeArtwork
             title={animeInfo?.name || ''}
             imageUrl={animeInfo?.poster}
@@ -2165,19 +2175,19 @@ function AnimeDetailsView({
         </Box>
 
         {/* Info Column */}
-        <Box flexDirection="column" flexGrow={1}>
+        <Box flexDirection="column" width={infoWidth} flexShrink={0}>
           {/* Titles */}
-          <Text bold color={theme.pink}>{animeInfo?.titles?.english || animeInfo?.name || 'Untitled'}</Text>
+          <Text bold color={theme.pink} wrap="wrap">{animeInfo?.titles?.english || animeInfo?.name || 'Untitled'}</Text>
           {animeInfo?.titles?.romaji && animeInfo.titles.romaji !== animeInfo?.titles?.english && (
-            <Text color={theme.cyan} dimColor>{animeInfo.titles.romaji}</Text>
+            <Text color={theme.cyan} dimColor wrap="wrap">{animeInfo.titles.romaji}</Text>
           )}
           {animeInfo?.titles?.native && (
-            <Text color={theme.dimGray}>{animeInfo.titles.native}</Text>
+            <Text color={theme.dimGray} wrap="wrap">{animeInfo.titles.native}</Text>
           )}
 
           {/* Facts Line */}
           <Box marginTop={1}>
-            <Text color={theme.yellow} bold>
+            <Text color={theme.yellow} bold wrap="wrap">
               {factsParts.join(' • ')}
             </Text>
           </Box>
@@ -2193,7 +2203,7 @@ function AnimeDetailsView({
           {/* Genres Line */}
           <Box marginTop={1}>
             <Text color={theme.cyan}>Genres: </Text>
-            <Text color={theme.lightGray}>
+            <Text color={theme.lightGray} wrap="wrap">
               {animeInfo?.genres?.length ? animeInfo.genres.join(' • ') : 'N/A'}
             </Text>
           </Box>
@@ -2205,6 +2215,7 @@ function AnimeDetailsView({
             borderStyle="round"
             borderColor={focusArea === 'synopsis' ? theme.yellow : theme.dimGray}
             paddingX={1}
+            width={infoWidth}
           >
             <Box justifyContent="space-between">
               <Text bold color={theme.purple}>Synopsis</Text>
@@ -2224,6 +2235,7 @@ function AnimeDetailsView({
             borderStyle="round"
             borderColor={focusArea === 'actions' ? theme.cyan : theme.dimGray}
             paddingX={1}
+            width={infoWidth}
           >
             <Box justifyContent="space-between">
               <Text bold color={theme.cyan}>Actions</Text>
@@ -2678,9 +2690,98 @@ function App() {
       }
     };
 
+    const loginHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>NyAnime CLI Login</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/ui/6.1.0/firebase-ui-auth.js"></script>
+  <link rel="stylesheet" href="https://www.gstatic.com/firebasejs/ui/6.1.0/firebase-ui-auth.css"/>
+  <style>
+    body { background: #1a1b26; color: #a9b1d6; font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 1rem; box-sizing: border-box; }
+    .box { background: #24283b; padding: 2.5rem 2rem; border-radius: 16px; max-width: 440px; width: 100%; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid rgba(187,154,247,0.2); }
+    h1 { color: #bb9af7; margin: 0 0 0.5rem 0; font-size: 1.8rem; letter-spacing: -0.5px; }
+    p { color: #a9b1d6; margin-bottom: 1.5rem; font-size: 0.95rem; line-height: 1.4; }
+    .ok { display: none; color: #9ece6a; font-weight: bold; margin-top: 1.5rem; font-size: 1.1rem; }
+    #loader { color: #7aa2f7; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>NyAnime CLI</h1>
+    <p>Sign in to authorize Ny-CLI and sync your watch history.</p>
+    <div id="ui"></div>
+    <div id="loader">Loading sign-in...</div>
+    <div id="ok" class="ok">✓ Successfully authorized! You may return to your terminal.</div>
+  </div>
+  <script>
+    firebase.initializeApp({
+      apiKey: "AIzaSyAfwO_c-_BbkiI0NcipTvGIya_R1EYyyTI",
+      authDomain: "nyanime-tech.firebaseapp.com",
+      projectId: "nyanime-tech",
+      storageBucket: "nyanime-tech.firebasestorage.app",
+      messagingSenderId: "677407184955",
+      appId: "1:677407184955:web:b3cc5095e838c9017e241e"
+    });
+    const auth = firebase.auth();
+    let sent = false;
+    function notify(u) {
+      if (sent) return;
+      sent = true;
+      document.getElementById('ui').style.display = 'none';
+      document.getElementById('loader').style.display = 'none';
+      document.getElementById('ok').style.display = 'block';
+      u.getIdToken().then(idToken => {
+        const payload = JSON.stringify({
+          token: u.uid,
+          idToken: idToken,
+          refreshToken: u.refreshToken,
+          username: u.displayName || u.email || 'AnimeFan',
+          state: ${JSON.stringify(loginState)}
+        });
+        fetch('/callback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload
+        }).catch(() => {
+          fetch('http://localhost:8080/callback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload
+          }).catch(console.error);
+        });
+      });
+    }
+    auth.onAuthStateChanged(u => {
+      if (u) {
+        notify(u);
+      } else {
+        document.getElementById('loader').style.display = 'none';
+        new firebaseui.auth.AuthUI(auth).start('#ui', {
+          callbacks: {
+            signInSuccessWithAuthResult: function(r) {
+              notify(r.user);
+              return false;
+            }
+          },
+          signInFlow: 'popup',
+          signInOptions: [
+            firebase.auth.EmailAuthProvider.PROVIDER_ID,
+            firebase.auth.GoogleAuthProvider.PROVIDER_ID
+          ]
+        });
+      }
+    });
+  </script>
+</body>
+</html>`;
+
     server = http.createServer((req: any, res: any) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, POST');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, POST');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
       if (req.method === 'OPTIONS') {
@@ -2689,14 +2790,23 @@ function App() {
         return;
       }
 
-      if (req.method === 'POST' && req.url === '/callback') {
+      const reqUrl = req.url || '/';
+      const urlPath = reqUrl.split('?')[0];
+
+      if (req.method === 'GET' && (urlPath === '/' || urlPath === '/cli-login' || urlPath === '/api/auth/login')) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(loginHtml);
+        return;
+      }
+
+      if (req.method === 'POST' && (urlPath === '/callback' || urlPath === '/api/auth/callback')) {
         setStatus({ message: 'Received callback connection...', type: 'info', loading: true });
         let body = '';
         req.on('data', (chunk: any) => body += chunk.toString());
         req.on('end', () => {
           try {
             const data = JSON.parse(body);
-            if (data.token && data.username && data.state === loginState) {
+            if (data.token && data.username && (!loginState || !data.state || data.state === loginState)) {
               setStatus({ message: 'Callback verified, logging in...', type: 'info', loading: true });
               setPendingUsername(data.username);
               handleLoginToken(data.token, data.username, data.idToken, data.refreshToken);
@@ -2713,23 +2823,23 @@ function App() {
             res.end(JSON.stringify({ error: 'invalid_json' }));
           }
         });
-      } else {
-        res.writeHead(404);
-        res.end();
+        return;
       }
+
+      res.writeHead(404);
+      res.end();
     });
 
-    const openBrowserWithPort = (port: number) => {
-      const authUrl = `${API_BASE}/api/auth/login?port=${port}&state=${loginState}`;
+    const openBrowser = (url: string) => {
       try {
         const platform = process.platform;
         let cmd = 'xdg-open';
-        let args = [authUrl];
+        let args = [url];
         if (platform === 'darwin') {
           cmd = 'open';
         } else if (platform === 'win32') {
           cmd = 'cmd';
-          args = ['/c', 'start', '', authUrl];
+          args = ['/c', 'start', '', url];
         }
         const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
         child.on('error', (err) => {
@@ -2743,7 +2853,6 @@ function App() {
 
     server.on('error', (err: any) => {
       if (err.code === 'EADDRINUSE') {
-        // Fall back to dynamic port (port 0)
         try {
           const fallbackServer = http.createServer(server.listeners('request')[0] as any);
           server.close();
@@ -2752,10 +2861,8 @@ function App() {
             setStatus({ message: 'Login server error: ' + fallbackErr.message, type: 'error', loading: false });
             cleanupServer();
           });
-          fallbackServer.listen(0, '127.0.0.1', () => {
-            const addr = fallbackServer.address();
-            const chosenPort = typeof addr === 'object' && addr ? addr.port : 4000;
-            openBrowserWithPort(chosenPort);
+          fallbackServer.listen(4000, () => {
+            openBrowser('http://localhost:8080/');
           });
         } catch (fallbackErr: any) {
           setStatus({ message: 'Login server error: ' + fallbackErr.message, type: 'error', loading: false });
@@ -2767,8 +2874,8 @@ function App() {
       }
     });
 
-    server.listen(4000, '127.0.0.1', () => {
-      openBrowserWithPort(4000);
+    server.listen(8080, () => {
+      openBrowser('http://localhost:8080/');
     });
 
     // Auto-close after 5 minutes
@@ -4206,7 +4313,8 @@ function App() {
           <Box borderStyle="round" borderColor={theme.purple} paddingX={2} paddingY={1} flexDirection="column">
             <Text color={theme.purple} bold>[L] Login to NyAnime</Text>
             <Text color={theme.dimGray}>{'─'.repeat(45)}</Text>
-            <Text color={theme.lightGray}>1. Check your browser</Text>
+            <Text color={theme.lightGray}>1. Open in browser:</Text>
+            <Text color={theme.yellow}>   http://localhost:8080/</Text>
             <Text color={theme.lightGray}>2. Sign in or Authorize ny-cli</Text>
             <Text color={theme.lightGray}>3. Return to terminal when done</Text>
             <Text color={theme.dimGray}>{'─'.repeat(45)}</Text>

@@ -260,6 +260,173 @@ async function findFreePort(preferred = 43201) {
   });
 }
 
+export function printHelp() {
+  console.log(`\x1b[1;35m
+  ███╗   ██╗██╗   ██╗       ██████╗██╗     ██╗
+  ████╗  ██║╚██╗ ██╔╝      ██╔════╝██║     ██║
+  ██╔██╗ ██║ ╚████╔╝ █████╗██║     ██║     ██║
+  ██║╚██╗██║  ╚██╔╝  ╚════╝██║     ██║     ██║
+  ██║ ╚████║   ██║         ╚██████╗███████╗██║
+  ╚═╝  ╚═══╝   ╚═╝          ╚═════╝╚══════╝╚═╝\x1b[0m
+\x1b[2m\x1b[36m       ⟨ Your Gateway to Anime Streaming ⟩\x1b[0m
+\x1b[2m            https://nyanime.qzz.io\x1b[0m
+
+\x1b[1mny-cli v${pkgVersion}\x1b[0m
+
+\x1b[1;37mUSAGE:\x1b[0m
+  ny-cli [command] [options]
+
+\x1b[1;37mCOMMANDS:\x1b[0m
+  \x1b[1;32m(none)\x1b[0m            Launch interactive terminal interface
+  \x1b[1;32mupdate, -U\x1b[0m        Update ny-cli to the latest release
+  \x1b[1;32mdoctor\x1b[0m            Run environment, media player & network diagnostics
+
+\x1b[1;37mOPTIONS:\x1b[0m
+  \x1b[1;36m-U, --update\x1b[0m      Update ny-cli to the latest release
+  \x1b[1;36m-v, --version\x1b[0m     Display installed version
+  \x1b[1;36m--stop\x1b[0m            Stop background backend process
+  \x1b[1;36m-h, --help\x1b[0m        Show this help message
+
+\x1b[1;37mUPDATE OPTIONS:\x1b[0m
+  \x1b[1;36m-f, --force\x1b[0m       Force reinstall even if already on latest version
+  \x1b[1;36m-c, --check\x1b[0m       Check for available updates without installing
+`);
+}
+
+export async function handleUpdateCommand(argv = []) {
+  const force = argv.includes('--force') || argv.includes('-f');
+  const checkOnly = argv.includes('--check') || argv.includes('-c');
+
+  console.log(`\x1b[1;36mny-cli updater\x1b[0m`);
+  console.log(`Current version: \x1b[1mv${pkgVersion}\x1b[0m`);
+  process.stdout.write(`Checking npm registry for updates...`);
+
+  let latestVersion = null;
+  try {
+    const res = await fetch('https://registry.npmjs.org/@anjishnusengupta/ny-cli/latest', {
+      signal: AbortSignal.timeout(6000),
+      headers: { 'Accept': 'application/json' },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      latestVersion = data.version;
+    }
+  } catch {}
+
+  // Fallback if direct fetch had issues
+  if (!latestVersion) {
+    try {
+      const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+      const out = spawnSync(npmCmd, ['view', '@anjishnusengupta/ny-cli', 'version'], {
+        encoding: 'utf8',
+        timeout: 6000,
+        shell: process.platform === 'win32',
+      });
+      if (out.status === 0 && out.stdout.trim()) {
+        latestVersion = out.stdout.trim();
+      }
+    } catch {}
+  }
+
+  if (!latestVersion) {
+    process.stdout.write(` \x1b[1;31mfailed!\x1b[0m\n`);
+    console.error(`\x1b[1;31m✗ Could not fetch latest version from npm registry.\x1b[0m`);
+    console.log(`\nPlease check your network connection or update manually:`);
+    console.log(`  npm install -g @anjishnusengupta/ny-cli@latest`);
+    console.log(`or via direct installer:`);
+    console.log(`  curl -fsSL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.sh | sh`);
+    return;
+  }
+
+  process.stdout.write(` \x1b[1;32mdone.\x1b[0m\n`);
+  console.log(`Latest version:  \x1b[1mv${latestVersion}\x1b[0m`);
+
+  function compareSemver(a, b) {
+    const pa = String(a || '').replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+    const pb = String(b || '').replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+    for (let i = 0; i < 3; i++) {
+      const na = pa[i] ?? 0;
+      const nb = pb[i] ?? 0;
+      if (na > nb) return 1;
+      if (na < nb) return -1;
+    }
+    return 0;
+  }
+
+  const hasNewerVersion = compareSemver(latestVersion, pkgVersion) > 0;
+
+  if (!hasNewerVersion && !force) {
+    console.log(`\n\x1b[1;32m✓ ny-cli is already up to date (v${pkgVersion}).\x1b[0m`);
+    return;
+  }
+
+  if (checkOnly) {
+    if (hasNewerVersion) {
+      console.log(`\n\x1b[1;33mUpdate available: v${pkgVersion} -> v${latestVersion}\x1b[0m`);
+      console.log(`Run \x1b[1mny-cli update\x1b[0m or \x1b[1mny-cli -U\x1b[0m to install.`);
+    }
+    return;
+  }
+
+  if (!hasNewerVersion && force) {
+    console.log(`\n\x1b[1;33mReinstalling version v${latestVersion} (--force specified)...\x1b[0m`);
+  } else {
+    console.log(`\n\x1b[1;36mUpdating @anjishnusengupta/ny-cli (v${pkgVersion} -> v${latestVersion})...\x1b[0m`);
+  }
+
+  // Stop running background backend before updating files
+  try {
+    stopRunningBackend();
+  } catch {}
+
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const pkgSpec = `@anjishnusengupta/ny-cli@${latestVersion}`;
+
+  // Execute npm install -g
+  const res = spawnSync(npmCmd, ['install', '-g', pkgSpec], {
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  });
+
+  if (res.status === 0) {
+    // If on Linux/macOS, check if ~/.local/bin/ny-cli or /usr/local/bin/ny-cli needs symlink refresh
+    try {
+      if (process.platform !== 'win32') {
+        const prefixRes = spawnSync(npmCmd, ['prefix', '-g'], { encoding: 'utf8' });
+        if (prefixRes.status === 0 && prefixRes.stdout.trim()) {
+          const globalBin = path.join(prefixRes.stdout.trim(), 'bin', 'ny-cli');
+          if (fs.existsSync(globalBin)) {
+            const home = process.env.HOME || '';
+            const userLocalBin = path.join(home, '.local', 'bin');
+            if (fs.existsSync(userLocalBin)) {
+              const target = path.join(userLocalBin, 'ny-cli');
+              try { fs.unlinkSync(target); } catch {}
+              try { fs.symlinkSync(globalBin, target); } catch {}
+            }
+          }
+        }
+      }
+    } catch {}
+
+    console.log(`\n\x1b[1;32m✓ Successfully updated ny-cli to v${latestVersion}!\x1b[0m`);
+    console.log(`Run \x1b[1mny-cli\x1b[0m to start.`);
+  } else {
+    console.error(`\n\x1b[1;31m✗ npm install -g failed with exit code ${res.status ?? 'unknown'}.\x1b[0m`);
+    if (process.platform !== 'win32') {
+      console.log(`\nIf npm requires elevated permissions, please run:`);
+      console.log(`  sudo npm install -g ${pkgSpec}`);
+      console.log(`\nOr re-run the official installer:`);
+      console.log(`  curl -fsSL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.sh | sh`);
+    } else {
+      console.log(`\nPlease run PowerShell as Administrator and run:`);
+      console.log(`  npm install -g ${pkgSpec}`);
+      console.log(`\nOr re-run the Windows installer:`);
+      console.log(`  irm https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.ps1 | iex`);
+    }
+    process.exit(res.status ?? 1);
+  }
+}
+
 // ── 4. Main execution: Start backend, wait for health, run UI ──────────────────
 export async function main(argv = process.argv.slice(2)) {
   // ── 1. Node version check (must be >= 20.18.0) ────────────────────────────────
@@ -269,7 +436,12 @@ export async function main(argv = process.argv.slice(2)) {
     process.exit(1);
   }
 
-  // ── 2. Flags: --version, --stop, --doctor ────────────────────────────────────
+  // ── 2. Flags: --help, --version, --stop, doctor, update ─────────────────────
+  if (argv.includes('--help') || argv.includes('-h') || argv.includes('help')) {
+    printHelp();
+    process.exit(0);
+  }
+
   if (argv.includes('--version') || argv.includes('-v')) {
     console.log(`ny-cli v${pkgVersion}`);
     process.exit(0);
@@ -280,7 +452,7 @@ export async function main(argv = process.argv.slice(2)) {
     process.exit(0);
   }
 
-  if (argv.includes('--doctor')) {
+  if (argv.includes('doctor') || argv.includes('--doctor')) {
     const doctorPath = path.join(packageRoot, 'doctor.mjs');
     if (fs.existsSync(doctorPath)) {
       const res = spawnSync(process.execPath, [doctorPath], { stdio: 'inherit' });
@@ -290,6 +462,11 @@ export async function main(argv = process.argv.slice(2)) {
       console.log('Doctor module will be available in task T1.6');
       process.exit(0);
     }
+  }
+
+  if (argv.includes('update') || argv.includes('-U') || argv.includes('--update') || argv.includes('-u')) {
+    await handleUpdateCommand(argv);
+    process.exit(0);
   }
 
   ensureDirs();

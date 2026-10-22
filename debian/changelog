@@ -1,8 +1,14 @@
+ny-cli (7.0.1-1) unstable; urgency=medium
+
+  * Release 7.0.1
+
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Thu, 22 Oct 2026 04:27:30 +0000
+
 ny-cli (7.0.0-1) unstable; urgency=medium
 
   * Release 7.0.0
 
- -- Anjishnu Sengupta <itsaemail@duck.com>  Wed, 21 Oct 2026 19:18:34 GMT
+ -- Anjishnu Sengupta <itsaemail@duck.com>  Wed, 21 Oct 2026 19:18:34 +0000
 
 ny-cli (6.4.2-1) unstable; urgency=medium
 

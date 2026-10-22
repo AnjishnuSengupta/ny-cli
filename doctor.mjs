@@ -315,7 +315,6 @@ export async function runDoctor() {
 
   if (!mpv.present && !vlc.present) {
     console.log('  WARNING: Neither mpv nor vlc was found. Playback will fail without a video player.');
-    hasFatalError = true;
   }
 
   console.log('\n-----------------------------');
