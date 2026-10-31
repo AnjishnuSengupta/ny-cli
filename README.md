@@ -492,6 +492,28 @@ npm run build:fallback
 
 <br/>
 
+## ⭐ Star History
+
+<br/>
+
+<div align="center">
+
+<a href="https://www.star-history.com/?repos=AnjishnuSengupta%2Fny-cli&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=AnjishnuSengupta/ny-cli&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=AnjishnuSengupta/ny-cli&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=AnjishnuSengupta/ny-cli&type=date&legend=top-left" />
+ </picture>
+</a>
+
+</div>
+
+<br/>
+
+---
+
+<br/>
+
 ## 📜 License
 
 This project is licensed under the **MIT License**.
@@ -506,7 +528,30 @@ All streams are fetched from third-party sources. Use responsibly.
 </samp>
 
 <br/>
+<br/>
+
+---
+
+<br/>
+
+<img src="https://capsule-render.vercel.app/api?type=waving&color=a855f7&height=100&section=footer" width="100%" />
+
+<br/>
+
+<samp>
+
+*"In a world full of filler episodes, be the main arc."* ✦
+
+</samp>
+
+<br/>
 
 **Made with 💜 by [Anjishnu](https://github.com/AnjishnuSengupta)**
+
+[![Instagram](https://img.shields.io/badge/@anjishnu.prolly-E4405F?style=for-the-badge&logo=instagram&logoColor=white)](https://www.instagram.com/anjishnu.prolly)
+
+<br/>
+
+⭐ Star this repo if you found it useful!
 
 </div>
