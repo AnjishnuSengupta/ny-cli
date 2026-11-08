@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import esbuild from 'esbuild';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -9,6 +8,20 @@ const bundlePath = path.join(ROOT, 'cli-terminal-fallback.mjs');
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 
 const existingContent = fs.existsSync(bundlePath) ? fs.readFileSync(bundlePath, 'utf8') : '';
+
+let esbuild;
+try {
+  const mod = await import('esbuild');
+  esbuild = mod.default || mod;
+} catch {
+  if (existingContent.length > 0) {
+    console.log('cli-terminal-fallback.mjs is present (esbuild not available, skipping rebuild check).');
+    process.exit(0);
+  } else {
+    console.error('cli-terminal-fallback.mjs is missing and esbuild is not installed.');
+    process.exit(1);
+  }
+}
 
 const result = await esbuild.build({
   entryPoints: [path.join(ROOT, 'cli-terminal.tsx')],

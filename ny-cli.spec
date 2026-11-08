@@ -1,3 +1,5 @@
+%global debug_package %{nil}
+
 Name:           ny-cli
 Version:        7.1.0
 Release:        1%{?dist}
