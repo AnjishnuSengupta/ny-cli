@@ -14,7 +14,6 @@ BuildRequires:  npm
 Requires:       nodejs >= 20.18.0
 Recommends:     mpv chafa
 Suggests:       vlc
-AutoReqProv:    no
 
 %description
 NY-CLI is a beautiful terminal anime streaming client with React/Ink UI.
@@ -48,6 +47,9 @@ install -Dm644 README.md %{buildroot}%{_docdir}/%{name}/README.md
 %{_prefix}/lib/node_modules/@anjishnusengupta/ny-cli
 
 %changelog
+* Sun Nov 08 2026 Anjishnu Sengupta <itsaemail@duck.com> - 7.1.0-1
+- Initial Fedora COPR packaging for NY-CLI 7.1.0
+
 * Sun Nov 08 2026 Anjishnu Sengupta <itsaemail@duck.com> - 7.1.0-1
 - Release v7.1.0
 - Add VidSrc streaming provider with multi-source fallback

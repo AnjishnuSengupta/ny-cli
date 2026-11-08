@@ -99,3 +99,4 @@ test/
 test-results/
 coverage/
 .nyc_output/
+ny-cli.spec.backup
