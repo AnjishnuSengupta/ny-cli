@@ -1,12 +1,12 @@
 <div align="center">
 
-# ✦ NY-CLI
+# NY-CLI
 
 <samp>ネコアニメ CLI — Watch and Download Anime from Your Terminal</samp>
 
 <br/>
 
-[![Version](https://img.shields.io/badge/v7.0.1-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
+[![Version](https://img.shields.io/badge/v7.1.0-a855f7?style=flat-square&label=release)](https://github.com/AnjishnuSengupta/ny-cli/releases)
 [![npm](https://img.shields.io/npm/v/@anjishnusengupta/ny-cli?style=flat-square&color=22c55e&label=npm)](https://www.npmjs.com/package/@anjishnusengupta/ny-cli)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.18.0-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/MIT-3b82f6?style=flat-square&label=license)](LICENSE)
@@ -27,16 +27,15 @@
 
 <br/>
 
-## 🎯 What's New in v7.0.1
-- **🔄 Built-in In-CLI Updater**: Instant upgrade to latest release via `ny-cli update` or `ny-cli -U` with registry version checking, background process synchronization, and symlink maintenance.
-- **🔐 Direct Localhost Authentication**: Web sign-in callback server at `http://localhost:8080/` allowing immediate Firebase authentication without remote domain whitelisting.
-- **🎨 Cover Art & Details Layout Polish**: Flexible spacing and word wrapping preventing synopsis text from overlapping anime cover art across all terminal dimensions.
-- **🚀 High-Speed Direct Anime Downloads**: One-click download of single episodes (<kbd>d</kbd> / <kbd>Enter</kbd>) or full seasons (<kbd>a</kbd>) using FFmpeg with HLS segment unmasking (`-allowed_segment_extensions ALL`) and automatic `yt-dlp` fallback.
-- **⚡ Offline Local Playback Auto-Detection**: Instant playback of downloaded episodes without buffering or internet access. When you choose to watch an episode, NY-CLI automatically checks your local downloads folder first.
-- **📥 Interactive Download Queue & Manager**: Live progress bars, transfer speeds (`speed=...x`), and keyboard controls (<kbd>b</kbd> to return, <kbd>c</kbd> to clear finished tasks), with a dedicated **Downloads** menu shortcut.
-- **⛩️ AniKoto & Kitsu Resilient Metadata Engine**: Recovers canonical episode counts (e.g. all 1,180+ One Piece episodes) with 0% overlap between Trending, Airing, and Seasonal releases.
-- **🖥️ Universal Cross-Platform Installers**: Automated one-line curl installers for Linux, macOS, and Windows PowerShell with automated dependency resolution (mpv, ffmpeg).
-- **🩺 Doctor Suite Diagnostics**: Upgraded `ny-cli doctor` verifying node runtime, UI environment, DoH DNS layers, media tools, and network endpoints.
+## What's New in v7.1.0
+- **Native VidSrc Streaming Integration**: Built-in VidSrc stream resolver using Cinemeta and IMDb mapping for resilient episode streaming running directly within Node.js with zero external hosting or Vercel required.
+- **Multi-Title Precision Stream Matching**: Cascades searches across English titles, Romaji titles, native Japanese titles, and alias synonyms with token-subset and prefix-strip matching, ensuring zero missing streams for complex or dual-language titles (e.g. *Magic Repo Man*).
+- **Subtitle Auto-Muxing for Downloads**: Episode downloads now automatically download the English WebVTT subtitle track and mux it into the output MP4 container via FFmpeg (`-c:s mov_text`) while keeping a `.vtt` sidecar for full offline video player support.
+- **Interactive Provider Toggles in Settings**: Easily enable or disable any streaming provider (`HiAnime`, `Senshi`, `VidSrc`, `AniPub`, `AllAnime`, `AniDB`, `Owais`) directly inside the interactive Settings UI with live persistence to standard platform configuration paths.
+- **Overhauled Torrent Streaming & Curated Trackers**: Restored BitTorrent streaming and downloading engine with smart Nyaa search fallbacks (padded/unpadded episode numbers, Romaji/English), direct `.torrent` fetching, and a curated list of high-uptime public, anime, and WebTorrent WebSocket (`wss://`) trackers refreshed every 12 hours.
+- **Linux & Arch Permission Hardening**: Fixed permission denied errors across Linux distros when installing or running with `sudo` or via AUR helpers (`yay`, `paru`). Features isolated `npm_config_cache`, non-root `$SUDO_USER` detection, self-healing directory ownership, and safe temporary directory fallbacks.
+- **Windows & macOS Official Support**: Added official `win32` and `darwin` platform support in npm manifests. Fixed PowerShell `install.ps1` package IDs (`shinchiro.mpv` / `mpv.net`) for automated Windows setup.
+- **Enhanced Doctor Health Diagnostics**: `ny-cli doctor` now verifies directory permissions with auto-remediation guidance alongside media tools, DNS layers, and backend health.
 
 <br/>
 
@@ -44,7 +43,7 @@
 
 <br/>
 
-## ✨ Features
+## Features
 
 <div align="center">
 
@@ -69,53 +68,55 @@
 <br/>
 
 <details>
-<summary><b>📺 Streaming & Download Highlights</b></summary>
+<summary><b>Streaming & Download Highlights</b></summary>
 
 <br/>
 
 | Feature | Description |
 |:--------|:------------|
-| **📥 High-Speed Downloads** | Download episodes directly as MP4 via FFmpeg or yt-dlp |
-| **⚡ Instant Local Playback** | Plays downloaded episodes locally from disk with zero network latency |
-| **🎙️ Sub/Dub Selection** | Choose sub or dub per anime — preference saved and synced to cloud |
-| **🖼️ Anime Artwork** | Cover art displayed in terminal via ink-picture while browsing |
-| **⏱️ Watch Progress** | mpv IPC tracks your position to the second |
-| **✨ 97% Auto-Advance** | Episode 97%+ watched? Next episode auto-loads |
-| **🔄 Multi-Provider** | Resolves across Senshi, HiAnime, AniPub, Owais, and Allanime |
-| **🎚️ Player Support** | MPV (recommended) or VLC — auto-detected |
+| **Subtitled Downloads** | Download episodes directly as MP4 with embedded soft subtitles (`mov_text`) and `.vtt` sidecars |
+| **Instant Local Playback** | Plays downloaded episodes locally from disk with zero network latency |
+| **BitTorrent Streaming** | Stream 1080p anime torrents directly via WebTorrent with 27 high-uptime public & anime trackers |
+| **Sub/Dub Selection** | Choose sub or dub per anime — preference saved and synced to cloud |
+| **Anime Artwork** | Cover art displayed in terminal via ink-picture while browsing |
+| **Watch Progress** | mpv IPC tracks your position to the second |
+| **97% Auto-Advance** | Episode 97%+ watched? Next episode auto-loads |
+| **Multi-Provider Engine** | Resolves across HiAnime, Senshi, VidSrc, AniPub, Owais, and Allanime |
+| **In-CLI Provider Controls** | Toggle any streaming provider ON or OFF live from the Settings menu |
+| **Player Support** | MPV (recommended) or VLC — auto-detected |
 
 </details>
 
 <details>
-<summary><b>👤 User Features</b></summary>
+<summary><b>User Features</b></summary>
 
 <br/>
 
 | Feature | Description |
 |:--------|:------------|
-| **🔐 Browser Auth** | Automated OAuth login via nyanime.qzz.io with strict loopback state validation |
-| **📜 Watch History** | Track all watched episodes with timestamps and progress |
-| **☁️ Cloud Sync** | Seamless sync with watch time to nyanime.qzz.io |
-| **📍 Continue Watching** | Resume exactly where you left off |
-| **📚 Trending & Airing** | Browse trending, airing, and seasonal anime with distinct catalogs |
-| **🔍 Fast Search** | Instant anime search with SWR caching and fallback to Kitsu / AniKoto |
+| **Browser Auth** | Automated OAuth login via nyanime.qzz.io with strict loopback state validation |
+| **Watch History** | Track all watched episodes with timestamps and progress |
+| **Cloud Sync** | Seamless sync with watch time to nyanime.qzz.io |
+| **Continue Watching** | Resume exactly where you left off |
+| **Trending & Airing** | Browse trending, airing, and seasonal anime with distinct catalogs |
+| **Fast Search** | Instant anime search with SWR caching and fallback to Kitsu / AniKoto |
 
 </details>
 
 <details>
-<summary><b>🎨 UI Features</b></summary>
+<summary><b>UI Features</b></summary>
 
 <br/>
 
 | Feature | Description |
 |:--------|:------------|
-| **🌊 Animated Banner** | Color gradient animation on the NY-CLI logo |
-| **💫 Ripple Effects** | Ripple animation on selection |
-| **✨ Shimmer Text** | Rainbow shimmer effect on username |
-| **🔄 Pulsing Elements** | Pulsing status indicators |
-| **📊 Progress Badges** | Visual % watched badges in Continue Watching |
-| **🎯 Centered Layout** | Menu and content centered like the banner |
-| **🔲 ASCII Icons** | Consistent box borders with fixed-width icons |
+| **Animated Banner** | Color gradient animation on the NY-CLI logo |
+| **Ripple Effects** | Ripple animation on selection |
+| **Shimmer Text** | Rainbow shimmer effect on username |
+| **Pulsing Elements** | Pulsing status indicators |
+| **Progress Badges** | Visual % watched badges in Continue Watching |
+| **Centered Layout** | Menu and content centered like the banner |
+| **ASCII Icons** | Consistent box borders with fixed-width icons |
 
 </details>
 
@@ -125,7 +126,7 @@
 
 <br/>
 
-## 📡 Metadata & Streaming Architecture
+## Metadata & Streaming Architecture
 
 | Component | Service | Role | Status |
 |:----------|:--------|:-----|:------:|
@@ -133,11 +134,13 @@
 | **Secondary Metadata** | **AniKoto API** | High-accuracy episode lists, search, trending fallback | ✅ Active |
 | **Tertiary Metadata** | **Kitsu API** | Fallback search, episode metadata, multi-season counts | ✅ Active |
 | **Quaternary Metadata** | **Jikan API v4** | Fallback search, anime details | ⚠️ Secondary |
-| **Stream: HiAnime** | HLS Resolver | Direct HLS stream & subtitle extraction | ✅ Active |
+| **Stream: HiAnime** | HLS Resolver | Direct HLS multi-audio/subtitle streams | ✅ Active |
 | **Stream: Senshi** | Stream Resolver | Direct MAL ID HLS stream resolution | ✅ Active |
-| **Stream: AniPub** | Embed / HLS Resolver | Secondary embed & stream playback | ✅ Active |
+| **Stream: VidSrc** | Cinemeta / Embed Resolver | Resilient embed stream resolver via IMDb mapping | ✅ Active |
+| **Stream: AniPub** | Embed / HLS Resolver | Secondary embed & stream playback | ⚠️ Fallback |
 | **Stream: Owais** | Stream Resolver | Direct embed stream resolver | ⚠️ Secondary |
 | **Stream: Allanime** | Stream Resolver | Dynamic key multi-source mirror resolution | ⚠️ Optional |
+| **P2P: BitTorrent** | Nyaa & WebTorrent | Direct 1080p torrent streaming with 27 live trackers | ✅ Active |
 
 <br/>
 
@@ -145,7 +148,15 @@
 
 <br/>
 
-## 🚀 Installation & Quick Start
+## Installation & Quick Start
+
+<div align="center">
+
+[![Packaging status](https://repology.org/badge/vertical-allrepos/ny-cli.svg)](https://repology.org/project/ny-cli/versions)
+
+</div>
+
+<br/>
 
 ### Prerequisites
 
@@ -159,7 +170,7 @@
 
 <br/>
 
-### 🐧 Linux Installation
+### Linux Installation
 
 #### Method 1: One-Line Direct Install (Recommended)
 
@@ -168,7 +179,18 @@ curl -fsSL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/instal
 ```
 *The installer automatically detects your distribution (`apt`, `dnf`, `pacman`, `zypper`, `apk`), installs `mpv` and `ffmpeg`, installs `ny-cli` globally, ensures the binary is symlinked to your PATH, and runs a diagnostic health check.*
 
-#### Method 2: Via npm
+#### Method 2: Arch Linux / Manjaro (AUR)
+
+Install via `yay`:
+```bash
+yay -S ny-cli
+```
+Or via `paru`:
+```bash
+paru -S ny-cli
+```
+
+#### Method 3: Via npm
 
 ```bash
 npm install -g @anjishnusengupta/ny-cli
@@ -194,7 +216,7 @@ sudo apk add mpv ffmpeg
 
 <br/>
 
-### 🍎 macOS Installation
+### macOS Installation
 
 #### Method 1: One-Line Direct Install (Recommended)
 
@@ -212,7 +234,7 @@ npm install -g @anjishnusengupta/ny-cli
 
 <br/>
 
-### 🪟 Windows Installation
+### Windows Installation
 
 #### Method 1: One-Line Direct Install via PowerShell (Recommended)
 
@@ -232,7 +254,7 @@ curl -fsSL https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/instal
 
 ```cmd
 # 1. Install media dependencies
-winget install mpv.mpv Gyan.FFmpeg
+winget install shinchiro.mpv Gyan.FFmpeg
 
 # 2. Install ny-cli globally
 npm install -g @anjishnusengupta/ny-cli
@@ -244,7 +266,7 @@ npm install -g @anjishnusengupta/ny-cli
 
 <br/>
 
-## 💻 Usage & CLI Commands
+## Usage & CLI Commands
 
 ```bash
 # Start interactive terminal UI
@@ -277,7 +299,7 @@ ny-cli --stop
 
 <br/>
 
-## 🎮 Controls & Shortcuts
+## Controls & Shortcuts
 
 ### Menu & Search Navigation
 
@@ -324,7 +346,7 @@ ny-cli --stop
 
 <br/>
 
-## ⚙️ Configuration & Diagnostics
+## Configuration & Diagnostics
 
 ### Configuration File (`config.json`)
 
@@ -362,7 +384,7 @@ Run `ny-cli --doctor` anytime to verify your environment:
 ```
 ny-cli doctor
 =============
-Package Version: 7.0.1
+Package Version: 7.1.0
 Node.js:         v22.23.1 (supported: >=20.18.0)
 UI Runtime:      node (v22.23.1)
 Config Dir:      ~/.config/ny-cli (writable)
@@ -376,7 +398,7 @@ Checking DNS Layers:
   Active (cloudflare-doh): PASS via cloudflare-doh:1.1.1.1
 
 Checking Backend:
-  Backend:       PASS - started successfully on port 43299 (reported v7.0.1)
+  Backend:       PASS - started successfully on port 43299 (reported v7.1.0)
 
 Checking Network Endpoints:
   AniList:       reachable (200 OK)
@@ -401,7 +423,7 @@ Doctor result: PASS (all required checks passed)
 
 <br/>
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 <div align="center">
 
@@ -421,7 +443,7 @@ Doctor result: PASS (all required checks passed)
 
 <br/>
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 ny-cli/
@@ -430,11 +452,13 @@ ny-cli/
 ├── providers/
 │   ├── index.mjs               # Stream resolver aggregator
 │   ├── hianime.mjs             # HiAnime HLS stream decoder
-│   ├── anipub.mjs              # Anipub embed stream provider
 │   ├── senshi.mjs              # Senshi MAL ID stream provider
+│   ├── vidsrc.mjs              # VidSrc Cinemeta embed stream resolver
+│   ├── anipub.mjs              # Anipub embed stream provider
 │   ├── owais.mjs               # Owais API stream resolver
 │   ├── allanime.mjs            # Mirror provider interface
-│   └── anidb.mjs               # AniDB / AniLab provider
+│   ├── anidb.mjs               # AniDB / AniLab provider
+│   └── match.mjs               # Multi-title scoring & tokenizer
 ├── relay/
 │   ├── worker.mjs              # Cloudflare Worker relay script
 │   └── wrangler.toml           # Worker deployment configuration
@@ -469,7 +493,7 @@ ny-cli/
 
 <br/>
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please make sure that all changes adhere to:
 1. Node.js >= 20.18.0 runtime compatibility
@@ -492,7 +516,7 @@ npm run build:fallback
 
 <br/>
 
-## ⭐ Star History
+## Star History
 
 <br/>
 
@@ -514,13 +538,13 @@ npm run build:fallback
 
 <br/>
 
-## 📜 License
+## License
 
 This project is licensed under the **MIT License**.
 
 <div align="center">
 
-### ⚠️ Disclaimer
+### Disclaimer
 
 <samp>
 This is an educational project. No video content is hosted on our servers.<br/>

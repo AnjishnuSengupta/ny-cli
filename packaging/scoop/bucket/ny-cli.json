@@ -1,0 +1,25 @@
+{
+    "version": "7.1.0",
+    "description": "Terminal anime streaming client with artwork display and cloud sync",
+    "homepage": "https://github.com/AnjishnuSengupta/ny-cli",
+    "license": "MIT",
+    "depends": [
+        "nodejs-lts",
+        "mpv"
+    ],
+    "suggest": {
+        "ffmpeg": "ffmpeg",
+        "yt-dlp": "yt-dlp",
+        "webtorrent": "webtorrent-cli"
+    },
+    "url": "https://registry.npmjs.org/@anjishnusengupta/ny-cli/-/ny-cli-7.1.0.tgz",
+    "hash": "REPLACE_WITH_ACTUAL_SHA256_ON_RELEASE",
+    "bin": "bin/ny-cli.mjs",
+    "checkver": {
+        "npm": "@anjishnusengupta/ny-cli"
+    },
+    "autoupdate": {
+        "url": "https://registry.npmjs.org/@anjishnusengupta/ny-cli/-/ny-cli-$version.tgz"
+    }
+}
+

@@ -24,12 +24,12 @@ let pkgVersion = 'unknown';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   pkgVersion = pkg.version;
-} catch {}
+} catch { }
 
 const config = loadConfig();
-const app    = express();
-const PORT   = Number(process.env.PORT || 43201);
-const HOST   = config.host || process.env.HOST || '127.0.0.1';
+const app = express();
+const PORT = Number(process.env.PORT || 43201);
+const HOST = config.host || process.env.HOST || '127.0.0.1';
 export function getRelayUrl() {
   return process.env.NY_RELAY_URL || loadConfig().relayUrl || '';
 }
@@ -37,8 +37,8 @@ export function getRelayUrl() {
 // ── SWR Cache instances ─────────────────────────────────────────────────────
 const swrCache = {
   search: new SWRCache({ freshTTL: 10 * 60_000, staleTTL: 6 * 3600_000, maxEntries: 500 }),
-  home:   new SWRCache({ freshTTL: 10 * 60_000, staleTTL: 6 * 3600_000 }),
-  info:   new SWRCache({ freshTTL:  6 * 3600_000, staleTTL: 24 * 3600_000, maxEntries: 500 }),
+  home: new SWRCache({ freshTTL: 10 * 60_000, staleTTL: 6 * 3600_000 }),
+  info: new SWRCache({ freshTTL: 6 * 3600_000, staleTTL: 24 * 3600_000, maxEntries: 500 }),
   browse: new SWRCache({ freshTTL: 10 * 60_000, staleTTL: 24 * 3600_000, maxEntries: 500 }),
   genres: new SWRCache({ freshTTL: 24 * 3600_000, staleTTL: 48 * 3600_000, maxEntries: 50 }),
 };
@@ -62,7 +62,7 @@ async function withRetry(fn, { retries = 2, delay = 800, label = '' } = {}) {
         /timeout|ENETUNREACH|ECONNR|socket/i.test(err.message);
       if (i < retries) {
         const backoff = isTransient ? delay * (i + 1) : delay;
-        if (label) console.log(`[retry] ${label} attempt ${i+1} failed (${code || err.message?.substring(0,40)}), retrying in ${backoff}ms...`);
+        if (label) console.log(`[retry] ${label} attempt ${i + 1} failed (${code || err.message?.substring(0, 40)}), retrying in ${backoff}ms...`);
         await new Promise(r => setTimeout(r, backoff));
       }
     }
@@ -71,7 +71,7 @@ async function withRetry(fn, { retries = 2, delay = 800, label = '' } = {}) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-const ok   = (res, data, ttl = 60) => {
+const ok = (res, data, ttl = 60) => {
   res.setHeader('Cache-Control', `public,s-maxage=${ttl}`);
   return res.json({ success: true, data });
 };
@@ -96,7 +96,7 @@ async function fetchJson(url, opts = {}) {
     try {
       const text = await r.text();
       bodySnippet = text.slice(0, 512);
-    } catch {}
+    } catch { }
     const err = new Error(`HTTP ${r.status} from ${url}${bodySnippet ? ': ' + bodySnippet : ''}`);
     err.httpStatus = r.status;
     err.responseBody = bodySnippet;
@@ -498,12 +498,12 @@ async function jikanInfo(malId) {
   if (!d) return null;
 
   const titleEnglish = d.title_english || '';
-  const titleRomaji  = d.title || '';
-  const titleNative  = d.title_japanese || '';
-  const name         = titleEnglish || titleRomaji || titleNative;
-  const jname        = titleRomaji || name;
+  const titleRomaji = d.title || '';
+  const titleNative = d.title_japanese || '';
+  const name = titleEnglish || titleRomaji || titleNative;
+  const jname = titleRomaji || name;
 
-  const epCount  = d.episodes || 0;
+  const epCount = d.episodes || 0;
   const isAiring = d.status === 'Currently Airing' || d.airing === true;
   const episodes = await getEpisodesForMal(malId, epCount, { isAiring, status: d.status });
 
@@ -693,10 +693,10 @@ export async function kitsuInfo(kitsuId) {
   const attr = d.attributes || {};
 
   const titleEnglish = attr.titles?.en || '';
-  const titleRomaji  = attr.titles?.en_jp || attr.canonicalTitle || '';
-  const titleNative  = attr.titles?.ja_jp || '';
-  const name         = titleEnglish || titleRomaji || titleNative;
-  const jname        = titleRomaji || name;
+  const titleRomaji = attr.titles?.en_jp || attr.canonicalTitle || '';
+  const titleNative = attr.titles?.ja_jp || '';
+  const name = titleEnglish || titleRomaji || titleNative;
+  const jname = titleRomaji || name;
 
   const isAiring = attr.status === 'current';
   let episodes = [];
@@ -732,13 +732,13 @@ export async function kitsuInfo(kitsuId) {
   if (name && (isAiring || totalEps > 1000)) {
     try {
       const akData = await anikotoFetch(`/search?keyword=${encodeURIComponent(name)}`);
-      const topMatch = (akData?.results?.data || []).find(a => 
+      const topMatch = (akData?.results?.data || []).find(a =>
         (a.title?.toLowerCase() === name.toLowerCase() || a.japaneseTitle?.toLowerCase() === jname.toLowerCase()) && a.sub
       );
       if (topMatch && topMatch.sub && Number(topMatch.sub) > 0) {
         totalEps = Number(topMatch.sub);
       }
-    } catch {}
+    } catch { }
   }
 
   // Populate remaining episodes up to totalEps so ongoing anime (like One Piece) have full playable episode list
@@ -1360,7 +1360,7 @@ async function getEpisodesForMal(malId, totalEps = 0, options = {}) {
         if (jikanEpCount > allEps.length) {
           totalEps = jikanEpCount;
         }
-      } catch {}
+      } catch { }
     }
 
     if (allEps.length === 0 && totalEps > 0) {
@@ -1430,7 +1430,7 @@ app.get('/', (req, res) => res.json({
   version: pkgVersion,
   pid: process.pid,
   startedAt,
-  providers: ['anilist', 'jikan', 'anikoto', 'kitsu', 'senshi', 'hianime', 'anipub', 'owais', 'anidb'],
+  providers: ['anilist', 'jikan', 'anikoto', 'kitsu', 'senshi', 'hianime', 'anipub', 'owais', 'anidb', 'vidsrc'],
   relay: getRelayUrl() || null,
 }));
 
@@ -1926,16 +1926,16 @@ app.get('/api/aniwatch', async (req, res) => {
           if (!m) return null;
 
           const epCount = m.episodes || (m.nextAiringEpisode ? m.nextAiringEpisode.episode - 1 : 0) || 0;
-          const malId   = m.idMal;
+          const malId = m.idMal;
           const isAiring = m.status === 'RELEASING' || Boolean(m.nextAiringEpisode);
 
           const episodes = await getEpisodesForMal(malId, epCount, { isAiring, status: m.status });
 
           const titleEnglish = m.title?.english || '';
-          const titleRomaji  = m.title?.romaji || '';
-          const titleNative  = m.title?.native || '';
-          const name         = titleEnglish || titleRomaji || titleNative;
-          const jname        = titleRomaji || name;
+          const titleRomaji = m.title?.romaji || '';
+          const titleNative = m.title?.native || '';
+          const name = titleEnglish || titleRomaji || titleNative;
+          const jname = titleRomaji || name;
 
           const studios = (m.studios?.nodes || []).map(s => s.name);
           const trailer = (m.trailer?.id && m.trailer?.site) ? {
@@ -2051,82 +2051,194 @@ app.get('/api/aniwatch', async (req, res) => {
   }
 });
 
-// ── Torrents (Nyaa.si Scraper) ────────────────────────────────────────────────
-app.get('/api/torrent', async (req, res) => {
-  const { title, ep } = req.query;
-  if (!title || !ep) return fail(res, 400, 'Missing title or ep');
+// ── Torrents (Nyaa.si Scraper & Curated Live Trackers) ────────────────────────
+const BASE_TRACKERS = [
+  // Anime-specific trackers (Nyaa, Anidex, Kamigami)
+  'http://nyaa.tracker.wf:7777/announce',
+  'udp://tracker.nyaa.vc:6969/announce',
+  'udp://open.stealth.si:80/announce',
+  'http://anidex.moe:6969/announce',
+  'http://tracker.kamigami.org:2710/announce',
+
+  // Top high-uptime, long-lasting public trackers (ngosang trackerslist curated)
+  'udp://tracker.opentrackr.org:1337/announce',
+  'udp://tracker.torrent.eu.org:451/announce',
+  'udp://open.demonii.com:1337/announce',
+  'udp://exodus.desync.com:6969/announce',
+  'udp://open.tracker.cl:1337/announce',
+  'udp://tracker.qu.ax:6969/announce',
+  'udp://tracker.ducks.party:1984/announce',
+  'udp://explodie.org:6969/announce',
+  'udp://tracker.dler.org:6969/announce',
+  'udp://tracker-udp.gbitt.info:80/announce',
+
+  // WebTorrent WebSocket trackers for WebRTC / browser peers
+  'wss://tracker.btorrent.xyz',
+  'wss://tracker.openwebtorrent.com',
+  'wss://tracker.webtorrent.dev',
+  'wss://tracker.files.fm:7073/announce',
+];
+
+const ALLOWED_TRACKER_SCHEMES = ['udp:', 'http:', 'https:', 'wss:'];
+const MAX_LIVE_TRACKERS = 30;
+
+function isValidTrackerUrl(urlStr) {
+  try {
+    const parsed = new URL(urlStr);
+    return ALLOWED_TRACKER_SCHEMES.includes(parsed.protocol);
+  } catch {
+    return false;
+  }
+}
+
+let cachedLiveTrackers = BASE_TRACKERS.filter(isValidTrackerUrl).slice(0, MAX_LIVE_TRACKERS);
+let lastTrackersRefresh = 0;
+
+async function getLiveTrackers() {
+  const now = Date.now();
+  if (cachedLiveTrackers.length > 0 && now - lastTrackersRefresh < 12 * 3600 * 1000) {
+    return cachedLiveTrackers;
+  }
 
   try {
-    // Basic formatting for Nyaa search
-    const cleanTitle = title.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-    const epString = String(ep).padStart(2, '0');
-    
-    const query = encodeURIComponent(`[SubsPlease] ${cleanTitle} ${epString} 1080p`);
-    const fallbackQuery = encodeURIComponent(`${cleanTitle} ${epString} 1080p`);
-    const ultimateFallback = encodeURIComponent(`${cleanTitle} ${epString}`);
-    
-    let feedUrl = `https://nyaa.si/?page=rss&q=${query}&c=1_2&f=0`;
-    let response = await httpFetch(feedUrl, { signal: AbortSignal.timeout(5000) });
-    let text = await response.text();
-    
-    // If no items found, try fallback query
-    if (!text.includes('<item>')) {
-      feedUrl = `https://nyaa.si/?page=rss&q=${fallbackQuery}&c=1_2&f=0`;
-      response = await httpFetch(feedUrl, { signal: AbortSignal.timeout(5000) });
-      text = await response.text();
+    const res = await httpFetch('https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt', {
+      signal: AbortSignal.timeout(4000),
+    });
+    if (res.ok) {
+      const text = await res.text();
+      const fetched = text
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 0 && isValidTrackerUrl(l));
+      const combined = Array.from(new Set([...BASE_TRACKERS.filter(isValidTrackerUrl), ...fetched]));
+      cachedLiveTrackers = combined.slice(0, MAX_LIVE_TRACKERS);
+      lastTrackersRefresh = now;
+      return cachedLiveTrackers;
     }
-    
-    if (!text.includes('<item>')) {
-      feedUrl = `https://nyaa.si/?page=rss&q=${ultimateFallback}&c=1_2&f=0`;
-      response = await httpFetch(feedUrl, { signal: AbortSignal.timeout(5000) });
-      text = await response.text();
-    }
+  } catch {}
 
-    const items = [...text.matchAll(/<item>([\s\S]*?)<\/item>/gi)].map(m => m[1]);
-    
-    let bestMagnet = null;
-    let maxScore = -1;
+  cachedLiveTrackers = BASE_TRACKERS.filter(isValidTrackerUrl).slice(0, MAX_LIVE_TRACKERS);
+  return cachedLiveTrackers;
+}
 
-    for (const item of items) {
-      const hashMatch = item.match(/<nyaa:infoHash>([a-zA-Z0-9]+)<\/nyaa:infoHash>/i);
-      const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i) || item.match(/<title>(.*?)<\/title>/i);
-      const seedersMatch = item.match(/<nyaa:seeders>(\d+)<\/nyaa:seeders>/i);
-      
-      if (hashMatch && hashMatch[1] && titleMatch && titleMatch[1]) {
-        const title = titleMatch[1];
-        
-        // Exclude French or Raw
-        if (/\b(FR|French|Raw|VF|VOSTFR)\b/i.test(title)) continue;
-        if (/^\[FR\]/i.test(title)) continue;
-        
-        // Calculate score
-        const seeders = seedersMatch ? parseInt(seedersMatch[1], 10) : 0;
-        let score = seeders * 10; // Base score heavily depends on seeders
-        
-        // Bonus for English/Multi indicators
-        if (/\b(Multi|Dual Audio|Eng Sub|English)\b/i.test(title)) score += 500;
-        if (/\.mkv\b/i.test(title)) score += 200;
-        if (/\[(SubsPlease|Erai-raws)\]/i.test(title)) score += 1000; // Trusted groups
-        
-        if (score > maxScore) {
-          maxScore = score;
-          const infoHash = hashMatch[1];
-          const torrentName = encodeURIComponent(title);
-          bestMagnet = `magnet:?xt=urn:btih:${infoHash}&dn=${torrentName}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.leechers-paradise.org%3A6969%2Fannounce`;
+app.get('/api/torrent', async (req, res) => {
+  const ep = req.query.ep;
+  const rawTitle = (req.query.title || req.query.englishTitle || '').trim();
+  const romajiTitle = (req.query.romajiTitle || '').trim();
+  if (!rawTitle || !ep) return fail(res, 400, 'Missing title or ep');
+
+  const epStr = String(ep).trim();
+  if (!/^\d{1,4}$/.test(epStr)) {
+    return fail(res, 400, 'Invalid episode parameter');
+  }
+  if (rawTitle.length > 200 || romajiTitle.length > 200) {
+    return fail(res, 400, 'Title parameter too long');
+  }
+
+  try {
+      const titlesToTry = [rawTitle, romajiTitle]
+        .filter(Boolean)
+        .map(t => t.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim())
+        .filter((t, idx, arr) => t && arr.indexOf(t) === idx);
+
+      const epPad = epStr.padStart(2, '0');
+      const epRaw = epStr;
+
+      const queryCandidates = [];
+      for (const t of titlesToTry) {
+        queryCandidates.push(`[SubsPlease] ${t} ${epPad} 1080p`);
+        queryCandidates.push(`[Erai-raws] ${t} ${epPad} 1080p`);
+        queryCandidates.push(`${t} ${epPad} 1080p`);
+        queryCandidates.push(`${t} ${epPad}`);
+        if (epPad !== epRaw) {
+          queryCandidates.push(`${t} ${epRaw}`);
         }
       }
-    }
 
-    if (bestMagnet) {
-      return ok(res, { magnet: bestMagnet, score: maxScore }, 3600);
-    }
-    
-    return fail(res, 404, 'No torrent found');
-  } catch (e) {
-    console.error('[/api/torrent]', e.message);
-    return fail(res, 500, e.message);
-  }
-});
+        let items = [];
+        for (const q of queryCandidates) {
+          try {
+            const feedUrl = `https://nyaa.si/?page=rss&q=${encodeURIComponent(q)}&c=1_2&f=0`;
+            const response = await httpFetch(feedUrl, { signal: AbortSignal.timeout(8000) });
+            if (!response.ok) continue;
+            const text = await response.text();
+            if (text.includes('<item>')) {
+              items = [...text.matchAll(/<item>([\s\S]*?)<\/item>/gi)].map(m => m[1]);
+              if (items.length > 0) break;
+            }
+          } catch { }
+        }
+
+        let bestMagnet = null;
+        let bestTorrentUrl = null;
+        let bestTitle = null;
+        let maxScore = -1;
+
+        const liveTrackers = await getLiveTrackers();
+        const trParams = liveTrackers.map(t => `&tr=${encodeURIComponent(t)}`).join('');
+
+        for (const item of items) {
+          const hashMatch = item.match(/<nyaa:infoHash>([a-fA-F0-9]{40}|[a-zA-Z0-9]{32})<\/nyaa:infoHash>/i);
+          let itemTitle = '';
+          const cdataMatch = item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i);
+          if (cdataMatch) {
+            itemTitle = cdataMatch[1].trim();
+          } else {
+            const titleMatch = item.match(/<title>([\s\S]*?)<\/title>/i);
+            if (titleMatch) {
+              itemTitle = titleMatch[1]
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .trim();
+            }
+          }
+          const linkMatch = item.match(/<link>(https?:\/\/[^<]+)<\/link>/i);
+          const seedersMatch = item.match(/<nyaa:seeders>(\d+)<\/nyaa:seeders>/i);
+
+          if (hashMatch && hashMatch[1] && itemTitle) {
+
+            // Exclude French or Raw
+            if (/\b(FR|French|Raw|VF|VOSTFR)\b/i.test(itemTitle)) continue;
+            if (/^\[FR\]/i.test(itemTitle)) continue;
+
+            const seeders = seedersMatch ? parseInt(seedersMatch[1], 10) : 0;
+            let score = seeders * 10;
+
+            // Bonus for English / Multi / Trusted
+            if (/\b(Multi|Dual Audio|Eng Sub|English)\b/i.test(itemTitle)) score += 500;
+            if (/\.mkv\b/i.test(itemTitle)) score += 200;
+            if (/\[(SubsPlease|Erai-raws)\]/i.test(itemTitle)) score += 1000;
+
+            if (score > maxScore) {
+              maxScore = score;
+              const infoHash = hashMatch[1];
+              const torrentName = encodeURIComponent(itemTitle);
+              bestMagnet = `magnet:?xt=urn:btih:${infoHash}&dn=${torrentName}${trParams}`;
+              bestTorrentUrl = linkMatch ? linkMatch[1] : null;
+              bestTitle = itemTitle;
+            }
+          }
+        }
+
+        if (bestMagnet) {
+          return ok(res, {
+            magnet: bestMagnet,
+            torrentUrl: bestTorrentUrl,
+            title: bestTitle,
+            score: maxScore,
+            trackers: liveTrackers,
+          }, 3600);
+        }
+
+        return fail(res, 404, 'No torrent found');
+      } catch (e) {
+        console.error('[/api/torrent]', e.message);
+        return fail(res, 500, e.message);
+      }
+    });
 
 // ── Image proxy ──────────────────────────────────────────────────────────────
 app.get('/api/image', async (req, res) => {
@@ -2233,7 +2345,7 @@ app.get('/api/resolve-stream', async (req, res) => {
       if (c.url) {
         try {
           allowStreamHost(new URL(c.url).hostname);
-        } catch {}
+        } catch { }
       }
       if (c.headers || c.referer) {
         const hdrs = { ...(c.headers || {}) };

@@ -57,13 +57,44 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ELEVATION HELPER
+# USER & PRIVILEGE DETECTION
 # ═══════════════════════════════════════════════════════════════════════════════
+CURRENT_UID="$(id -u 2>/dev/null || echo 1)"
+if [ "$CURRENT_UID" -eq 0 ] && [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+    REAL_USER="$SUDO_USER"
+    REAL_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)"
+    if [ -z "$REAL_HOME" ] && command -v dscl >/dev/null 2>&1; then
+        REAL_HOME="$(dscl . -read "/Users/$SUDO_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+    fi
+    if [ -z "$REAL_HOME" ]; then
+        REAL_HOME="/home/$SUDO_USER"
+    fi
+    REAL_GROUP="$(id -gn "$SUDO_USER" 2>/dev/null || echo "$SUDO_USER")"
+else
+    REAL_USER="$(id -un 2>/dev/null || echo "$USER")"
+    REAL_HOME="$HOME"
+    REAL_GROUP="$(id -gn "$REAL_USER" 2>/dev/null || echo "$REAL_USER")"
+fi
+
 run_elevated() {
-    if [ "$(id -u 2>/dev/null || echo 1)" -eq 0 ]; then
+    if [ "$CURRENT_UID" -eq 0 ]; then
         "$@"
     elif command -v sudo >/dev/null 2>&1; then
         sudo "$@"
+    else
+        "$@"
+    fi
+}
+
+run_as_user() {
+    if [ "$CURRENT_UID" -eq 0 ] && [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+        if command -v sudo >/dev/null 2>&1; then
+            sudo -u "$SUDO_USER" "$@"
+        elif command -v su >/dev/null 2>&1; then
+            su - "$SUDO_USER" -c "$*"
+        else
+            "$@"
+        fi
     else
         "$@"
     fi
@@ -206,16 +237,47 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════════
 printf "\n${CYAN}Installing ${PKG_SPEC} via npm...${RESET}\n"
 
-if run_elevated npm install -g "$PKG_SPEC"; then
-    printf "${GREEN}✓ ny-cli package installed successfully${RESET}\n"
-else
-    # Retry without elevation in case user npm prefix is configured
-    if npm install -g "$PKG_SPEC"; then
-        printf "${GREEN}✓ ny-cli package installed successfully${RESET}\n"
-    else
-        printf "${RED}✗ npm install -g failed${RESET}\n"
-        exit 1
+NPM_CACHE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/ny-cli-npm.XXXXXX" 2>/dev/null || mktemp -d)"
+trap 'rm -rf "$NPM_CACHE_TMP"' EXIT INT TERM HUP
+chmod 700 "$NPM_CACHE_TMP" 2>/dev/null || true
+if [ "$CURRENT_UID" -eq 0 ] && [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
+    chown -R "$REAL_USER:$REAL_GROUP" "$NPM_CACHE_TMP" 2>/dev/null || true
+fi
+
+NPM_SUCCESS=false
+
+# Method 1: If running as non-root user, try user npm environment first
+if [ "$CURRENT_UID" -ne 0 ]; then
+    if npm install -g --cache "$NPM_CACHE_TMP" --no-fund --no-audit "$PKG_SPEC" 2>/dev/null; then
+        NPM_SUCCESS=true
+        printf "${GREEN}✓ ny-cli package installed successfully (user environment)${RESET}\n"
     fi
+fi
+
+# Method 2: Global elevated install (system-wide), keeping cache isolated from ~/.npm
+if [ "$NPM_SUCCESS" = "false" ]; then
+    if run_elevated env npm_config_cache="$NPM_CACHE_TMP" npm install -g --cache "$NPM_CACHE_TMP" --foreground-scripts --unsafe-perm=true --no-fund --no-audit "$PKG_SPEC" 2>/dev/null; then
+        NPM_SUCCESS=true
+        printf "${GREEN}✓ ny-cli package installed successfully (global)${RESET}\n"
+    fi
+fi
+
+# Method 3: Fallback to user ~/.local prefix if global directory is permission-restricted
+if [ "$NPM_SUCCESS" = "false" ]; then
+    printf "${YELLOW}⚠ Global install requires user prefix, installing into ${REAL_HOME}/.local...${RESET}\n"
+    run_as_user mkdir -p "$REAL_HOME/.local" 2>/dev/null || true
+    if run_as_user env npm_config_cache="$NPM_CACHE_TMP" npm install -g --prefix "$REAL_HOME/.local" --cache "$NPM_CACHE_TMP" --no-fund --no-audit "$PKG_SPEC"; then
+        NPM_SUCCESS=true
+        printf "${GREEN}✓ ny-cli package installed successfully in ${REAL_HOME}/.local${RESET}\n"
+    fi
+fi
+
+rm -rf "$NPM_CACHE_TMP" 2>/dev/null || true
+
+if [ "$NPM_SUCCESS" = "false" ]; then
+    printf "${RED}✗ npm install failed.${RESET}\n"
+    printf "  Try installing to your user directory: npm install -g --prefix ~/.local ${PKG_SPEC}\n"
+    exit 1
 fi
 
 # Summary of installation results
@@ -230,9 +292,16 @@ printf "${CYAN}═════════════════════�
 # ═══════════════════════════════════════════════════════════════════════════════
 NPM_PREFIX="$(npm prefix -g 2>/dev/null || true)"
 NPM_BIN="$NPM_PREFIX/bin"
-if [ -d "$NPM_BIN" ]; then
-    export PATH="$NPM_BIN:$PATH"
-fi
+USER_LOCAL_BIN="$REAL_HOME/.local/bin"
+
+for p in "$NPM_BIN" "$USER_LOCAL_BIN" "/usr/local/bin"; do
+    if [ -d "$p" ]; then
+        case ":$PATH:" in
+            *":$p:"*) ;;
+            *) export PATH="$p:$PATH" ;;
+        esac
+    fi
+done
 
 # Locate the installed ny-cli binary
 INSTALLED_BIN=""
@@ -240,35 +309,52 @@ if command -v ny-cli >/dev/null 2>&1; then
     INSTALLED_BIN="$(command -v ny-cli)"
 elif [ -x "$NPM_BIN/ny-cli" ]; then
     INSTALLED_BIN="$NPM_BIN/ny-cli"
+elif [ -x "$USER_LOCAL_BIN/ny-cli" ]; then
+    INSTALLED_BIN="$USER_LOCAL_BIN/ny-cli"
 elif [ -x "/usr/local/bin/ny-cli" ]; then
     INSTALLED_BIN="/usr/local/bin/ny-cli"
 elif [ -x "/usr/bin/ny-cli" ]; then
     INSTALLED_BIN="/usr/bin/ny-cli"
-elif [ -x "$HOME/.local/bin/ny-cli" ]; then
-    INSTALLED_BIN="$HOME/.local/bin/ny-cli"
 fi
 
 # If command -v ny-cli is not already resolving from standard PATH, create symlinks
 if [ -n "$INSTALLED_BIN" ]; then
-    # Link into /usr/local/bin if /usr/local/bin exists
+    # Link into /usr/local/bin if /usr/local/bin exists and writable or with elevation
     if [ "$INSTALLED_BIN" != "/usr/local/bin/ny-cli" ] && [ -d "/usr/local/bin" ]; then
         run_elevated ln -sf "$INSTALLED_BIN" /usr/local/bin/ny-cli 2>/dev/null || true
     fi
-    # Also link into ~/.local/bin as a per-user fallback
-    if [ "$INSTALLED_BIN" != "$HOME/.local/bin/ny-cli" ]; then
-        mkdir -p "$HOME/.local/bin" 2>/dev/null || true
-        ln -sf "$INSTALLED_BIN" "$HOME/.local/bin/ny-cli" 2>/dev/null || true
+    # Also link into user ~/.local/bin as a per-user fallback
+    if [ "$INSTALLED_BIN" != "$USER_LOCAL_BIN/ny-cli" ]; then
+        run_as_user mkdir -p "$USER_LOCAL_BIN" 2>/dev/null || true
+        run_as_user ln -sf "$INSTALLED_BIN" "$USER_LOCAL_BIN/ny-cli" 2>/dev/null || true
+        if [ "$CURRENT_UID" -eq 0 ] && [ -n "$REAL_USER" ]; then
+            chown -h "$REAL_USER:$REAL_GROUP" "$USER_LOCAL_BIN/ny-cli" "$USER_LOCAL_BIN" 2>/dev/null || true
+        fi
+    fi
+fi
+
+# Self-heal any directories in user home that might have been accidentally owned by root
+if [ "$CURRENT_UID" -eq 0 ] && [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
+    for udir in "$REAL_HOME/.config/ny-cli" "$REAL_HOME/.local/state/ny-cli" "$REAL_HOME/.local/share/ny-cli"; do
+        if [ -e "$udir" ]; then
+            chown -R "$REAL_USER:$REAL_GROUP" "$udir" 2>/dev/null || true
+            chmod 700 "$udir" 2>/dev/null || true
+            find "$udir" -type f -exec chmod 600 {} + 2>/dev/null || true
+        fi
+    done
+    if [ -e "$USER_LOCAL_BIN/ny-cli" ]; then
+        chown -h "$REAL_USER:$REAL_GROUP" "$USER_LOCAL_BIN/ny-cli" 2>/dev/null || true
     fi
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# RUN DOCTOR
+# RUN DOCTOR (ALWAYS AS USER, NEVER AS ROOT)
 # ═══════════════════════════════════════════════════════════════════════════════
 printf "${CYAN}Running diagnostics (ny-cli --doctor)...${RESET}\n"
-if command -v ny-cli >/dev/null 2>&1; then
-    ny-cli --doctor || true
-elif [ -n "$INSTALLED_BIN" ] && [ -x "$INSTALLED_BIN" ]; then
-    "$INSTALLED_BIN" --doctor || true
+if [ -n "$INSTALLED_BIN" ] && [ -x "$INSTALLED_BIN" ]; then
+    run_as_user "$INSTALLED_BIN" --doctor || true
+elif command -v ny-cli >/dev/null 2>&1; then
+    run_as_user ny-cli --doctor || true
 else
-    printf "${YELLOW}⚠ ny-cli binary not in current PATH. You may need to add $NPM_BIN to your PATH.${RESET}\n"
+    printf "${YELLOW}⚠ ny-cli binary not in current PATH. You may need to add ~/.local/bin or $NPM_BIN to your PATH.${RESET}\n"
 fi

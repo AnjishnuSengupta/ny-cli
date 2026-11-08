@@ -4,6 +4,7 @@ import * as anipub from './anipub.mjs';
 import * as owais from './owais.mjs';
 import * as allanime from './allanime.mjs';
 import * as anidb from './anidb.mjs';
+import * as vidsrc from './vidsrc.mjs';
 import { loadConfig } from '../config.mjs';
 
 export const providers = [
@@ -13,10 +14,11 @@ export const providers = [
   owais,
   allanime,
   anidb,
+  vidsrc,
 ];
 
 const TIER1_ORDER = ['senshi', 'hianime', 'allanime', 'anidb'];
-const TIER2_ORDER = ['anipub', 'owais'];
+const TIER2_ORDER = ['anipub', 'owais', 'vidsrc'];
 
 function sortCandidates(list, tierOrder) {
   return list.sort((a, b) => {

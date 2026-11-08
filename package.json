@@ -1,6 +1,6 @@
 {
   "name": "@anjishnusengupta/ny-cli",
-  "version": "7.0.1",
+  "version": "7.1.0",
   "type": "module",
   "description": "Beautiful terminal anime streaming CLI with Ink UI, artwork display, and cloud sync",
   "main": "backend.mjs",
@@ -11,6 +11,8 @@
     "sync-version": "node scripts/sync-version.js",
     "check:versions": "node scripts/check-versions.mjs",
     "check:bundle": "node scripts/check-bundle.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run check:versions && npm run check:bundle && npm run typecheck",
     "version": "node scripts/sync-version.js && npm run build:fallback && node scripts/check-bundle.mjs && git add PKGBUILD ny-cli.spec debian/changelog cli-terminal-fallback.mjs",
     "prepublishOnly": "npm run check:versions && node scripts/check-bundle.mjs",
     "start": "node backend.mjs",
@@ -60,7 +62,8 @@
   },
   "os": [
     "linux",
-    "darwin"
+    "darwin",
+    "win32"
   ],
   "dependencies": {
     "express": "^5.1.0",

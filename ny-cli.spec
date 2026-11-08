@@ -1,5 +1,5 @@
 Name:           ny-cli
-Version:        7.0.1
+Version:        7.1.0
 Release:        1%{?dist}
 Summary:        Beautiful terminal anime streaming client with artwork display and cloud sync
 
@@ -7,7 +7,6 @@ License:        MIT
 URL:            https://github.com/AnjishnuSengupta/ny-cli
 Source0:        %{name}-%{version}.tar.gz
 
-BuildArch:      noarch
 BuildRequires:  nodejs >= 20.18.0
 BuildRequires:  npm
 Requires:       nodejs >= 20.18.0
@@ -25,12 +24,17 @@ ripple effects, and support for mpv and VLC players.
 %autosetup
 
 %build
+export npm_config_cache="%{_builddir}/npm-cache"
 [ -f anjishnusengupta-ny-cli-*.tgz ] || npm pack
 
 %install
+export npm_config_cache="%{_builddir}/npm-cache"
 mkdir -p %{buildroot}%{_prefix}
 tarball=$(ls -1 anjishnusengupta-ny-cli-*.tgz | head -n 1)
-npm install -g --prefix %{buildroot}%{_prefix} "$tarball"
+npm install -g --prefix %{buildroot}%{_prefix} --cache "%{_builddir}/npm-cache" --no-audit --no-fund "$tarball"
+find %{buildroot}%{_prefix} -type d -exec chmod 755 {} +
+find %{buildroot}%{_prefix} -type f -exec chmod u=rwX,go=rX {} +
+chmod 755 %{buildroot}%{_bindir}/ny-cli 2>/dev/null || true
 
 install -Dm644 LICENSE %{buildroot}%{_licensedir}/%{name}/LICENSE
 install -Dm644 README.md %{buildroot}%{_docdir}/%{name}/README.md
@@ -42,6 +46,16 @@ install -Dm644 README.md %{buildroot}%{_docdir}/%{name}/README.md
 %{_prefix}/lib/node_modules/@anjishnusengupta/ny-cli
 
 %changelog
+* Sun Nov 08 2026 Anjishnu Sengupta <itsaemail@duck.com> - 7.1.0-1
+- Release v7.1.0
+- Add VidSrc streaming provider with multi-source fallback
+- Multi-title search matching engine (English, romaji, native, synonyms)
+- In-terminal provider configuration toggles
+- Subtitle extraction and muxing during stream downloads
+- Curated high-uptime torrent trackers and WebTorrent integration
+- Platform-standard state/config directory migration and permission hardening
+- Package manager update command detection and collision prevention
+
 * Sun Apr 05 2026 Anjishnu Sengupta <itsaemail@duck.com> - 5.1.2-1
 - React/Ink terminal UI with animated gradients and ripple effects
 - Anime artwork display via Jikan API + chafa

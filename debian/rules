@@ -1,5 +1,7 @@
 #!/usr/bin/make -f
 
+export npm_config_cache = $(CURDIR)/debian/npm-cache
+
 %:
 	dh $@
 
@@ -8,6 +10,9 @@ override_dh_auto_build:
 
 override_dh_auto_install:
 	tarball=$$(ls -1 anjishnusengupta-ny-cli-*.tgz 2>/dev/null | head -n 1) && \
-	npm install -g --prefix debian/ny-cli/usr "$$tarball"
+	npm install -g --prefix debian/ny-cli/usr --cache debian/npm-cache --no-audit --no-fund "$$tarball"
+	find debian/ny-cli/usr -type d -exec chmod 755 {} +
+	find debian/ny-cli/usr -type f -exec chmod u=rwX,go=rX {} +
+	chmod 755 debian/ny-cli/usr/bin/ny-cli 2>/dev/null || true
 	install -Dm644 LICENSE debian/ny-cli/usr/share/doc/ny-cli/copyright
 	install -Dm644 README.md debian/ny-cli/usr/share/doc/ny-cli/README.md

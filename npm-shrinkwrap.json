@@ -1,17 +1,18 @@
 {
   "name": "@anjishnusengupta/ny-cli",
-  "version": "7.0.1",
+  "version": "7.1.0",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "@anjishnusengupta/ny-cli",
-      "version": "7.0.1",
+      "version": "7.1.0",
       "hasInstallScript": true,
       "license": "MIT",
       "os": [
         "linux",
-        "darwin"
+        "darwin",
+        "win32"
       ],
       "dependencies": {
         "express": "^5.1.0",

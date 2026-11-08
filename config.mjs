@@ -15,7 +15,8 @@ export const DEFAULT_CONFIG = {
   providers: {
     senshi: true,
     hianime: true,
-    anipub: true,
+    vidsrc: true,
+    anipub: false,
     owais: false,
     allanime: false,
     anidb: false,
@@ -201,7 +202,7 @@ export function saveConfig(updates = {}) {
 
   ensureDirs();
   fs.writeFileSync(configFile, JSON.stringify(merged, null, 2), { encoding: 'utf8', mode: 0o600 });
-  try { fs.chmodSync(configFile, 0o600); } catch {}
+  try { fs.chmodSync(configFile, 0o600); } catch { }
   ensureSecureFiles();
   cachedConfig = merged;
   return merged;

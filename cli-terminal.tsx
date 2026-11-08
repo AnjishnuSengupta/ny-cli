@@ -20,7 +20,7 @@ import {
   anime4kDir as ANIME4K_DIR,
   ensureSecureAuthFile,
 } from './paths.mjs';
-import { loadConfig } from './config.mjs';
+import { loadConfig, saveConfig } from './config.mjs';
 import { getMpvSkipArgs } from './skip.mjs';
 
 // Module-level quit bus: bridges OS signals → React state
@@ -267,6 +267,7 @@ interface Settings {
   anime4kMode: 'A' | 'B' | 'C' | 'A+A' | 'B+B' | 'C+A';
   player: 'auto' | 'mpv' | 'vlc';
   skipMode: 'off' | 'chapters' | 'auto';
+  providers?: Record<string, boolean>;
 }
 
 const defaultSettings: Settings = {
@@ -274,6 +275,15 @@ const defaultSettings: Settings = {
   anime4kMode: 'A',
   player: 'auto',
   skipMode: 'off',
+  providers: {
+    hianime: true,
+    senshi: true,
+    vidsrc: true,
+    allanime: false,
+    anidb: false,
+    anipub: false,
+    owais: false,
+  },
 };
 
 function loadSettings(): Settings {
@@ -281,10 +291,12 @@ function loadSettings(): Settings {
     const config = loadConfig();
     const player = (config.player && ['auto', 'mpv', 'vlc'].includes(config.player)) ? (config.player as 'auto' | 'mpv' | 'vlc') : 'auto';
     const skipMode = (config.skipMode && ['off', 'chapters', 'auto'].includes(config.skipMode)) ? (config.skipMode as 'off' | 'chapters' | 'auto') : 'off';
+    const providers = { ...(defaultSettings.providers || {}), ...(config.providers || {}) };
     if (fs.existsSync(SETTINGS_FILE)) {
-      return { ...defaultSettings, player, skipMode, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) };
+      const fileData = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+      return { ...defaultSettings, player, skipMode, ...fileData, providers: { ...providers, ...(fileData.providers || {}) } };
     }
-    return { ...defaultSettings, player, skipMode };
+    return { ...defaultSettings, player, skipMode, providers };
   } catch {}
   return defaultSettings;
 }
@@ -293,6 +305,13 @@ function saveSettings(settings: Settings): void {
   try {
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), { mode: 0o600 });
     try { fs.chmodSync(SETTINGS_FILE, 0o600); } catch {}
+  } catch {}
+  try {
+    saveConfig({
+      player: settings.player,
+      skipMode: settings.skipMode,
+      providers: settings.providers || {},
+    });
   } catch {}
 }
 
@@ -527,7 +546,16 @@ function formatTime(seconds: number): string {
 
 const MY_LIST_FILE = path.join(DATA_DIR, 'my-list.json');
 
-function getMyList(): { id: string; title: string; poster?: string }[] {
+interface MyListItem {
+  id: string;
+  title: string;
+  poster?: string;
+  format?: string;
+  year?: number;
+  addedAt?: number;
+}
+
+function getMyList(): MyListItem[] {
   try {
     if (!fs.existsSync(MY_LIST_FILE)) return [];
     return JSON.parse(fs.readFileSync(MY_LIST_FILE, 'utf8'));
@@ -536,7 +564,7 @@ function getMyList(): { id: string; title: string; poster?: string }[] {
   }
 }
 
-function addToMyList(item: { id: string; title: string; poster?: string }): void {
+function addToMyList(item: MyListItem): void {
   try {
     const list = getMyList().filter(i => i.id !== item.id);
     list.unshift(item);
@@ -1812,12 +1840,28 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
   const players = ['auto', 'mpv', 'vlc'] as const;
   const skipModes = ['off', 'chapters', 'auto'] as const;
   
-  const menuItems = [
+  const PROVIDER_ITEMS = [
+    { key: 'hianime', label: 'HiAnime (Tier 1 - HLS)' },
+    { key: 'senshi', label: 'Senshi (Tier 1 - HLS)' },
+    { key: 'vidsrc', label: 'VidSrc (Tier 2 - Embed)' },
+    { key: 'allanime', label: 'AllAnime (Tier 1)' },
+    { key: 'anidb', label: 'AniDB (Tier 1)' },
+    { key: 'anipub', label: 'AniPub (Tier 2)' },
+    { key: 'owais', label: 'Owais (Tier 2)' },
+  ];
+
+  const menuItems: Array<{ key: string; label: string; type: string; provKey?: string }> = [
     { key: 'player', label: 'Video Player', type: 'select' },
     { key: 'skipMode', label: 'AniSkip Mode', type: 'select' },
     { key: 'anime4k', label: 'Anime4K Upscaling', type: 'toggle' },
     { key: 'anime4kMode', label: 'Anime4K Mode', type: 'select' },
     { key: 'download', label: 'Download Anime4K Shaders', type: 'action' },
+    ...PROVIDER_ITEMS.map(p => ({
+      key: `prov_${p.key}`,
+      provKey: p.key,
+      label: p.label,
+      type: 'provider-toggle',
+    })),
     { key: 'back', label: '← Back', type: 'action' },
   ];
   
@@ -1864,7 +1908,7 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
       setSelectedIndex(i => Math.max(0, i - 1));
     } else if (key.downArrow || input === 'j') {
       setSelectedIndex(i => Math.min(menuItems.length - 1, i + 1));
-    } else if (key.return) {
+    } else if (key.return || input === ' ') {
       const item = menuItems[selectedIndex];
       
       if (item.key === 'player') {
@@ -1887,6 +1931,11 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
         if (!downloading) {
           downloadAnime4k();
         }
+      } else if (item.type === 'provider-toggle' && item.provKey) {
+        const pKey = item.provKey;
+        const currentVal = settings.providers?.[pKey] ?? (defaultSettings.providers?.[pKey] ?? false);
+        const newProviders = { ...(settings.providers || defaultSettings.providers || {}), [pKey]: !currentVal };
+        onUpdate({ ...settings, providers: newProviders });
       } else if (item.key === 'back') {
         onBack();
       }
@@ -1914,14 +1963,22 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
       const currentIdx = modes.indexOf(settings.anime4kMode);
       const nextIdx = (currentIdx + 1) % modes.length;
       onUpdate({ ...settings, anime4kMode: modes[nextIdx] });
+    } else if ((key.leftArrow || key.rightArrow) && menuItems[selectedIndex]?.type === 'provider-toggle') {
+      const item = menuItems[selectedIndex];
+      if (item.provKey) {
+        const pKey = item.provKey;
+        const currentVal = settings.providers?.[pKey] ?? (defaultSettings.providers?.[pKey] ?? false);
+        const newProviders = { ...(settings.providers || defaultSettings.providers || {}), [pKey]: !currentVal };
+        onUpdate({ ...settings, providers: newProviders });
+      }
     }
   });
   
   return (
-    <Box flexDirection="column" width={Math.min(60, termSize.cols - 4)}>
+    <Box flexDirection="column" width={Math.min(65, termSize.cols - 4)}>
       <Box borderStyle="round" borderColor={theme.cyan} paddingX={2} paddingY={1} flexDirection="column">
         <Text color={theme.cyan} bold>[⚙] Settings</Text>
-        <Text color={theme.dimGray}>{'─'.repeat(50)}</Text>
+        <Text color={theme.dimGray}>{'─'.repeat(55)}</Text>
         <Text> </Text>
         
         {/* Video Player */}
@@ -1972,8 +2029,6 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
           </Text>
         </Box>
         
-        <Text> </Text>
-        
         {/* Download Action */}
         <Box>
           <Text color={selectedIndex === 4 ? theme.cyan : theme.lightGray}>
@@ -1981,15 +2036,39 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
             {anime4kInstalled ? '↻ Re-download' : '↓ Download'} Anime4K Shaders
           </Text>
         </Box>
-        
+
+        <Text> </Text>
+        <Text color={theme.purple} bold>[⚡] Streaming Providers (Enter/Space to toggle):</Text>
+        <Text color={theme.dimGray}>{'─'.repeat(55)}</Text>
+
+        {/* Provider Toggles */}
+        {PROVIDER_ITEMS.map((p, pIdx) => {
+          const itemIdx = 5 + pIdx;
+          const isSelected = selectedIndex === itemIdx;
+          const isEnabled = settings.providers?.[p.key] ?? (defaultSettings.providers?.[p.key] ?? false);
+          return (
+            <Box key={p.key}>
+              <Text color={isSelected ? theme.cyan : theme.lightGray}>
+                {isSelected ? '▸ ' : '  '}
+                {p.label}:{' '}
+              </Text>
+              <Text color={isEnabled ? theme.green : theme.red} bold>
+                {isEnabled ? '[ON]' : '[OFF]'}
+              </Text>
+            </Box>
+          );
+        })}
+
+        <Text> </Text>
+
         {/* Back */}
         <Box>
-          <Text color={selectedIndex === 5 ? theme.cyan : theme.lightGray}>
-            {selectedIndex === 5 ? '▸ ' : '  '}
+          <Text color={selectedIndex === 5 + PROVIDER_ITEMS.length ? theme.cyan : theme.lightGray}>
+            {selectedIndex === 5 + PROVIDER_ITEMS.length ? '▸ ' : '  '}
             ← Back
           </Text>
         </Box>
-        
+
         {downloadStatus && (
           <>
             <Text> </Text>
@@ -1999,18 +2078,20 @@ function SettingsScreen({ settings, onUpdate, onBack }: SettingsScreenProps) {
           </>
         )}
       </Box>
-      
+
       <Box marginTop={1}>
         <Text color={theme.dimGray}>
-          {anime4kInstalled 
-            ? 'Anime4K shaders enhance video quality for older anime' 
-            : 'Download shaders first to enable upscaling'}
+          {selectedIndex >= 5 && selectedIndex < 5 + PROVIDER_ITEMS.length
+            ? 'Press Enter or Space to toggle active streaming providers on/off'
+            : anime4kInstalled
+              ? 'Anime4K shaders enhance video quality for older anime'
+              : 'Download shaders first to enable upscaling'}
         </Text>
       </Box>
       
       <Box marginTop={1}>
         <Text color={theme.dimGray}>
-          Mode A: Best for 1080p | Mode B: Soft edges | Mode C: Denoise
+          Tier 1 (Direct Streams): HiAnime, Senshi, AllAnime, AniDB | Tier 2 (Embeds): VidSrc, AniPub, Owais
         </Text>
       </Box>
     </Box>
@@ -2365,22 +2446,45 @@ function App() {
   const [playingProviders, setPlayingProviders] = useState<{name: string, type: 'torrent'|'direct'|'embed'|'hls'|'mp4', url?: string, magnet?: string, headers?: any, subtitle?: string, candidate?: any}[]>([]);
   const [playingProviderIndex, setPlayingProviderIndex] = useState(0);
   const [playingAttempts, setPlayingAttempts] = useState<any[]>([]);
+  const activePlayerProcessRef = useRef<any>(null);
+
+  const stopActivePlayer = useCallback(() => {
+    if (activePlayerProcessRef.current) {
+      const p = activePlayerProcessRef.current;
+      activePlayerProcessRef.current = null;
+      try {
+        if (os.platform() === 'win32' && p.pid) {
+          spawnSync('taskkill', ['/PID', String(p.pid), '/T', '/F'], { stdio: 'ignore' });
+        } else if (p.pid) {
+          process.kill(p.pid, 'SIGKILL');
+        }
+      } catch {}
+    }
+  }, []);
+
+  const isWebTorrentAvailable = useCallback((): boolean => {
+    try {
+      const bin = os.platform() === 'win32' ? 'webtorrent.cmd' : 'webtorrent';
+      const res = spawnSync(bin, ['--version'], { stdio: 'ignore' });
+      return res.status === 0;
+    } catch {
+      return false;
+    }
+  }, []);
 
   // Expose these for the PlayingScreen
   const togglePause = () => {
+    if (!activePlayerProcessRef.current?.pid) return;
     if (os.platform() === 'win32') return;
     const cmd = resolvePlayerCommand(appSettings);
     if (cmd === 'vlc') {
       setStatus({ message: 'Pause via hotkey is mpv-only (VLC uses its own controls)', type: 'info', loading: false });
       return;
     }
-    if (playingPaused) {
-      spawnSync('killall', ['-CONT', cmd]);
-      setPlayingPaused(false);
-    } else {
-      spawnSync('killall', ['-STOP', cmd]);
-      setPlayingPaused(true);
-    }
+    try {
+      process.kill(activePlayerProcessRef.current.pid, playingPaused ? 'SIGCONT' : 'SIGSTOP');
+      setPlayingPaused(!playingPaused);
+    } catch {}
   };
 
   const tryNextCandidate = (
@@ -2427,10 +2531,25 @@ function App() {
     const cmd = resolvePlayerCommand(appSettings);
     
     if (provider.type === 'torrent') {
+      if (!isWebTorrentAvailable()) {
+        setStatus({
+          message: 'WebTorrent CLI is not installed. Run "npm install -g webtorrent-cli" to enable torrent streaming.',
+          type: 'error',
+          loading: false,
+        });
+        return;
+      }
+      stopActivePlayer();
       setStatus({ message: `Starting ${provider.name}...`, type: 'success', loading: false });
-      const wtCmd = os.platform() === 'win32' ? 'npx.cmd' : 'npx';
+      const wtCmd = os.platform() === 'win32' ? 'webtorrent.cmd' : 'webtorrent';
       const playerFlag = cmd === 'vlc' ? '--vlc' : '--mpv';
-      const proc = spawn(wtCmd, ['-y', 'webtorrent-cli', provider.magnet!, playerFlag], { stdio: 'ignore', detached: true });
+      const torrentTarget = provider.magnet || provider.url!;
+      const proc = spawn(wtCmd, [torrentTarget, playerFlag], {
+        stdio: 'ignore',
+        detached: true,
+        shell: false,
+      });
+      activePlayerProcessRef.current = proc;
       proc.on('error', (err: any) => {
         setStatus({ message: `Failed to launch webtorrent: ${err.message}`, type: 'error', loading: false });
       });
@@ -2474,7 +2593,9 @@ function App() {
         audioType: streamMode,
         skipArgs,
       });
+      stopActivePlayer();
       const proc = spawn(cmd, args, { stdio: 'ignore' });
+      activePlayerProcessRef.current = proc;
 
       let fiveSecPassed = false;
       const timer = setTimeout(() => {
@@ -3168,7 +3289,7 @@ function App() {
     } else {
       addToMyList({
         id: animeInfo.id,
-        name: animeInfo.titles?.english || animeInfo.name || selectedAnime?.label || 'Anime',
+        title: animeInfo.titles?.english || animeInfo.name || selectedAnime?.label || 'Anime',
         poster: animeInfo.poster || selectedAnime?.imageUrl,
         format: animeInfo.format,
         year: animeInfo.year,
@@ -3455,21 +3576,34 @@ function App() {
 
       // ── Torrent Search: ONLY when all direct and embed candidates failed ────
       if (providers.length === 0) {
-        setStatus({ message: 'No direct stream found, trying torrent (slower)...', type: 'info', loading: true });
+        setStatus({ message: 'No direct stream found, searching Nyaa torrents...', type: 'info', loading: true });
+
+        const torrentParams = new URLSearchParams({
+          title: animeTitle,
+          ep: String(epNo),
+        });
+        if (romajiTitle) torrentParams.set('romajiTitle', romajiTitle);
+        if (englishTitle) torrentParams.set('englishTitle', englishTitle);
 
         let torrentData: any = null;
         try {
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Torrent search stall timeout')), 8000));
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Torrent search stall timeout')), 12000));
           torrentData = await Promise.race([
-            getJson(`/api/torrent?title=${encodeURIComponent(animeTitle)}&ep=${epNo}`),
+            getJson(`/api/torrent?${torrentParams.toString()}`),
             timeoutPromise,
           ]);
         } catch {
           torrentData = null;
         }
 
-        if (torrentData?.magnet) {
-          providers.push({ name: 'Nyaa (Torrent)', type: 'torrent', magnet: torrentData.magnet });
+        if (torrentData?.magnet || torrentData?.torrentUrl) {
+          providers.push({
+            name: `Nyaa (Torrent: ${torrentData.title ? (torrentData.title.length > 35 ? torrentData.title.slice(0, 32) + '...' : torrentData.title) : '1080p'})`,
+            type: 'torrent',
+            magnet: torrentData.magnet,
+            url: torrentData.torrentUrl,
+            candidate: torrentData,
+          });
         }
       }
 
@@ -3569,6 +3703,13 @@ function App() {
         const candidates = backendStreamRes?.candidates || (backendStreamRes?.url ? [backendStreamRes] : []);
         const backendStream = candidates.find((c: any) => c.type === 'hls' || c.type === 'mp4') || candidates[0];
 
+        // Locate best subtitle track
+        const candidateTracks = backendStream?.subtitleTracks || backendStreamRes?.subtitleTracks || [];
+        const subTrack = candidateTracks.find((t: any) =>
+          t.default || /eng|english/i.test(t.label || t.lang || '')
+        ) || candidateTracks[0];
+        const subUrl = subTrack?.src || backendStream?.subtitle || backendStreamRes?.subtitle;
+
         if (backendStream?.url) {
           streamUrl = backendStream.url;
           if (backendStream.referer) {
@@ -3578,30 +3719,48 @@ function App() {
           }
         } else {
           // Fall back to torrent only when direct stream fails
-          setDownloadQueue(prev => prev.map((t, idx) => 
+          setDownloadQueue(prev => prev.map((t, idx) =>
             idx === nextTaskIndex ? { ...t, message: 'No direct stream — searching torrent...' } : t
           ));
+          const tParams = new URLSearchParams({
+            title: task.animeTitle,
+            ep: String(task.episodeNumber),
+          });
+          if (task.titles?.romaji) tParams.set('romajiTitle', task.titles.romaji);
+          if (task.titles?.english) tParams.set('englishTitle', task.titles.english);
+
           const torrentData = await getJson(
-            `/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`
+            `/api/torrent?${tParams.toString()}`
           ).catch(() => null);
 
-          if (torrentData?.magnet) {
-            magnetLink = torrentData.magnet;
+          if (torrentData?.magnet || torrentData?.torrentUrl) {
+            magnetLink = torrentData.magnet || torrentData.torrentUrl;
             isTorrent = true;
           }
         }
 
         if (isTorrent && magnetLink) {
+          if (!isWebTorrentAvailable()) {
+            setDownloadQueue(prev => prev.map((t, idx) =>
+              idx === nextTaskIndex ? {
+                ...t,
+                status: 'error',
+                message: 'WebTorrent CLI not installed. Run "npm install -g webtorrent-cli" to download torrents.'
+              } : t
+            ));
+            return;
+          }
+
           if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-          
-          setDownloadQueue(prev => prev.map((t, idx) => 
+
+          setDownloadQueue(prev => prev.map((t, idx) =>
             idx === nextTaskIndex ? { ...t, message: 'Downloading Torrent...' } : t
           ));
 
-          const wtCmd = os.platform() === 'win32' ? 'npx.cmd' : 'npx';
-          const args = ['-y', 'webtorrent-cli', 'download', magnetLink, '-o', outDir];
+          const wtCmd = os.platform() === 'win32' ? 'webtorrent.cmd' : 'webtorrent';
+          const args = ['download', magnetLink, '-o', outDir];
 
-          const wtProcess = spawn(wtCmd, args);
+          const wtProcess = spawn(wtCmd, args, { shell: false });
 
           wtProcess.stdout.on('data', (data: any) => {
              const output = data.toString();
@@ -3639,7 +3798,7 @@ function App() {
              ));
           });
 
-          // Stall detector: if no progress change in 45s, mark as error
+          // Stall detector: if no progress change in 75s, mark as error
           let lastProgress = -1;
           const stallTimer = setInterval(() => {
             setDownloadQueue(prev => {
@@ -3662,7 +3821,7 @@ function App() {
               lastProgress = current?.progress ?? -1;
               return prev;
             });
-          }, 45000);
+          }, 75000);
 
           return;
         }
@@ -3693,6 +3852,30 @@ function App() {
           throw new Error('Neither ffmpeg nor yt-dlp is installed. Please install ffmpeg or yt-dlp to download streams.');
         }
 
+        // Download subtitle track as sidecar and for muxing into MP4
+        let subFilename = '';
+        if (subUrl) {
+          try {
+            setDownloadQueue(prev => prev.map((t, idx) =>
+              idx === nextTaskIndex ? { ...t, message: 'Downloading subtitles...' } : t
+            ));
+            const subHeaders: Record<string, string> = {};
+            if (streamHeaders?.Referer) subHeaders['Referer'] = streamHeaders.Referer;
+            if (streamHeaders?.['User-Agent']) subHeaders['User-Agent'] = streamHeaders['User-Agent'];
+            const subRes = await fetch(subUrl, {
+              headers: subHeaders,
+              signal: AbortSignal.timeout(10000),
+            });
+            if (subRes.ok) {
+              const vttContent = await subRes.text();
+              if (vttContent && (vttContent.includes('WEBVTT') || vttContent.includes('-->'))) {
+                subFilename = path.join(outDir, `${safeTitle}_Ep${task.episodeNumber}.vtt`);
+                fs.writeFileSync(subFilename, vttContent, 'utf8');
+              }
+            }
+          } catch {}
+        }
+
         if (hasFfmpeg) {
           setDownloadQueue(prev => prev.map((t, idx) => 
             idx === nextTaskIndex ? { ...t, message: 'Downloading via FFmpeg...' } : t
@@ -3717,14 +3900,29 @@ function App() {
           }
           ffmpegArgs.push('-headers', customHeaders);
 
-          ffmpegArgs.push(
-            '-i', streamUrl,
-            '-c', 'copy',
-            '-bsf:a', 'aac_adtstoasc',
-            '-progress', 'pipe:1',
-            '-nostats',
-            filename
-          );
+          if (subFilename && fs.existsSync(subFilename)) {
+            ffmpegArgs.push(
+              '-i', streamUrl,
+              '-i', subFilename,
+              '-c:v', 'copy',
+              '-c:a', 'copy',
+              '-c:s', 'mov_text',
+              '-metadata:s:s:0', 'language=eng',
+              '-bsf:a', 'aac_adtstoasc',
+              '-progress', 'pipe:1',
+              '-nostats',
+              filename
+            );
+          } else {
+            ffmpegArgs.push(
+              '-i', streamUrl,
+              '-c', 'copy',
+              '-bsf:a', 'aac_adtstoasc',
+              '-progress', 'pipe:1',
+              '-nostats',
+              filename
+            );
+          }
 
           const ffmpegProc = spawn('ffmpeg', ffmpegArgs);
           let durationUs = 0;
@@ -3982,7 +4180,7 @@ function App() {
           ? ' - Almost done!' 
           : ` • ${percentage}%` 
         : '';
-      const titleStr = typeof h.title === 'string' ? h.title : (h.title?.english || h.title?.romaji || String(h.title || 'Untitled'));
+      const titleStr = typeof h.title === 'string' ? h.title : String((h.title as any)?.english || (h.title as any)?.romaji || (h as any).title || 'Untitled');
       return {
         id: String(h.id),
         value: String(h.id),
@@ -4065,14 +4263,14 @@ function App() {
                  if (i.value === 'pause') {
                    togglePause();
                  } else if (i.value === 'back') {
-                   spawnSync('killall', ['-9', 'mpv', 'webtorrent-cli']);
+                   stopActivePlayer();
                    setScreen('episode-select');
                  } else if (i.value === 'next') {
-                   spawnSync('killall', ['-9', 'mpv', 'webtorrent-cli']);
+                   stopActivePlayer();
                    const nextEp = episodes.find(e => e.number === (playingEpisode?.number || 0) + 1);
                    if (nextEp) handleEpisodeSelect(nextEp);
                  } else if (i.value === 'prev') {
-                   spawnSync('killall', ['-9', 'mpv', 'webtorrent-cli']);
+                   stopActivePlayer();
                    const prevEp = episodes.find(e => e.number === (playingEpisode?.number || 0) - 1);
                    if (prevEp) handleEpisodeSelect(prevEp);
                  } else if (i.value === 'download') {
@@ -4080,7 +4278,7 @@ function App() {
                    setStatus({ message: 'Added to download queue!', type: 'success' });
                  } else if (i.value === 'provider') {
                    // Cycle to the next provider and play it
-                   spawnSync('killall', ['-9', 'mpv', 'webtorrent-cli']);
+                   stopActivePlayer();
                    const nextIndex = (playingProviderIndex + 1) % playingProviders.length;
                    setPlayingProviderIndex(nextIndex);
                    playProvider(playingProviders[nextIndex]);

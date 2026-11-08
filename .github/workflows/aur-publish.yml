@@ -33,30 +33,26 @@ jobs:
 
       - name: Generate .SRCINFO
         run: |
-          # Create a simple .SRCINFO from PKGBUILD
-          cat > .SRCINFO << 'SRCINFO_EOF'
-          pkgbase = ny-cli
-          	pkgdesc = Beautiful terminal anime streaming client with artwork display, cloud sync, and watch progress tracking
-          	pkgver = ${{ steps.version.outputs.VERSION }}
-          	pkgrel = 1
-          	url = https://github.com/AnjishnuSengupta/ny-cli
-          	arch = any
-          	license = MIT
-          	depends = nodejs>=20.18.0
-          	depends = npm
-          	optdepends = mpv: recommended video player with IPC support
-          	optdepends = vlc: alternative video player
-          	optdepends = chafa: terminal image rendering for artwork display
-          	optdepends = bun: enhanced terminal UI experience
-          	source = ny-cli-${{ steps.version.outputs.VERSION }}.tar.gz::https://github.com/AnjishnuSengupta/ny-cli/archive/v${{ steps.version.outputs.VERSION }}.tar.gz
-          	sha256sums = SKIP
-
-          pkgname = ny-cli
-          SRCINFO_EOF
-          # Fix indentation (tabs required)
-          sed -i 's/^          /\t/g' .SRCINFO
-          sed -i 's/^\tpkgbase/pkgbase/' .SRCINFO
-          sed -i 's/^\tpkgname/pkgname/' .SRCINFO
+          {
+            echo "pkgbase = ny-cli"
+            echo -e "\tpkgdesc = Beautiful terminal anime streaming client with artwork display, cloud sync, and watch progress tracking"
+            echo -e "\tpkgver = ${{ steps.version.outputs.VERSION }}"
+            echo -e "\tpkgrel = 1"
+            echo -e "\turl = https://github.com/AnjishnuSengupta/ny-cli"
+            echo -e "\tarch = any"
+            echo -e "\tlicense = MIT"
+            echo -e "\tdepends = nodejs>=20.18.0"
+            echo -e "\tdepends = npm"
+            echo -e "\toptdepends = mpv: recommended video player with IPC support"
+            echo -e "\toptdepends = vlc: alternative video player"
+            echo -e "\toptdepends = ffmpeg: stream recording and subtitle muxing"
+            echo -e "\toptdepends = webtorrent-cli: torrent streaming and downloading support"
+            echo -e "\toptdepends = chafa: terminal image rendering for artwork display"
+            echo -e "\tsource = ny-cli-${{ steps.version.outputs.VERSION }}.tar.gz::https://github.com/AnjishnuSengupta/ny-cli/archive/v${{ steps.version.outputs.VERSION }}.tar.gz"
+            echo -e "\tsha256sums = SKIP"
+            echo ""
+            echo "pkgname = ny-cli"
+          } > .SRCINFO
 
       - name: Setup SSH
         run: |
@@ -64,11 +60,7 @@ jobs:
           echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/aur
           chmod 600 ~/.ssh/aur
           ssh-keyscan -t rsa,ecdsa,ed25519 aur.archlinux.org >> ~/.ssh/known_hosts
-          cat > ~/.ssh/config << EOF
-          Host aur.archlinux.org
-            IdentityFile ~/.ssh/aur
-            User aur
-          EOF
+          printf "Host aur.archlinux.org\n  IdentityFile ~/.ssh/aur\n  User aur\n" > ~/.ssh/config
 
       - name: Push to AUR
         run: |
@@ -86,4 +78,4 @@ jobs:
           # Commit and push
           git add PKGBUILD .SRCINFO
           git commit -m "Update to version ${{ steps.version.outputs.VERSION }}" || echo "No changes to commit"
-          git push --force origin master || git push --force origin HEAD:master
+          git push origin master || git push origin HEAD:master

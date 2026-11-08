@@ -40,7 +40,7 @@ export function extractSeason(str) {
 
   // Pattern: season 2, s2, 2nd season, etc.
   const seasonMatch = s.match(/\b(?:season|s)\s*(\d+)\b/i) ||
-                      s.match(/\b(\d+)(?:nd|rd|th|st)\s*season\b/i);
+    s.match(/\b(\d+)(?:nd|rd|th|st)\s*season\b/i);
   if (seasonMatch) return parseInt(seasonMatch[1], 10);
 
   // Check Roman numeral at end of title: e.g. "Mob Psycho 100 II" -> 2
@@ -118,6 +118,7 @@ export function computeTitleSimilarity(candTitle, contextTitles) {
     contextTitles.english,
     contextTitles.romaji,
     contextTitles.native,
+    ...(Array.isArray(contextTitles.synonyms) ? contextTitles.synonyms : []),
   ].filter(Boolean);
 
   if (targetList.length === 0) return 0;
@@ -128,6 +129,29 @@ export function computeTitleSimilarity(candTitle, contextTitles) {
     if (!normTarget) continue;
     if (normCand === normTarget) {
       return 100;
+    }
+
+    // Prefix match check: if one is the clean prefix of the other (e.g. short synonym vs full title)
+    // Require at least 5 chars and word boundary so short tokens ("one", "k") don't match arbitrary titles
+    const [shorter, longer] = normCand.length <= normTarget.length ? [normCand, normTarget] : [normTarget, normCand];
+    if (shorter.length >= 5 && longer.startsWith(shorter + ' ')) {
+      const ratio = shorter.length / longer.length;
+      const prefixSim = Math.round(65 + 20 * Math.min(1, ratio / 0.6));
+      if (prefixSim > maxSim) maxSim = prefixSim;
+    }
+
+    // Token subset check: if all tokens of a multi-word title are in the other
+    const tokensCand = normCand.split(' ').filter(Boolean);
+    const tokensTarget = normTarget.split(' ').filter(Boolean);
+    const minTokens = Math.min(tokensCand.length, tokensTarget.length);
+    if (minTokens >= 2) {
+      const setCand = new Set(tokensCand);
+      const setTarget = new Set(tokensTarget);
+      if (tokensTarget.every(tok => setCand.has(tok)) || tokensCand.every(tok => setTarget.has(tok))) {
+        const ratio = minTokens / Math.max(tokensCand.length, tokensTarget.length);
+        const subsetSim = Math.round(60 + 25 * ratio);
+        if (subsetSim > maxSim) maxSim = subsetSim;
+      }
     }
 
     const dice = diceSimilarity(normCand, normTarget);
@@ -160,15 +184,22 @@ export function scoreMatch(candidate, context, extractors = {}) {
   const candEps = parseInt(getEpCount(candidate), 10) || null;
   const candMalId = parseInt(getMalId(candidate), 10) || null;
   const candAniListId = parseInt(getAniListId(candidate), 10) || null;
+  const getFormat = extractors.getFormat || ((c) => c.format || c.type || c.subType || null);
+  const candFormat = (getFormat(candidate) || '').toUpperCase();
 
-  const contextTitles = context.titles || {
-    english: context.title || '',
-    romaji: context.title || '',
+  const contextTitles = {
+    english: context.titles?.english || context.englishTitle || context.title || '',
+    romaji: context.titles?.romaji || context.romajiTitle || context.title || '',
+    native: context.titles?.native || context.nativeTitle || '',
+    synonyms: Array.isArray(context.titles?.synonyms)
+      ? context.titles.synonyms
+      : (Array.isArray(context.synonyms) ? context.synonyms : []),
   };
   const contextYear = parseInt(context.year, 10) || null;
   const contextEps = parseInt(context.episodeCount, 10) || null;
   const contextMalId = parseInt(context.malId, 10) || null;
   const contextAniListId = parseInt(context.anilistId, 10) || null;
+  const contextFormat = (context.format || context.type || '').toUpperCase();
 
   // 1. Direct ID match check
   if ((contextMalId && candMalId && contextMalId === candMalId) ||
@@ -242,6 +273,15 @@ export function scoreMatch(candidate, context, extractors = {}) {
   }
   totalScore += epBonus;
 
+  // 6. Format penalty (Movie vs Series / TV)
+  let formatPenalty = 0;
+  if (contextFormat === 'MOVIE' && (candFormat === 'TV' || (candEps && candEps > 1))) {
+    formatPenalty = -25;
+  } else if ((contextFormat === 'TV' || (contextEps && contextEps > 3)) && (candFormat === 'MOVIE' || (candEps === 1 && /\bmovie\b/i.test(candTitle)))) {
+    formatPenalty = -25;
+  }
+  totalScore += formatPenalty;
+
   // Clamp score between 0 and 100
   const finalScore = Math.max(0, Math.min(100, Math.round(totalScore)));
 
@@ -252,6 +292,7 @@ export function scoreMatch(candidate, context, extractors = {}) {
       seasonBonus,
       yearBonus,
       epBonus,
+      formatPenalty,
       candTitle,
       candYear,
       candSeason,

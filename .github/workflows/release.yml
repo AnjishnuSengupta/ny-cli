@@ -20,13 +20,11 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
       - name: Install dependencies
-        run: npm ci || npm install
+        run: npm ci
       - name: Install system media player
         run: sudo apt-get update && sudo apt-get install -y mpv
-      - name: Version check
-        run: npm run check:versions
-      - name: Bundle check
-        run: npm run check:bundle
+      - name: Run automated test suite
+        run: npm test
       - name: Pack package
         run: npm pack
       - name: Install tarball into clean prefix
@@ -47,7 +45,7 @@ jobs:
         with:
           node-version: '20.x'
       - name: Install dependencies
-        run: npm ci || npm install
+        run: npm ci
       - name: Install system media player
         run: sudo apt-get update && sudo apt-get install -y mpv
       - name: Pack package
@@ -152,7 +150,7 @@ jobs:
       - name: Copy RPM to workspace
         run: |
           mkdir -p rpms
-          cp $HOME/rpmbuild/RPMS/noarch/*.rpm rpms/ || true
+          cp $HOME/rpmbuild/RPMS/*/*.rpm rpms/ || true
           
       - name: Upload .rpm artifact
         uses: actions/upload-artifact@v4
@@ -189,6 +187,13 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         
+      - name: Generate Checksums
+        run: |
+          mkdir -p release-files
+          cp deb-package/*.deb rpm-package/*.rpm npm-tarball/*.tgz release-files/ 2>/dev/null || true
+          cd release-files
+          sha256sum * > SHA256SUMS
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -196,4 +201,5 @@ jobs:
             deb-package/*.deb
             rpm-package/*.rpm
             npm-tarball/*.tgz
+            release-files/SHA256SUMS
           generate_release_notes: true

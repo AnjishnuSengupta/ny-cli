@@ -4,7 +4,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawnSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { configDir, stateDir, pidFile, configFile, authFile, historyFile, ensureDirs } from './paths.mjs';
+import { configDir, stateDir, configFile, authFile, historyFile, ensureDirs, resolvePidFile, readPidInfo } from './paths.mjs';
 import { loadConfig } from './config.mjs';
 import { httpFetch } from './net.mjs';
 import { resolveHost, getLayerFailures, resolveDoH, resolveUdp, recordLayerFailure } from './dns.mjs';
@@ -77,22 +77,20 @@ async function testEndpoint(url, options = {}) {
 }
 
 async function testBackend(pkgVersion) {
-  // 1. Check if backend is already running via pidFile
-  if (fs.existsSync(pidFile)) {
+  // 1. Check if backend is already running via pidInfo
+  const info = readPidInfo();
+  if (info && info.port) {
     try {
-      const info = JSON.parse(fs.readFileSync(pidFile, 'utf8'));
-      if (info && info.port) {
-        const res = await httpFetch(`http://127.0.0.1:${info.port}/`, {
-          signal: AbortSignal.timeout(2000),
-        }).catch(() => null);
-        if (res && res.ok) {
-          const body = await res.json().catch(() => ({}));
-          return {
-            ok: body.version === pkgVersion,
-            message: `running on port ${info.port} (reported v${body.version || 'unknown'})`,
-            version: body.version,
-          };
-        }
+      const res = await fetch(`http://127.0.0.1:${info.port}/`, {
+        signal: AbortSignal.timeout(2000),
+      }).catch(() => null);
+      if (res && res.ok) {
+        const body = await res.json().catch(() => ({}));
+        return {
+          ok: body.version === pkgVersion,
+          message: `running on port ${info.port} (reported v${body.version || 'unknown'})`,
+          version: body.version,
+        };
       }
     } catch {}
   }
@@ -113,7 +111,7 @@ async function testBackend(pkgVersion) {
 
     while (Date.now() - start < 8000) {
       try {
-        const res = await httpFetch(`http://127.0.0.1:${freePort}/`, {
+        const res = await fetch(`http://127.0.0.1:${freePort}/`, {
           signal: AbortSignal.timeout(1000),
         });
         if (res.ok) {
@@ -181,6 +179,14 @@ export async function runDoctor() {
   console.log(`State Dir:       ${stateDir} (${stateWritable ? 'writable' : 'NOT WRITABLE'})`);
   if (!configWritable || !stateWritable) {
     hasFatalError = true;
+    console.log(`  \x1b[1;33m[!] Permission issue: Directories are not writable.\x1b[0m`);
+    if (process.platform === 'win32') {
+      console.log(`  \x1b[1;36m[!] Fix by ensuring your Windows user account has Full Control over:\x1b[0m`);
+      console.log(`      ${configDir}`);
+      console.log(`      ${stateDir}`);
+    } else {
+      console.log(`  \x1b[1;36m[!] Fix by running: sudo chown -R $USER:$USER "${configDir}" "${stateDir}"\x1b[0m`);
+    }
   }
 
   // Check file permissions for sensitive files
@@ -307,11 +313,13 @@ export async function runDoctor() {
   const vlc = checkTool('vlc');
   const ffmpeg = checkTool('ffmpeg');
   const ytdlp = checkTool('yt-dlp');
+  const webtorrent = checkTool('webtorrent');
 
   console.log(`  mpv:           ${mpv.present ? `installed (${mpv.info})` : 'not installed (recommended)'}`);
   console.log(`  vlc:           ${vlc.present ? `installed (${vlc.info})` : 'not installed'}`);
   console.log(`  ffmpeg:        ${ffmpeg.present ? `installed (${ffmpeg.info})` : 'not installed'}`);
   console.log(`  yt-dlp:        ${ytdlp.present ? `installed (${ytdlp.info}) (optional)` : 'not installed (optional)'}`);
+  console.log(`  webtorrent:    ${webtorrent.present ? `installed (${webtorrent.info}) (optional, needed for torrents)` : 'not installed (optional, needed for torrents)'}`);
 
   if (!mpv.present && !vlc.present) {
     console.log('  WARNING: Neither mpv nor vlc was found. Playback will fail without a video player.');

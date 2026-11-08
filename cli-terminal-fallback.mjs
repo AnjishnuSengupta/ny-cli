@@ -19,9 +19,30 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 var home = os.homedir();
-var configDir = process.env.XDG_CONFIG_HOME ? path.join(process.env.XDG_CONFIG_HOME, "ny-cli") : path.join(home, ".config", "ny-cli");
-var stateDir = process.env.XDG_STATE_HOME ? path.join(process.env.XDG_STATE_HOME, "ny-cli") : path.join(home, ".local", "state", "ny-cli");
-var dataDir = process.env.XDG_DATA_HOME ? path.join(process.env.XDG_DATA_HOME, "ny-cli") : path.join(home, ".local", "share", "ny-cli");
+function resolvePlatformDirs(platform = process.platform, env = process.env, customHome = os.homedir()) {
+  let config, state, data;
+  if (platform === "win32") {
+    const appData = (env.APPDATA || (customHome ? path.win32.join(customHome, "AppData", "Roaming") : "")).replace(/\//g, "\\");
+    const localAppData = (env.LOCALAPPDATA || (customHome ? path.win32.join(customHome, "AppData", "Local") : "")).replace(/\//g, "\\");
+    config = appData ? `${appData}\\ny-cli` : "ny-cli";
+    state = localAppData ? `${localAppData}\\ny-cli` : "ny-cli";
+    data = localAppData ? `${localAppData}\\ny-cli` : "ny-cli";
+  } else if (platform === "darwin") {
+    const appSupport = path.join(customHome, "Library", "Application Support", "ny-cli");
+    config = appSupport;
+    state = path.join(appSupport, "state");
+    data = path.join(appSupport, "data");
+  } else {
+    config = env.XDG_CONFIG_HOME ? path.join(env.XDG_CONFIG_HOME, "ny-cli") : path.join(customHome, ".config", "ny-cli");
+    state = env.XDG_STATE_HOME ? path.join(env.XDG_STATE_HOME, "ny-cli") : path.join(customHome, ".local", "state", "ny-cli");
+    data = env.XDG_DATA_HOME ? path.join(env.XDG_DATA_HOME, "ny-cli") : path.join(customHome, ".local", "share", "ny-cli");
+  }
+  return { configDir: config, stateDir: state, dataDir: data };
+}
+var defaultDirs = resolvePlatformDirs();
+var configDir = defaultDirs.configDir;
+var stateDir = defaultDirs.stateDir;
+var dataDir = defaultDirs.dataDir;
 var configFile = path.join(configDir, "config.json");
 var settingsFile = path.join(configDir, "settings.json");
 var authFile = path.join(configDir, "auth");
@@ -30,19 +51,87 @@ var logFile = path.join(stateDir, "backend.log");
 var historyFile = path.join(dataDir, "history");
 var anime4kDir = path.join(dataDir, "anime4k");
 var sessionsDir = path.join(stateDir, "sessions");
+var progressFile = path.join(dataDir, "progress");
+function getSudoTargetUser() {
+  if (typeof process.getuid === "function" && process.getuid() === 0 && process.env.SUDO_USER && process.env.SUDO_USER !== "root") {
+    const uid = parseInt(process.env.SUDO_UID, 10);
+    const gid = parseInt(process.env.SUDO_GID, 10);
+    if (!isNaN(uid) && uid > 0 && !isNaN(gid) && gid >= 0) {
+      return { uid, gid };
+    }
+  }
+  return null;
+}
+function migrateLegacyPaths(customHome = home, customTargetDirs = null) {
+  const legacyConfig = path.join(customHome, ".config", "ny-cli");
+  const targetConfig = customTargetDirs?.configDir || configDir;
+  const targetState = customTargetDirs?.stateDir || stateDir;
+  if (fs.existsSync(legacyConfig)) {
+    if (legacyConfig !== targetConfig) {
+      try {
+        if (!fs.existsSync(targetConfig)) {
+          fs.mkdirSync(targetConfig, { recursive: true, mode: process.platform === "win32" ? 511 : 448 });
+        }
+        for (const file of ["config.json", "settings.json", "auth"]) {
+          const src = path.join(legacyConfig, file);
+          const dst = path.join(targetConfig, file);
+          if (fs.existsSync(src) && !fs.existsSync(dst)) {
+            try {
+              fs.copyFileSync(src, dst);
+            } catch {
+            }
+          }
+        }
+      } catch {
+      }
+    }
+    if (legacyConfig !== targetState) {
+      try {
+        if (!fs.existsSync(targetState)) {
+          fs.mkdirSync(targetState, { recursive: true, mode: process.platform === "win32" ? 511 : 448 });
+        }
+        for (const file of ["history.json", "backend.log"]) {
+          const src = path.join(legacyConfig, file);
+          const dst = path.join(targetState, file);
+          if (fs.existsSync(src) && !fs.existsSync(dst)) {
+            try {
+              fs.copyFileSync(src, dst);
+            } catch {
+            }
+          }
+        }
+      } catch {
+      }
+    }
+  }
+}
 function ensureDirs() {
+  const targetUser = getSudoTargetUser();
+  const dirMode = process.platform === "win32" ? 511 : 448;
   for (const dir of [configDir, stateDir, dataDir, anime4kDir, sessionsDir]) {
     try {
-      fs.mkdirSync(dir, { recursive: true, mode: 448 });
-      try {
-        fs.chmodSync(dir, 448);
-      } catch {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true, mode: dirMode });
+      }
+      if (process.platform !== "win32") {
+        try {
+          fs.chmodSync(dir, dirMode);
+        } catch {
+        }
+        if (targetUser) {
+          try {
+            fs.chownSync(dir, targetUser.uid, targetUser.gid);
+          } catch {
+          }
+        }
       }
     } catch {
     }
   }
+  migrateLegacyPaths();
 }
 function ensureSecureAuthFile() {
+  const targetUser = getSudoTargetUser();
   const legacyAuthLocations = [
     path.join(home, ".ny-cli-auth"),
     path.join(home, ".ny-cli", "auth")
@@ -56,8 +145,14 @@ function ensureSecureAuthFile() {
       }
     }
   }
-  if (fs.existsSync(authFile)) {
+  if (fs.existsSync(authFile) && process.platform !== "win32") {
     try {
+      if (targetUser) {
+        try {
+          fs.chownSync(authFile, targetUser.uid, targetUser.gid);
+        } catch {
+        }
+      }
       const stat = fs.statSync(authFile);
       if ((stat.mode & 63) !== 0) {
         fs.chmodSync(authFile, 384);
@@ -66,7 +161,36 @@ function ensureSecureAuthFile() {
     }
   }
 }
-var progressFile = path.join(dataDir, "progress");
+function ensureSecureFiles() {
+  ensureSecureAuthFile();
+  if (process.platform === "win32") return;
+  const targetUser = getSudoTargetUser();
+  const sensitiveFiles = [
+    configFile,
+    settingsFile,
+    pidFile,
+    historyFile,
+    progressFile,
+    logFile
+  ];
+  for (const file of sensitiveFiles) {
+    if (fs.existsSync(file)) {
+      try {
+        if (targetUser) {
+          try {
+            fs.chownSync(file, targetUser.uid, targetUser.gid);
+          } catch {
+          }
+        }
+        const stat = fs.statSync(file);
+        if ((stat.mode & 63) !== 0) {
+          fs.chmodSync(file, 384);
+        }
+      } catch {
+      }
+    }
+  }
+}
 ensureDirs();
 ensureSecureAuthFile();
 
@@ -85,7 +209,8 @@ var DEFAULT_CONFIG = {
   providers: {
     senshi: true,
     hianime: true,
-    anipub: true,
+    vidsrc: true,
+    anipub: false,
     owais: false,
     allanime: false,
     anidb: false
@@ -226,6 +351,27 @@ function loadConfig(options = { reload: false }) {
   }
   cachedConfig = result;
   return result;
+}
+function saveConfig(updates = {}) {
+  const current = loadConfig({ reload: true });
+  const merged = {
+    ...current,
+    ...updates,
+    adultFilter: updates.adultFilter !== void 0 ? updates.adultFilter : current.adultFilter,
+    providers: {
+      ...current.providers,
+      ...updates.providers || {}
+    }
+  };
+  ensureDirs();
+  fs2.writeFileSync(configFile, JSON.stringify(merged, null, 2), { encoding: "utf8", mode: 384 });
+  try {
+    fs2.chmodSync(configFile, 384);
+  } catch {
+  }
+  ensureSecureFiles();
+  cachedConfig = merged;
+  return merged;
 }
 
 // skip.mjs
@@ -376,7 +522,7 @@ var API_BASE = process.env.NYCLI_API_BASE || `http://localhost:${defaultPort}`;
 var VERSION = "unknown";
 try {
   if (true) {
-    VERSION = "7.0.1";
+    VERSION = "7.1.0";
   } else {
     const pkgPath = path3.join(path3.dirname(fileURLToPath(import.meta.url)), "package.json");
     if (fs4.existsSync(pkgPath)) {
@@ -412,17 +558,28 @@ var defaultSettings = {
   anime4k: false,
   anime4kMode: "A",
   player: "auto",
-  skipMode: "off"
+  skipMode: "off",
+  providers: {
+    hianime: true,
+    senshi: true,
+    vidsrc: true,
+    allanime: false,
+    anidb: false,
+    anipub: false,
+    owais: false
+  }
 };
 function loadSettings() {
   try {
     const config = loadConfig();
     const player = config.player && ["auto", "mpv", "vlc"].includes(config.player) ? config.player : "auto";
     const skipMode = config.skipMode && ["off", "chapters", "auto"].includes(config.skipMode) ? config.skipMode : "off";
+    const providers = { ...defaultSettings.providers || {}, ...config.providers || {} };
     if (fs4.existsSync(settingsFile)) {
-      return { ...defaultSettings, player, skipMode, ...JSON.parse(fs4.readFileSync(settingsFile, "utf8")) };
+      const fileData = JSON.parse(fs4.readFileSync(settingsFile, "utf8"));
+      return { ...defaultSettings, player, skipMode, ...fileData, providers: { ...providers, ...fileData.providers || {} } };
     }
-    return { ...defaultSettings, player, skipMode };
+    return { ...defaultSettings, player, skipMode, providers };
   } catch {
   }
   return defaultSettings;
@@ -434,6 +591,14 @@ function saveSettings(settings) {
       fs4.chmodSync(settingsFile, 384);
     } catch {
     }
+  } catch {
+  }
+  try {
+    saveConfig({
+      player: settings.player,
+      skipMode: settings.skipMode,
+      providers: settings.providers || {}
+    });
   } catch {
   }
 }
@@ -1309,12 +1474,27 @@ function SettingsScreen({ settings, onUpdate, onBack }) {
   const modes = ["A", "B", "C", "A+A", "B+B", "C+A"];
   const players = ["auto", "mpv", "vlc"];
   const skipModes = ["off", "chapters", "auto"];
+  const PROVIDER_ITEMS = [
+    { key: "hianime", label: "HiAnime (Tier 1 - HLS)" },
+    { key: "senshi", label: "Senshi (Tier 1 - HLS)" },
+    { key: "vidsrc", label: "VidSrc (Tier 2 - Embed)" },
+    { key: "allanime", label: "AllAnime (Tier 1)" },
+    { key: "anidb", label: "AniDB (Tier 1)" },
+    { key: "anipub", label: "AniPub (Tier 2)" },
+    { key: "owais", label: "Owais (Tier 2)" }
+  ];
   const menuItems = [
     { key: "player", label: "Video Player", type: "select" },
     { key: "skipMode", label: "AniSkip Mode", type: "select" },
     { key: "anime4k", label: "Anime4K Upscaling", type: "toggle" },
     { key: "anime4kMode", label: "Anime4K Mode", type: "select" },
     { key: "download", label: "Download Anime4K Shaders", type: "action" },
+    ...PROVIDER_ITEMS.map((p) => ({
+      key: `prov_${p.key}`,
+      provKey: p.key,
+      label: p.label,
+      type: "provider-toggle"
+    })),
     { key: "back", label: "\u2190 Back", type: "action" }
   ];
   const downloadAnime4k = async () => {
@@ -1350,7 +1530,7 @@ function SettingsScreen({ settings, onUpdate, onBack }) {
       setSelectedIndex((i) => Math.max(0, i - 1));
     } else if (key.downArrow || input === "j") {
       setSelectedIndex((i) => Math.min(menuItems.length - 1, i + 1));
-    } else if (key.return) {
+    } else if (key.return || input === " ") {
       const item = menuItems[selectedIndex];
       if (item.key === "player") {
         const currentIdx = players.indexOf(settings.player || "auto");
@@ -1372,6 +1552,11 @@ function SettingsScreen({ settings, onUpdate, onBack }) {
         if (!downloading) {
           downloadAnime4k();
         }
+      } else if (item.type === "provider-toggle" && item.provKey) {
+        const pKey = item.provKey;
+        const currentVal = settings.providers?.[pKey] ?? (defaultSettings.providers?.[pKey] ?? false);
+        const newProviders = { ...settings.providers || defaultSettings.providers || {}, [pKey]: !currentVal };
+        onUpdate({ ...settings, providers: newProviders });
       } else if (item.key === "back") {
         onBack();
       }
@@ -1399,9 +1584,22 @@ function SettingsScreen({ settings, onUpdate, onBack }) {
       const currentIdx = modes.indexOf(settings.anime4kMode);
       const nextIdx = (currentIdx + 1) % modes.length;
       onUpdate({ ...settings, anime4kMode: modes[nextIdx] });
+    } else if ((key.leftArrow || key.rightArrow) && menuItems[selectedIndex]?.type === "provider-toggle") {
+      const item = menuItems[selectedIndex];
+      if (item.provKey) {
+        const pKey = item.provKey;
+        const currentVal = settings.providers?.[pKey] ?? (defaultSettings.providers?.[pKey] ?? false);
+        const newProviders = { ...settings.providers || defaultSettings.providers || {}, [pKey]: !currentVal };
+        onUpdate({ ...settings, providers: newProviders });
+      }
     }
   });
-  return /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: Math.min(60, termSize.cols - 4) }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.cyan, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan, bold: true }, "[\u2699] Settings"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(50)), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 0 ? theme.cyan : theme.lightGray }, selectedIndex === 0 ? "\u25B8 " : "  ", "Video Player:", " "), /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 0 ? theme.cyan : theme.lightGray }, "\u25C0 ", (settings.player || "auto").toUpperCase(), " \u25B6")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray }, selectedIndex === 1 ? "\u25B8 " : "  ", "AniSkip Mode:", " "), /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray }, "\u25C0 ", (settings.skipMode || "off").toUpperCase(), " \u25B6")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 2 ? theme.cyan : theme.lightGray }, selectedIndex === 2 ? "\u25B8 " : "  ", "Anime4K Upscaling:", " "), anime4kInstalled ? /* @__PURE__ */ React.createElement(Text, { color: settings.anime4k ? theme.green : theme.red }, settings.anime4k ? "[ON]" : "[OFF]") : /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "[Not Installed]")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 3 ? theme.cyan : theme.lightGray }, selectedIndex === 3 ? "\u25B8 " : "  ", "Anime4K Mode:", " "), /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 3 ? theme.cyan : theme.lightGray }, "\u25C0 ", settings.anime4kMode, " \u25B6")), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 4 ? theme.cyan : theme.lightGray }, selectedIndex === 4 ? "\u25B8 " : "  ", anime4kInstalled ? "\u21BB Re-download" : "\u2193 Download", " Anime4K Shaders")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 5 ? theme.cyan : theme.lightGray }, selectedIndex === 5 ? "\u25B8 " : "  ", "\u2190 Back")), downloadStatus && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: downloadStatus.startsWith("\u2713") ? theme.green : downloadStatus.startsWith("\u2717") ? theme.red : theme.cyan }, downloadStatus))), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, anime4kInstalled ? "Anime4K shaders enhance video quality for older anime" : "Download shaders first to enable upscaling")), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "Mode A: Best for 1080p | Mode B: Soft edges | Mode C: Denoise")));
+  return /* @__PURE__ */ React.createElement(Box, { flexDirection: "column", width: Math.min(65, termSize.cols - 4) }, /* @__PURE__ */ React.createElement(Box, { borderStyle: "round", borderColor: theme.cyan, paddingX: 2, paddingY: 1, flexDirection: "column" }, /* @__PURE__ */ React.createElement(Text, { color: theme.cyan, bold: true }, "[\u2699] Settings"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(55)), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 0 ? theme.cyan : theme.lightGray }, selectedIndex === 0 ? "\u25B8 " : "  ", "Video Player:", " "), /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 0 ? theme.cyan : theme.lightGray }, "\u25C0 ", (settings.player || "auto").toUpperCase(), " \u25B6")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray }, selectedIndex === 1 ? "\u25B8 " : "  ", "AniSkip Mode:", " "), /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 1 ? theme.cyan : theme.lightGray }, "\u25C0 ", (settings.skipMode || "off").toUpperCase(), " \u25B6")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 2 ? theme.cyan : theme.lightGray }, selectedIndex === 2 ? "\u25B8 " : "  ", "Anime4K Upscaling:", " "), anime4kInstalled ? /* @__PURE__ */ React.createElement(Text, { color: settings.anime4k ? theme.green : theme.red }, settings.anime4k ? "[ON]" : "[OFF]") : /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "[Not Installed]")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 3 ? theme.cyan : theme.lightGray }, selectedIndex === 3 ? "\u25B8 " : "  ", "Anime4K Mode:", " "), /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 3 ? theme.cyan : theme.lightGray }, "\u25C0 ", settings.anime4kMode, " \u25B6")), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 4 ? theme.cyan : theme.lightGray }, selectedIndex === 4 ? "\u25B8 " : "  ", anime4kInstalled ? "\u21BB Re-download" : "\u2193 Download", " Anime4K Shaders")), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: theme.purple, bold: true }, "[\u26A1] Streaming Providers (Enter/Space to toggle):"), /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "\u2500".repeat(55)), PROVIDER_ITEMS.map((p, pIdx) => {
+    const itemIdx = 5 + pIdx;
+    const isSelected = selectedIndex === itemIdx;
+    const isEnabled = settings.providers?.[p.key] ?? (defaultSettings.providers?.[p.key] ?? false);
+    return /* @__PURE__ */ React.createElement(Box, { key: p.key }, /* @__PURE__ */ React.createElement(Text, { color: isSelected ? theme.cyan : theme.lightGray }, isSelected ? "\u25B8 " : "  ", p.label, ":", " "), /* @__PURE__ */ React.createElement(Text, { color: isEnabled ? theme.green : theme.red, bold: true }, isEnabled ? "[ON]" : "[OFF]"));
+  }), /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Box, null, /* @__PURE__ */ React.createElement(Text, { color: selectedIndex === 5 + PROVIDER_ITEMS.length ? theme.cyan : theme.lightGray }, selectedIndex === 5 + PROVIDER_ITEMS.length ? "\u25B8 " : "  ", "\u2190 Back")), downloadStatus && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Text, null, " "), /* @__PURE__ */ React.createElement(Text, { color: downloadStatus.startsWith("\u2713") ? theme.green : downloadStatus.startsWith("\u2717") ? theme.red : theme.cyan }, downloadStatus))), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, selectedIndex >= 5 && selectedIndex < 5 + PROVIDER_ITEMS.length ? "Press Enter or Space to toggle active streaming providers on/off" : anime4kInstalled ? "Anime4K shaders enhance video quality for older anime" : "Download shaders first to enable upscaling")), /* @__PURE__ */ React.createElement(Box, { marginTop: 1 }, /* @__PURE__ */ React.createElement(Text, { color: theme.dimGray }, "Tier 1 (Direct Streams): HiAnime, Senshi, AllAnime, AniDB | Tier 2 (Embeds): VidSrc, AniPub, Owais")));
 }
 function AnimeDetailsView({
   animeInfo,
@@ -1608,19 +1806,42 @@ function App() {
   const [playingProviders, setPlayingProviders] = useState([]);
   const [playingProviderIndex, setPlayingProviderIndex] = useState(0);
   const [playingAttempts, setPlayingAttempts] = useState([]);
+  const activePlayerProcessRef = useRef(null);
+  const stopActivePlayer = useCallback(() => {
+    if (activePlayerProcessRef.current) {
+      const p = activePlayerProcessRef.current;
+      activePlayerProcessRef.current = null;
+      try {
+        if (os2.platform() === "win32" && p.pid) {
+          spawnSync("taskkill", ["/PID", String(p.pid), "/T", "/F"], { stdio: "ignore" });
+        } else if (p.pid) {
+          process.kill(p.pid, "SIGKILL");
+        }
+      } catch {
+      }
+    }
+  }, []);
+  const isWebTorrentAvailable = useCallback(() => {
+    try {
+      const bin = os2.platform() === "win32" ? "webtorrent.cmd" : "webtorrent";
+      const res = spawnSync(bin, ["--version"], { stdio: "ignore" });
+      return res.status === 0;
+    } catch {
+      return false;
+    }
+  }, []);
   const togglePause = () => {
+    if (!activePlayerProcessRef.current?.pid) return;
     if (os2.platform() === "win32") return;
     const cmd = resolvePlayerCommand(appSettings);
     if (cmd === "vlc") {
       setStatus({ message: "Pause via hotkey is mpv-only (VLC uses its own controls)", type: "info", loading: false });
       return;
     }
-    if (playingPaused) {
-      spawnSync("killall", ["-CONT", cmd]);
-      setPlayingPaused(false);
-    } else {
-      spawnSync("killall", ["-STOP", cmd]);
-      setPlayingPaused(true);
+    try {
+      process.kill(activePlayerProcessRef.current.pid, playingPaused ? "SIGCONT" : "SIGSTOP");
+      setPlayingPaused(!playingPaused);
+    } catch {
     }
   };
   const tryNextCandidate = (currentIndex, providerList, resolveAttempts, reason, playContext) => {
@@ -1646,10 +1867,25 @@ function App() {
   const playProvider = async (provider, providerIndex = 0, providerList = playingProviders, resolveAttempts = playingAttempts, playContext) => {
     const cmd = resolvePlayerCommand(appSettings);
     if (provider.type === "torrent") {
+      if (!isWebTorrentAvailable()) {
+        setStatus({
+          message: 'WebTorrent CLI is not installed. Run "npm install -g webtorrent-cli" to enable torrent streaming.',
+          type: "error",
+          loading: false
+        });
+        return;
+      }
+      stopActivePlayer();
       setStatus({ message: `Starting ${provider.name}...`, type: "success", loading: false });
-      const wtCmd = os2.platform() === "win32" ? "npx.cmd" : "npx";
+      const wtCmd = os2.platform() === "win32" ? "webtorrent.cmd" : "webtorrent";
       const playerFlag = cmd === "vlc" ? "--vlc" : "--mpv";
-      const proc = spawn(wtCmd, ["-y", "webtorrent-cli", provider.magnet, playerFlag], { stdio: "ignore", detached: true });
+      const torrentTarget = provider.magnet || provider.url;
+      const proc = spawn(wtCmd, [torrentTarget, playerFlag], {
+        stdio: "ignore",
+        detached: true,
+        shell: false
+      });
+      activePlayerProcessRef.current = proc;
       proc.on("error", (err) => {
         setStatus({ message: `Failed to launch webtorrent: ${err.message}`, type: "error", loading: false });
       });
@@ -1692,7 +1928,9 @@ function App() {
         audioType: streamMode,
         skipArgs
       });
+      stopActivePlayer();
       const proc = spawn(cmd, args, { stdio: "ignore" });
+      activePlayerProcessRef.current = proc;
       let fiveSecPassed = false;
       const timer = setTimeout(() => {
         fiveSecPassed = true;
@@ -2302,7 +2540,7 @@ function App() {
     } else {
       addToMyList({
         id: animeInfo.id,
-        name: animeInfo.titles?.english || animeInfo.name || selectedAnime?.label || "Anime",
+        title: animeInfo.titles?.english || animeInfo.name || selectedAnime?.label || "Anime",
         poster: animeInfo.poster || selectedAnime?.imageUrl,
         format: animeInfo.format,
         year: animeInfo.year,
@@ -2540,19 +2778,31 @@ function App() {
         }
       }
       if (providers.length === 0) {
-        setStatus({ message: "No direct stream found, trying torrent (slower)...", type: "info", loading: true });
+        setStatus({ message: "No direct stream found, searching Nyaa torrents...", type: "info", loading: true });
+        const torrentParams = new URLSearchParams({
+          title: animeTitle,
+          ep: String(epNo)
+        });
+        if (romajiTitle) torrentParams.set("romajiTitle", romajiTitle);
+        if (englishTitle) torrentParams.set("englishTitle", englishTitle);
         let torrentData = null;
         try {
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Torrent search stall timeout")), 8e3));
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Torrent search stall timeout")), 12e3));
           torrentData = await Promise.race([
-            getJson(`/api/torrent?title=${encodeURIComponent(animeTitle)}&ep=${epNo}`),
+            getJson(`/api/torrent?${torrentParams.toString()}`),
             timeoutPromise
           ]);
         } catch {
           torrentData = null;
         }
-        if (torrentData?.magnet) {
-          providers.push({ name: "Nyaa (Torrent)", type: "torrent", magnet: torrentData.magnet });
+        if (torrentData?.magnet || torrentData?.torrentUrl) {
+          providers.push({
+            name: `Nyaa (Torrent: ${torrentData.title ? torrentData.title.length > 35 ? torrentData.title.slice(0, 32) + "..." : torrentData.title : "1080p"})`,
+            type: "torrent",
+            magnet: torrentData.magnet,
+            url: torrentData.torrentUrl,
+            candidate: torrentData
+          });
         }
       }
       if (providers.length === 0) {
@@ -2629,6 +2879,11 @@ function App() {
         }
         const candidates = backendStreamRes?.candidates || (backendStreamRes?.url ? [backendStreamRes] : []);
         const backendStream = candidates.find((c) => c.type === "hls" || c.type === "mp4") || candidates[0];
+        const candidateTracks = backendStream?.subtitleTracks || backendStreamRes?.subtitleTracks || [];
+        const subTrack = candidateTracks.find(
+          (t) => t.default || /eng|english/i.test(t.label || t.lang || "")
+        ) || candidateTracks[0];
+        const subUrl = subTrack?.src || backendStream?.subtitle || backendStreamRes?.subtitle;
         if (backendStream?.url) {
           streamUrl = backendStream.url;
           if (backendStream.referer) {
@@ -2640,22 +2895,38 @@ function App() {
           setDownloadQueue((prev) => prev.map(
             (t, idx) => idx === nextTaskIndex ? { ...t, message: "No direct stream \u2014 searching torrent..." } : t
           ));
+          const tParams = new URLSearchParams({
+            title: task.animeTitle,
+            ep: String(task.episodeNumber)
+          });
+          if (task.titles?.romaji) tParams.set("romajiTitle", task.titles.romaji);
+          if (task.titles?.english) tParams.set("englishTitle", task.titles.english);
           const torrentData = await getJson(
-            `/api/torrent?title=${encodeURIComponent(task.animeTitle)}&ep=${task.episodeNumber}`
+            `/api/torrent?${tParams.toString()}`
           ).catch(() => null);
-          if (torrentData?.magnet) {
-            magnetLink = torrentData.magnet;
+          if (torrentData?.magnet || torrentData?.torrentUrl) {
+            magnetLink = torrentData.magnet || torrentData.torrentUrl;
             isTorrent = true;
           }
         }
         if (isTorrent && magnetLink) {
+          if (!isWebTorrentAvailable()) {
+            setDownloadQueue((prev) => prev.map(
+              (t, idx) => idx === nextTaskIndex ? {
+                ...t,
+                status: "error",
+                message: 'WebTorrent CLI not installed. Run "npm install -g webtorrent-cli" to download torrents.'
+              } : t
+            ));
+            return;
+          }
           if (!fs4.existsSync(outDir)) fs4.mkdirSync(outDir, { recursive: true });
           setDownloadQueue((prev) => prev.map(
             (t, idx) => idx === nextTaskIndex ? { ...t, message: "Downloading Torrent..." } : t
           ));
-          const wtCmd = os2.platform() === "win32" ? "npx.cmd" : "npx";
-          const args = ["-y", "webtorrent-cli", "download", magnetLink, "-o", outDir];
-          const wtProcess = spawn(wtCmd, args);
+          const wtCmd = os2.platform() === "win32" ? "webtorrent.cmd" : "webtorrent";
+          const args = ["download", magnetLink, "-o", outDir];
+          const wtProcess = spawn(wtCmd, args, { shell: false });
           wtProcess.stdout.on("data", (data) => {
             const output = data.toString();
             const progressMatch = output.match(/(\d+(?:\.\d+)?)%/);
@@ -2713,7 +2984,7 @@ function App() {
               lastProgress = current?.progress ?? -1;
               return prev;
             });
-          }, 45e3);
+          }, 75e3);
           return;
         }
         if (!streamUrl) {
@@ -2740,6 +3011,29 @@ function App() {
         if (!hasFfmpeg && !hasYtDlp) {
           throw new Error("Neither ffmpeg nor yt-dlp is installed. Please install ffmpeg or yt-dlp to download streams.");
         }
+        let subFilename = "";
+        if (subUrl) {
+          try {
+            setDownloadQueue((prev) => prev.map(
+              (t, idx) => idx === nextTaskIndex ? { ...t, message: "Downloading subtitles..." } : t
+            ));
+            const subHeaders = {};
+            if (streamHeaders?.Referer) subHeaders["Referer"] = streamHeaders.Referer;
+            if (streamHeaders?.["User-Agent"]) subHeaders["User-Agent"] = streamHeaders["User-Agent"];
+            const subRes = await fetch(subUrl, {
+              headers: subHeaders,
+              signal: AbortSignal.timeout(1e4)
+            });
+            if (subRes.ok) {
+              const vttContent = await subRes.text();
+              if (vttContent && (vttContent.includes("WEBVTT") || vttContent.includes("-->"))) {
+                subFilename = path3.join(outDir, `${safeTitle}_Ep${task.episodeNumber}.vtt`);
+                fs4.writeFileSync(subFilename, vttContent, "utf8");
+              }
+            }
+          } catch {
+          }
+        }
         if (hasFfmpeg) {
           setDownloadQueue((prev) => prev.map(
             (t, idx) => idx === nextTaskIndex ? { ...t, message: "Downloading via FFmpeg..." } : t
@@ -2765,18 +3059,41 @@ function App() {
             customHeaders += "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36\r\n";
           }
           ffmpegArgs.push("-headers", customHeaders);
-          ffmpegArgs.push(
-            "-i",
-            streamUrl,
-            "-c",
-            "copy",
-            "-bsf:a",
-            "aac_adtstoasc",
-            "-progress",
-            "pipe:1",
-            "-nostats",
-            filename
-          );
+          if (subFilename && fs4.existsSync(subFilename)) {
+            ffmpegArgs.push(
+              "-i",
+              streamUrl,
+              "-i",
+              subFilename,
+              "-c:v",
+              "copy",
+              "-c:a",
+              "copy",
+              "-c:s",
+              "mov_text",
+              "-metadata:s:s:0",
+              "language=eng",
+              "-bsf:a",
+              "aac_adtstoasc",
+              "-progress",
+              "pipe:1",
+              "-nostats",
+              filename
+            );
+          } else {
+            ffmpegArgs.push(
+              "-i",
+              streamUrl,
+              "-c",
+              "copy",
+              "-bsf:a",
+              "aac_adtstoasc",
+              "-progress",
+              "pipe:1",
+              "-nostats",
+              filename
+            );
+          }
           const ffmpegProc = spawn("ffmpeg", ffmpegArgs);
           let durationUs = 0;
           ffmpegProc.stderr.on("data", (data) => {
@@ -2996,7 +3313,7 @@ function App() {
     const percentage = progress ? Math.round(getWatchPercentage(progress.watchTime, progress.duration)) : 0;
     const almostDone = percentage >= 97;
     const progressStr = percentage > 0 ? almostDone ? " - Almost done!" : ` \u2022 ${percentage}%` : "";
-    const titleStr = typeof h.title === "string" ? h.title : h.title?.english || h.title?.romaji || String(h.title || "Untitled");
+    const titleStr = typeof h.title === "string" ? h.title : String(h.title?.english || h.title?.romaji || h.title || "Untitled");
     return {
       id: String(h.id),
       value: String(h.id),
@@ -3046,21 +3363,21 @@ function App() {
         if (i.value === "pause") {
           togglePause();
         } else if (i.value === "back") {
-          spawnSync("killall", ["-9", "mpv", "webtorrent-cli"]);
+          stopActivePlayer();
           setScreen("episode-select");
         } else if (i.value === "next") {
-          spawnSync("killall", ["-9", "mpv", "webtorrent-cli"]);
+          stopActivePlayer();
           const nextEp = episodes.find((e) => e.number === (playingEpisode?.number || 0) + 1);
           if (nextEp) handleEpisodeSelect(nextEp);
         } else if (i.value === "prev") {
-          spawnSync("killall", ["-9", "mpv", "webtorrent-cli"]);
+          stopActivePlayer();
           const prevEp = episodes.find((e) => e.number === (playingEpisode?.number || 0) - 1);
           if (prevEp) handleEpisodeSelect(prevEp);
         } else if (i.value === "download") {
           if (playingEpisode) handleEpisodeAction("d", playingEpisode);
           setStatus({ message: "Added to download queue!", type: "success" });
         } else if (i.value === "provider") {
-          spawnSync("killall", ["-9", "mpv", "webtorrent-cli"]);
+          stopActivePlayer();
           const nextIndex = (playingProviderIndex + 1) % playingProviders.length;
           setPlayingProviderIndex(nextIndex);
           playProvider(playingProviders[nextIndex]);

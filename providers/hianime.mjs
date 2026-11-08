@@ -11,9 +11,9 @@ async function fetchHtml(url, referer, signal) {
   const timeoutSignal = AbortSignal.timeout(6000);
   const effectiveSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 
-  const res = await httpFetch(url, { 
-    headers: { 
-      'User-Agent': UA, 
+  const res = await httpFetch(url, {
+    headers: {
+      'User-Agent': UA,
       'Referer': referer || BASE_URL,
       'X-Requested-With': 'XMLHttpRequest'
     },
@@ -27,9 +27,9 @@ async function fetchJson(url, referer, signal) {
   const timeoutSignal = AbortSignal.timeout(6000);
   const effectiveSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 
-  const res = await httpFetch(url, { 
-    headers: { 
-      'User-Agent': UA, 
+  const res = await httpFetch(url, {
+    headers: {
+      'User-Agent': UA,
       'Referer': referer || BASE_URL,
       'X-Requested-With': 'XMLHttpRequest'
     },
@@ -41,10 +41,10 @@ async function fetchJson(url, referer, signal) {
 
 export async function hianimeSearch(query, signal) {
   const html = await fetchHtml(`${BASE_URL}/search?keyword=${encodeURIComponent(query)}`, BASE_URL, signal);
-  
+
   // Strip out the main-sidebar so we don't match "Top Airing" anime by accident
   const mainContent = html.split('id="main-sidebar"')[0];
-  
+
   const results = [];
   const regex = /<h3 class="film-name">\s*<a href="[^"]*\/([^"/]*)"[^>]*title="([^"]*)"/ig;
   let match;
@@ -117,29 +117,49 @@ export async function hianimeGetSource(title, epNo, mode = 'sub') {
 }
 
 export async function resolve(context) {
-  const { titles = {}, episodeNumber, audioKind = 'sub', signal } = context;
-  const title = titles.english || titles.romaji || titles.native;
-  if (!title) {
+  const { titles = {}, signal } = context;
+  const episodeNumber = context.episodeNumber ?? context.epNo ?? 1;
+  const audioKind = context.audioKind || context.mode || 'sub';
+  const englishTitle = titles.english || context.englishTitle || context.title || '';
+  const romajiTitle = titles.romaji || context.romajiTitle || '';
+  const nativeTitle = titles.native || context.nativeTitle || '';
+  const synonyms = Array.isArray(context.synonyms) ? context.synonyms : [];
+  const title = englishTitle || romajiTitle || context.title || 'Anime';
+
+  const titlesToTry = [englishTitle, romajiTitle, nativeTitle, ...synonyms].filter(Boolean);
+  if (!titlesToTry.length) {
     throw new Error('Title is required for HiAnime search');
   }
 
-  // 1. Search for title
-  const results = await hianimeSearch(title, signal);
-  if (!results.length) {
-    throw new Error(`No search results on HiAnime for title: ${title}`);
-  }
-  
-  const matchResult = findBestMatch(results, context, {
-    extractors: {
-      getTitle: (r) => r.title || r.slug,
-    },
-  });
+  let match = null;
+  let lastError = null;
 
-  if (!matchResult.match) {
-    throw new Error(matchResult.reason || 'no confident match');
+  for (const t of titlesToTry) {
+    try {
+      const results = await hianimeSearch(t, signal);
+      if (!results.length) continue;
+
+      const matchResult = findBestMatch(results, context, {
+        extractors: {
+          getTitle: (r) => r.title || r.slug,
+        },
+      });
+
+      if (matchResult.match) {
+        match = matchResult.match;
+        break;
+      } else if (matchResult.reason) {
+        lastError = matchResult.reason;
+      }
+    } catch (err) {
+      lastError = err.message;
+    }
   }
 
-  const match = matchResult.match;
+  if (!match) {
+    throw new Error(lastError || `no confident match on HiAnime for ${englishTitle || romajiTitle}`);
+  }
+
   const animeId = match.id;
 
   // 2. Fetch episodes list
@@ -179,7 +199,7 @@ export async function resolve(context) {
   const targetType = audioKind.toLowerCase();
 
   const serverEntry = serverEntries.find(e => e.type === targetType && e.serverName.toLowerCase() === 'zokoanime') ||
-                      serverEntries.find(e => e.type === targetType);
+    serverEntries.find(e => e.type === targetType);
 
   if (!serverEntry || !serverEntry.hash) {
     throw new Error(`HiAnime server not found for ${title} (mode: ${audioKind})`);
@@ -202,7 +222,7 @@ export async function resolve(context) {
   for (let i = 0; i < bytes.length; i++) {
     output += String.fromCharCode(bytes.charCodeAt(i) ^ key.charCodeAt(i % key.length));
   }
-  
+
   let payload;
   try {
     payload = JSON.parse(output);

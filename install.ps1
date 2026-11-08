@@ -2,6 +2,10 @@
 # Universal installer for Windows (PowerShell)
 # Usage: irm https://raw.githubusercontent.com/AnjishnuSengupta/ny-cli/main/install.ps1 | iex
 
+param(
+    [string]$Target = "latest"
+)
+
 $ErrorActionPreference = "Stop"
 
 Write-Host ""
@@ -24,8 +28,13 @@ $hasNode = Get-Command node -ErrorAction SilentlyContinue
 if (-not $hasNode) {
     Write-Host "Node.js is not installed. Attempting installation via winget..." -ForegroundColor Yellow
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        & winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
+        if ($LASTEXITCODE -eq 0) {
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        } else {
+            Write-Error "winget failed to install Node.js (exit code $LASTEXITCODE)."
+            exit 1
+        }
     } else {
         Write-Error "Please install Node.js >= 20.18.0 from https://nodejs.org"
         exit 1
@@ -61,26 +70,49 @@ Write-Host "`nChecking Media Tools (mpv & ffmpeg)..." -ForegroundColor Cyan
 $hasMpv = Get-Command mpv -ErrorAction SilentlyContinue
 if (-not $hasMpv -and (Get-Command winget -ErrorAction SilentlyContinue)) {
     Write-Host "Installing mpv via winget..." -ForegroundColor Cyan
+    $installed = $false
     try {
-        winget install -e --id mpv.mpv --accept-source-agreements --accept-package-agreements
+        & winget install -e --id shinchiro.mpv --accept-source-agreements --accept-package-agreements
+        if ($LASTEXITCODE -eq 0) { $installed = $true }
+    } catch {}
+
+    if (-not $installed) {
+        try {
+            & winget install -e --id io.mpv --accept-source-agreements --accept-package-agreements
+            if ($LASTEXITCODE -eq 0) { $installed = $true }
+        } catch {}
+    }
+
+    if (-not $installed) {
+        try {
+            & winget install -e --id mpv.net --accept-source-agreements --accept-package-agreements
+            if ($LASTEXITCODE -eq 0) { $installed = $true }
+        } catch {}
+    }
+
+    if ($installed) {
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         Write-Host "✓ mpv installed" -ForegroundColor Green
-    } catch {
+    } else {
         Write-Host "⚠ mpv installation failed or skipped (you can install mpv manually from https://mpv.io)" -ForegroundColor Yellow
     }
 } elseif ($hasMpv) {
     Write-Host "✓ mpv is already installed" -ForegroundColor Green
 } else {
-    Write-Host "⚠ mpv not detected (install via 'winget install mpv.mpv' for video playback)" -ForegroundColor Yellow
+    Write-Host "⚠ mpv not detected (install via 'winget install shinchiro.mpv' for video playback)" -ForegroundColor Yellow
 }
 
 $hasFfmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
 if (-not $hasFfmpeg -and (Get-Command winget -ErrorAction SilentlyContinue)) {
     Write-Host "Installing ffmpeg via winget..." -ForegroundColor Cyan
     try {
-        winget install -e --id Gyan.FFmpeg --accept-source-agreements --accept-package-agreements
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        Write-Host "✓ ffmpeg installed" -ForegroundColor Green
+        & winget install -e --id Gyan.FFmpeg --accept-source-agreements --accept-package-agreements
+        if ($LASTEXITCODE -eq 0) {
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+            Write-Host "✓ ffmpeg installed" -ForegroundColor Green
+        } else {
+            Write-Host "⚠ ffmpeg installation failed or skipped (you can install ffmpeg manually)" -ForegroundColor Yellow
+        }
     } catch {
         Write-Host "⚠ ffmpeg installation failed or skipped (you can install ffmpeg manually)" -ForegroundColor Yellow
     }
@@ -91,14 +123,24 @@ if (-not $hasFfmpeg -and (Get-Command winget -ErrorAction SilentlyContinue)) {
 }
 
 # 3. Install ny-cli via npm
-$target = if ($args.Count -gt 0) { $args[0] } else { "latest" }
-$pkgSpec = "@anjishnusengupta/ny-cli@$target"
+$target = if ($Target) { $Target } elseif ($args.Count -gt 0) { $args[0] } else { "latest" }
 
 if ($target -eq "latest" -and (Test-Path ".\package.json")) {
     $content = Get-Content ".\package.json" -Raw -ErrorAction SilentlyContinue
     if ($content -match '"@anjishnusengupta/ny-cli"') {
         $pkgSpec = "."
+    } else {
+        $pkgSpec = "@anjishnusengupta/ny-cli@latest"
     }
+} elseif ($target -match '^[.\\/]' -or $target -match '\.tgz$') {
+    $pkgSpec = $target
+} elseif ($target -match '^v\d') {
+    $cleanVer = $target.Substring(1)
+    $pkgSpec = "@anjishnusengupta/ny-cli@$cleanVer"
+} elseif ($target -match '^@anjishnusengupta/ny-cli') {
+    $pkgSpec = $target
+} else {
+    $pkgSpec = "@anjishnusengupta/ny-cli@$target"
 }
 
 Write-Host "`nInstalling ny-cli ($pkgSpec) via npm..." -ForegroundColor Cyan
@@ -110,13 +152,21 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "✓ ny-cli package installed successfully" -ForegroundColor Green
 
-# 4. Refresh environment PATH
+# 4. Refresh environment PATH and persist if needed
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-$npmPrefix = & npm prefix -g
+$npmPrefix = (& npm prefix -g 2>$null).Trim()
 $npmBin = Join-Path $npmPrefix ""
 if ($env:Path -notlike "*$npmBin*") {
     $env:Path = "$npmBin;$env:Path"
 }
+
+try {
+    $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    if ($userPath -notlike "*$npmPrefix*") {
+        $newUserPath = if ($userPath) { "$userPath;$npmPrefix" } else { $npmPrefix }
+        [System.Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
+    }
+} catch {}
 
 # 5. Run diagnostics
 Write-Host "`nRunning diagnostics (ny-cli --doctor)..." -ForegroundColor Cyan

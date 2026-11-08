@@ -4,7 +4,20 @@ import path from 'node:path';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
-import { pidFile, logFile, sessionsDir, ensureDirs, ensureSecureFiles } from '../paths.mjs';
+import {
+  pidFile,
+  logFile,
+  sessionsDir,
+  configDir,
+  stateDir,
+  ensureDirs,
+  ensureSecureFiles,
+  resolvePidFile,
+  resolveLogFile,
+  clearPidFile,
+  readPidInfo,
+  writePidInfo,
+} from '../paths.mjs';
 import { loadConfig } from '../config.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -52,18 +65,14 @@ function isProcessAlive(pid) {
   }
 }
 
-function readPidInfo() {
-  if (!fs.existsSync(pidFile)) return null;
-  try {
-    const raw = fs.readFileSync(pidFile, 'utf8').trim();
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
 function stopProcess(pid, waitMs = 3000) {
   if (!pid || !isProcessAlive(pid)) return;
+  if (process.platform === 'win32') {
+    try {
+      spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    } catch {}
+    return;
+  }
   try {
     process.kill(pid, 'SIGTERM');
   } catch {
@@ -115,8 +124,37 @@ function getProcessStartTime(pid) {
   return null;
 }
 
-function isBackendProcess(pid, pidInfo = null) {
+export function isBackendProcess(pid, pidInfo = null) {
   if (!pid || !isProcessAlive(pid)) return false;
+
+  if (process.platform === 'win32') {
+    // 1. Check process command line on Windows via PowerShell
+    try {
+      const psRes = spawnSync('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `(Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}").CommandLine`
+      ], { encoding: 'utf8', timeout: 3000 });
+      if (psRes.status === 0 && psRes.stdout) {
+        const line = psRes.stdout.trim();
+        return line.includes('backend.mjs');
+      }
+    } catch {}
+
+    // 2. If port is known, verify that the process is actually listening and responding as our backend
+    if (pidInfo && pidInfo.port) {
+      try {
+        const res = spawnSync(process.execPath, [
+          '-e',
+          `fetch("http://127.0.0.1:${pidInfo.port}/", { signal: AbortSignal.timeout(1000) }).then(r=>r.json()).then(j=>{ if (j.status==='ok') process.exit(0); else process.exit(1); }).catch(()=>process.exit(1))`
+        ], { timeout: 2000 });
+        if (res.status === 0) return true;
+      } catch {}
+    }
+    return false;
+  }
+
   const backendScript = path.join(packageRoot, 'backend.mjs');
   const cmdline = getProcessCmdline(pid);
   if (!cmdline || (!cmdline.includes(backendScript) && !cmdline.includes('backend.mjs'))) {
@@ -293,12 +331,50 @@ export function printHelp() {
 `);
 }
 
+export function detectInstallChannel() {
+  const marker = path.join(packageRoot, '.install-channel');
+  if (fs.existsSync(marker)) {
+    try {
+      const ch = fs.readFileSync(marker, 'utf8').trim().toLowerCase();
+      if (['rpm', 'aur', 'deb', 'homebrew', 'scoop', 'npm'].includes(ch)) return ch;
+    } catch {}
+  }
+
+  const rootNormalized = packageRoot.replace(/\\/g, '/');
+  if (rootNormalized.includes('scoop/apps/ny-cli')) return 'scoop';
+  if (rootNormalized.includes('/Cellar/ny-cli') || rootNormalized.includes('/opt/homebrew') || rootNormalized.includes('/usr/local/Cellar')) {
+    return 'homebrew';
+  }
+
+  if (process.platform === 'linux') {
+    try {
+      if (fs.existsSync('/etc/arch-release')) {
+        const pac = spawnSync('pacman', ['-Qo', packageRoot], { stdio: 'pipe' });
+        if (pac.status === 0) return 'aur';
+      }
+    } catch {}
+
+    try {
+      const rpm = spawnSync('rpm', ['-qf', packageRoot], { stdio: 'pipe' });
+      if (rpm.status === 0) return 'rpm';
+    } catch {}
+
+    try {
+      const dpkg = spawnSync('dpkg', ['-S', packageRoot], { stdio: 'pipe' });
+      if (dpkg.status === 0) return 'deb';
+    } catch {}
+  }
+
+  return 'npm';
+}
+
 export async function handleUpdateCommand(argv = []) {
   const force = argv.includes('--force') || argv.includes('-f');
   const checkOnly = argv.includes('--check') || argv.includes('-c');
+  const channel = detectInstallChannel();
 
   console.log(`\x1b[1;36mny-cli updater\x1b[0m`);
-  console.log(`Current version: \x1b[1mv${pkgVersion}\x1b[0m`);
+  console.log(`Current version: \x1b[1mv${pkgVersion}\x1b[0m (channel: ${channel})`);
   process.stdout.write(`Checking npm registry for updates...`);
 
   let latestVersion = null;
@@ -364,6 +440,33 @@ export async function handleUpdateCommand(argv = []) {
     if (hasNewerVersion) {
       console.log(`\n\x1b[1;33mUpdate available: v${pkgVersion} -> v${latestVersion}\x1b[0m`);
       console.log(`Run \x1b[1mny-cli update\x1b[0m or \x1b[1mny-cli -U\x1b[0m to install.`);
+    }
+    return;
+  }
+
+  if (channel !== 'npm') {
+    console.log(`\n\x1b[1;33mNotice: ny-cli was installed via package manager (${channel.toUpperCase()}).\x1b[0m`);
+    console.log(`To prevent conflicts with your package manager, direct npm update is disabled.`);
+    console.log(`Please use your system package manager to update:\n`);
+    switch (channel) {
+      case 'rpm':
+        console.log(`  sudo dnf upgrade ny-cli`);
+        break;
+      case 'aur':
+        console.log(`  yay -S ny-cli  (or: paru -S ny-cli)`);
+        break;
+      case 'deb':
+        console.log(`  sudo apt update && sudo apt install --only-upgrade ny-cli`);
+        break;
+      case 'homebrew':
+        console.log(`  brew upgrade ny-cli`);
+        break;
+      case 'scoop':
+        console.log(`  scoop update ny-cli`);
+        break;
+      default:
+        console.log(`  Please update using the package manager you originally used.`);
+        break;
     }
     return;
   }
@@ -469,6 +572,7 @@ export async function main(argv = process.argv.slice(2)) {
     process.exit(0);
   }
 
+  checkDirectoryPermissions();
   ensureDirs();
   ensureSecureFiles();
   rotateLogFileIfNeeded();
@@ -485,13 +589,13 @@ export async function main(argv = process.argv.slice(2)) {
       // Version mismatch or unresponsive -> politely stop and replace
       console.log(`[ny-cli] existing backend version '${health?.version || 'unknown'}' differs from package '${pkgVersion}', replacing...`);
       stopProcess(pidInfo.pid);
-      try { fs.unlinkSync(pidFile); } catch {}
+      clearPidFile();
       chosenPort = await findFreePort(43201);
       backendStartedByUs = startBackendProcess(chosenPort);
     }
   } else {
     // No backend running or stale PID file pointing to an unrelated process
-    try { fs.unlinkSync(pidFile); } catch {}
+    clearPidFile();
     chosenPort = await findFreePort(43201);
     backendStartedByUs = startBackendProcess(chosenPort);
   }
@@ -508,15 +612,16 @@ export async function main(argv = process.argv.slice(2)) {
     } else {
       console.error(`[ny-cli] Backend failed to start on port ${chosenPort} within 15s`);
     }
-    if (fs.existsSync(logFile)) {
-      const logContent = fs.readFileSync(logFile, 'utf8').trim().split('\n');
+    const targetLog = resolveLogFile();
+    if (fs.existsSync(targetLog)) {
+      const logContent = fs.readFileSync(targetLog, 'utf8').trim().split('\n');
       console.error('\n--- Last 20 lines of backend.log ---');
       console.error(logContent.slice(-20).join('\n'));
       console.error('------------------------------------\n');
     }
     if (backendStartedByUs) {
       stopProcess(backendStartedByUs.pid);
-      try { fs.unlinkSync(pidFile); } catch {}
+      clearPidFile();
     }
     unregisterSession();
     process.exit(1);
@@ -545,7 +650,7 @@ export async function main(argv = process.argv.slice(2)) {
     const pidToStop = backendStartedByUs ? backendStartedByUs.pid : info?.pid;
     if (pidToStop && isBackendProcess(pidToStop, info)) {
       stopProcess(pidToStop, 2000);
-      try { fs.unlinkSync(pidFile); } catch {}
+      clearPidFile();
     }
   }
 
@@ -575,10 +680,38 @@ export async function main(argv = process.argv.slice(2)) {
   });
 }
 
+function checkDirectoryPermissions() {
+  const dirs = [
+    { name: 'Configuration', path: configDir },
+    { name: 'State', path: stateDir },
+  ];
+  for (const d of dirs) {
+    if (fs.existsSync(d.path)) {
+      try {
+        fs.accessSync(d.path, fs.constants.R_OK | fs.constants.W_OK);
+      } catch (err) {
+        console.error(`\x1b[1;33m[ny-cli] WARNING: ${d.name} directory '${d.path}' is not writable (${err.message}).\x1b[0m`);
+        if (process.platform === 'win32') {
+          console.error(`\x1b[1;36m[ny-cli] Please verify directory write permissions for your current user account.\x1b[0m\n`);
+        } else {
+          console.error(`\x1b[1;33m[ny-cli] This typically occurs if ny-cli was previously installed or run with 'sudo'.\x1b[0m`);
+          console.error(`\x1b[1;36m[ny-cli] Fix by running: sudo chown -R $USER:$USER "${d.path}"\x1b[0m\n`);
+        }
+      }
+    }
+  }
+}
+
 function startBackendProcess(port) {
   rotateLogFileIfNeeded();
   const backendPath = path.join(packageRoot, 'backend.mjs');
-  const logFd = fs.openSync(logFile, 'a', 0o600);
+  const targetLog = resolveLogFile();
+  let logFd;
+  try {
+    logFd = fs.openSync(targetLog, 'a', 0o600);
+  } catch (err) {
+    logFd = 'ignore';
+  }
 
   const child = spawn(process.execPath, [backendPath], {
     env: {
@@ -588,7 +721,9 @@ function startBackendProcess(port) {
     stdio: ['ignore', logFd, logFd],
     detached: true,
   });
-  try { fs.closeSync(logFd); } catch {}
+  if (typeof logFd === 'number') {
+    try { fs.closeSync(logFd); } catch {}
+  }
   child.unref();
 
   const pidData = {
@@ -599,9 +734,7 @@ function startBackendProcess(port) {
     startTime: getProcessStartTime(child.pid),
   };
 
-  fs.writeFileSync(pidFile, JSON.stringify(pidData, null, 2), { encoding: 'utf8', mode: 0o600 });
-  try { fs.chmodSync(pidFile, 0o600); } catch {}
-  try { fs.chmodSync(logFile, 0o600); } catch {}
+  writePidInfo(pidData);
   return child;
 }
 
